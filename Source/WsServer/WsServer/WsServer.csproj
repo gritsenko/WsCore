@@ -1,0 +1,81 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>netcoreapp2.1</TargetFramework>
+    <UserSecretsId>aspnet-WsServer-2670D944-BCB8-41AB-B27E-24D82E676C94</UserSecretsId>
+    <TypeScriptToolsVersion>3.0</TypeScriptToolsVersion>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|AnyCPU'">
+    <AllowUnsafeBlocks>True</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Remove="wwwroot\Scripts\AnimationDef.ts" />
+    <Content Remove="wwwroot\Scripts\App.ts" />
+    <Content Remove="wwwroot\Scripts\Common.ts" />
+    <Content Remove="wwwroot\Scripts\MapObject.ts" />
+    <Content Remove="wwwroot\Scripts\World.ts" />
+    <Content Remove="wwwroot\Scripts\WsClient.ts" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Remove="wwwroot\Scripts\Player.ts" />
+    <None Remove="wwwroot\Scripts\ReadBuffer.ts" />
+    <None Remove="wwwroot\Scripts\WriteBuffer.ts" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Lex.Db" Version="1.2.6" />
+    <PackageReference Include="Microsoft.AspNetCore.All" Version="2.0.0-preview2-final" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="2.0.0-preview2-final" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="wwwroot\js\pixi.min.js" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\GameModel\GameModel.csproj" />
+    <ProjectReference Include="..\IoC\IoC.csproj" />
+    <ProjectReference Include="..\WsServer.Shared\WsServer.Shared.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <TypeScriptCompile Include="wwwroot\Scripts\AnimationDef.ts" />
+    <TypeScriptCompile Include="wwwroot\Scripts\App.ts" />
+    <TypeScriptCompile Include="wwwroot\Scripts\Common.ts" />
+    <TypeScriptCompile Include="wwwroot\Scripts\MapObject.ts" />
+    <TypeScriptCompile Include="wwwroot\Scripts\Player.ts" />
+    <TypeScriptCompile Include="wwwroot\Scripts\ReadBuffer.ts" />
+    <TypeScriptCompile Include="wwwroot\Scripts\World.ts" />
+    <TypeScriptCompile Include="wwwroot\Scripts\WriteBuffer.ts" />
+    <TypeScriptCompile Include="wwwroot\js\typings\pixi.js.d.ts" />
+    <TypeScriptCompile Include="wwwroot\Scripts\WsClient.ts" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="wwwroot\assets\characters\master\" />
+  </ItemGroup>
+
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <TypeScriptTarget>ES2015</TypeScriptTarget>
+    <TypeScriptJSXEmit>None</TypeScriptJSXEmit>
+    <TypeScriptModuleKind>None</TypeScriptModuleKind>
+    <TypeScriptCompileOnSaveEnabled>True</TypeScriptCompileOnSaveEnabled>
+    <TypeScriptNoImplicitAny>False</TypeScriptNoImplicitAny>
+    <TypeScriptRemoveComments>False</TypeScriptRemoveComments>
+    <TypeScriptOutFile>wwwroot/js/tsapp.js</TypeScriptOutFile>
+    <TypeScriptOutDir />
+    <TypeScriptGeneratesDeclarations>False</TypeScriptGeneratesDeclarations>
+    <TypeScriptNoEmitOnError>True</TypeScriptNoEmitOnError>
+    <TypeScriptSourceMap>True</TypeScriptSourceMap>
+    <TypeScriptMapRoot />
+    <TypeScriptSourceRoot />
+  </PropertyGroup>
+
+</Project>
