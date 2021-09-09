@@ -1,4 +1,4 @@
-# WsServer
+# WsCore
 Small game server implemented with .net core.
 It uses custom binary protocol without overhead. 
 
