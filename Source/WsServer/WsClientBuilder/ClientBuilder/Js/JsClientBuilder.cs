@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using WsServer.Abstract;
@@ -23,12 +24,16 @@ namespace WsServer.ClientBuilder.Js
         {
             var sb = new StringBuilder();
 
+            sb.AppendLine("//import buffer libs");
+            sb.AppendLine("import WriteBuffer from \"./WriteBuffer.js\";");
+            sb.AppendLine("import ReadBuffer from \"./ReadBuffer.js\";");
+
             sb.AppendLine("//MessageType enum builder");
             BuildEnumDef(sb, typeof(ServerMessageType));
             BuildEnumDef(sb, typeof(ClientMessageType));
 
 
-            sb.AppendLine("class Wsc {");
+            sb.AppendLine("export default class Wsc extends EventTarget {");
 
             WriteConstructor(sb);
 
@@ -59,8 +64,9 @@ namespace WsServer.ClientBuilder.Js
                       "\r\n    }" +
                       "\r\n" +
                       "\r\n    connect(overrideUrl) {" +
-                      "\r\n        this.ws = createSocket();" +
                       "\r\n        this.overrideUrl = overrideUrl;" +
+                      "\r\n        this.ws = this.createSocket();" +
+                      "\r\n        this.ws.onmessage = e => this.processServerMessage(new ReadBuffer().setInput(e.data));" +
                       "\r\n    }" +
                       "\r\n    createSocket() {" +
                       "\r\n        const scheme = document.location.protocol == \"https:\" ? \"wss\" : \"ws\";" +
@@ -122,7 +128,7 @@ namespace WsServer.ClientBuilder.Js
 
             foreach (var info in infos)
             {
-                sb.AppendLine($"obj.{info.Name} = {GetFieldReader(info.FieldType)}");
+                sb.AppendLine($"obj.{info.Name} = {GetFieldReader(info.FieldType, GetFieldLenght(info))}");
             }
 
             sb.AppendLine("return obj;");
@@ -175,18 +181,24 @@ namespace WsServer.ClientBuilder.Js
 
             foreach (var info in infos)
             {
-                sb.AppendLine($"{varId}.{info.Name} = {GetFieldReader(info.FieldType)}");
+                sb.AppendLine($"{varId}.{info.Name} = {GetFieldReader(info.FieldType, GetFieldLenght(info))}");
             }
 
-            sb.AppendLine("on"+msgType+"("+varId+");");
+            sb.AppendLine("this.on"+msgType+"("+varId+");");
             sb.AppendLine("break;");
         }
 
-        private string GetFieldReader(Type fieldType, string bufferVarName = "buff")
+        private string GetFieldReader(Type fieldType, int lenght = 0, string bufferVarName = "buff")
         {
             var typeName = GetFieldTypeName(fieldType);
 
             var readerFunc = $"{bufferVarName}.pop{typeName}();";
+
+            if (typeName == "String")
+            {
+                if (lenght != 0)
+                    readerFunc = $"{bufferVarName}.popStringFixedLength({lenght});";
+            }
 
             if (typeName == "Data")
             {
@@ -197,12 +209,28 @@ namespace WsServer.ClientBuilder.Js
             {
                 var itemType = fieldType.GetElementType();
 
-                var memberReader = GetFieldReader(itemType, "b");
+                var memberReader = GetFieldReader(itemType, 0, "b");
 
                 readerFunc = "this.readArray(buff, b => { return " + memberReader + "});";
             }
 
             return readerFunc;
+        }
+
+        public int GetFieldLenght(FieldInfo info)
+        {
+            try
+            {
+                var marshalAsAttribute = info.GetCustomAttribute<MarshalAsAttribute>();
+                if (marshalAsAttribute != null)
+                    return marshalAsAttribute.SizeConst;
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine(e);
+            }
+
+            return 0;
         }
 
         private void BuildMessageSenders(StringBuilder sb)
@@ -235,7 +263,7 @@ namespace WsServer.ClientBuilder.Js
                 BuildFieldSender(info, sb);
             }
 
-            sb.AppendLine(".send();");
+            sb.AppendLine(".send(this.ws);");
             sb.AppendLine("}");
 
         }
@@ -252,7 +280,13 @@ namespace WsServer.ClientBuilder.Js
 
             var typeSuffix = GetFieldTypeName(fieldType);
 
-            return $".push{typeSuffix}({name.FormatIdtoJs()})";
+            var lenghtParam = "";
+            if (fieldType == typeof(string))
+            {
+                lenghtParam = ", " + GetFieldLenght(info);
+            }
+
+            return $".push{typeSuffix}({name.FormatIdtoJs()}{lenghtParam})";
         }
 
         private string GetFieldTypeName(Type fieldType)
@@ -267,11 +301,11 @@ namespace WsServer.ClientBuilder.Js
             else if (fieldType == typeof(Int64))
                 typeSuffix = "Int64";
             else if (fieldType == typeof(byte))
-                typeSuffix = "Uint8";
+                typeSuffix = "UInt8";
             else if (fieldType == typeof(UInt16))
-                typeSuffix = "Uint16";
+                typeSuffix = "UInt16";
             else if (fieldType == typeof(UInt32))
-                typeSuffix = "Uint32";
+                typeSuffix = "UInt32";
             else if (fieldType == typeof(float))
                 typeSuffix = "Float";
             else if (fieldType == typeof(string))

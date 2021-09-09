@@ -1,4 +1,5 @@
-﻿using GameModel.Common.Math;
+﻿using System.Linq;
+using GameModel.Common.Math;
 using WsServer.ClientMessages;
 using WsServer.Common;
 using WsServer.ServerMessages;
@@ -44,7 +45,7 @@ namespace WsServer.ClientMessageHandlers
             player.BodyIndex = msg.Body;
             player.WeaponIndex = msg.Gun;
             player.ArmorIndex = msg.Armor;
-
+            //GameState.SpawnBullet(player.Movement.Pos, player.Movement.AimPos);
             Messenger.Broadcast(new UpdatePlayerSlotsServerMessage(player));
         }
 
@@ -70,6 +71,22 @@ namespace WsServer.ClientMessageHandlers
             var respawnPlayer = GameState.RespawnPlayer(msg.PlayerId);
 
             Messenger.Broadcast(new PlayerRespawnServerMessage(respawnPlayer));
+        }
+
+        public void OnSetMapObject(uint clientId, SetMapObjectClientMessage msg)
+        {
+            var player = GameState.GetPlayer(clientId);
+            GameState.World.SetMapObject(msg.MapX, msg.MapY, msg.ObjectType);
+            Messenger.Broadcast(
+                new MapObjectsServerMessage(GameState.World.GetTileBlockObjects(0, 0).ToArray()));
+        }
+
+        public void OnDestroyMapObject(uint clientId, DestroyMapObjectClientMessage msg)
+        {
+            var player = GameState.GetPlayer(clientId);
+            GameState.World.DestroyObjects(msg.MapX, msg.MapY);
+            Messenger.Broadcast(
+                new MapObjectsServerMessage(GameState.World.GetTileBlockObjects(0, 0).ToArray()));
         }
 
     }

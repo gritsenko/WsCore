@@ -116,8 +116,8 @@ namespace WsServer
 
             var socket = await hc.WebSockets.AcceptWebSocketAsync();
 
-            var server = IoC.Get<IGameServer>();
-            var messenger = IoC.Get<IGameMessenger>();
+            var server = WsServerBootstrap.GameServer;
+            var messenger = WsServerBootstrap.GameMessenger;
 
             var h = new SocketHandler(socket, server, messenger);
             await h.EchoLoop();

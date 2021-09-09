@@ -1,7 +1,7 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 15
-VisualStudioVersion = 15.0.26730.3
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.31613.86
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "WsServer", "WsServer\WsServer.csproj", "{A119A38E-D8E7-424E-86D2-FA32116F62F8}"
 EndProject
@@ -10,8 +10,6 @@ EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "WsClientBuilder", "WsClientBuilder\WsClientBuilder.csproj", "{779DCFE8-93DF-474C-930F-57AC2B696CDF}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "WsServer.Shared", "WsServer.Shared\WsServer.Shared.csproj", "{7702580E-E38A-456A-A7FB-16198FE3D5BA}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "IoC", "IoC\IoC.csproj", "{2866A61D-2924-4239-99AB-C8913C65AD0F}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -35,10 +33,6 @@ Global
 		{7702580E-E38A-456A-A7FB-16198FE3D5BA}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{7702580E-E38A-456A-A7FB-16198FE3D5BA}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{7702580E-E38A-456A-A7FB-16198FE3D5BA}.Release|Any CPU.Build.0 = Release|Any CPU
-		{2866A61D-2924-4239-99AB-C8913C65AD0F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{2866A61D-2924-4239-99AB-C8913C65AD0F}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{2866A61D-2924-4239-99AB-C8913C65AD0F}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{2866A61D-2924-4239-99AB-C8913C65AD0F}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 using GameModel.Abstract;
 using GameModel.Common;
 
@@ -51,6 +52,32 @@ namespace GameModel
         private (int, int) GetAdjustedCoords(int x, int y)
         {
             return (x - x % BlockSize, y - y % BlockSize);
+        }
+
+        public void SetMapObject(int mapX, int mapY, int objectType)
+        {
+            var gameObject = new GameObject
+            {
+                Id = _storage.GetLastObjectId() + 1, 
+                ObjectType = WorldStorage.ObjectTypes[objectType], 
+                X = mapX,
+                Y = mapY
+            };
+
+            _storage.GetTileBlock(0, 0, out var block);
+
+            _storage.AddObject(block, gameObject);
+        }
+
+        public void DestroyObjects(int mapX, int mapY)
+        {
+            _storage.GetTileBlock(0, 0, out var block);
+
+            _storage.GetTileBlockObjects(0, 0, out var objs);
+
+            var toRemove = objs.Where(o => o.X == mapX && o.Y == mapY).ToArray();
+
+            _storage.RemoveObjects(block, toRemove);
         }
     }
 
@@ -117,7 +144,7 @@ namespace GameModel
 
         public long Id
         {
-            get { return (((long)X) << 32) + Y; }
+            get => (((long)X) << 32) + Y;
             set
             {
                 Y = (int)value;

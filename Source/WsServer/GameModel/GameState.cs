@@ -26,7 +26,7 @@ namespace GameModel
 
         private void InitTestState()
         {
-            for (int i = 0; i < 100; i++)
+            for (int i = 0; i < 10; i++)
             {
                 var p = CreateNewPlayer(true);
                 players[p.Id] = p;
@@ -39,12 +39,15 @@ namespace GameModel
             var p = isBot ? new SimpleBot() : new Player();
 
             p.Id = GetNewId();
-            p.Movment = new PlayerMovmentState()
+            p.Movement = new PlayerMovementState()
             {
                 Pos = new Vector2D((float)(r.NextDouble() * 800), (float)(r.NextDouble() * 600)),
                 BodyAngle = (int) (r.NextDouble() * 360),
+                AimPos = new Vector2D((float)(r.NextDouble() * 800), (float)(r.NextDouble() * 600)),
                 ControlsState = 0
             };
+
+            p.TargetPos = p.Movement.Pos;
             p.Hp = 100;
             p.Maxhp = 100;
         
@@ -205,11 +208,16 @@ namespace GameModel
             var p = GetPlayer(id);
             if (p != null)
             {
-                p.Movment.ControlsState = contols;
-                p.Movment.AimPos = aim;
+                p.Movement.ControlsState = contols;
+                p.Movement.AimPos = aim;
                 p.UpdateActivity();
             }
             return p;
+        }
+
+        public void SpawnBullet(Vector2D pos, Vector2D aimPos)
+        {
+        
         }
     }
 }

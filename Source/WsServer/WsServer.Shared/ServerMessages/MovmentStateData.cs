@@ -23,7 +23,7 @@ namespace WsServer.ServerMessages
         public MovmentStateData(Player player)
         {
             PlayerId = player.Id;
-            var ms = player.Movment;
+            var ms = player.Movement;
             X = ms.Pos.X;
             Y = ms.Pos.Y;
             AimX = ms.AimPos.X;

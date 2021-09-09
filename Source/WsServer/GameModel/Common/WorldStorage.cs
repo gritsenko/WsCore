@@ -1,16 +1,11 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 using GameModel.Abstract;
-using Lex.Db;
-using Lex.Db.Serialization;
 
 namespace GameModel.Common
 {
     internal class WorldStorage : IWorldStorage
     {
-        private DbInstance _blocksDb = new DbInstance("data/tiles");
-        private DbInstance _objectsDb = new DbInstance("data/objects");
-
         public static Dictionary<long, ObjectType> ObjectTypes = new Dictionary<long, ObjectType>()
         {
             { 0, new ObjectType { Id = 0, ObjectClass = ObjectClass.Tree }},
@@ -25,30 +20,11 @@ namespace GameModel.Common
             _blocks = new Dictionary<long, TileBlock>();
             _objects = new Dictionary<long, List<GameObject>>();
 
-            _blocksDb.Map<TileBlock>().Automap(x => x.Id);
-            _objectsDb.Map<GameObject>().Automap(x => x.Id);
-
-            Extender.RegisterType<ObjectType, TypeSerializers>(1000);
-
-            _blocksDb.Initialize();
-            _objectsDb.Initialize();
-
             Load();
         }
 
         private void Load()
         {
-            var blocks = _blocksDb.LoadAll<TileBlock>();
-            foreach (var block in blocks)
-            {
-                _blocks[block.Id] = block;
-            }
-
-            var objects = _objectsDb.LoadAll<GameObject>();
-            foreach (var obj in objects)
-            {
-                StoreObject(obj);
-            }
         }
 
         public void StoreObject(GameObject obj)
@@ -106,27 +82,25 @@ namespace GameModel.Common
             var index = block.Id;
             _blocks[index] = block;
             _objects[index] = objects.ToList();
+        }
 
-            _blocksDb.Save(block);
-            _objectsDb.Save(objects);
+        public void AddObject(TileBlock block, GameObject obj)
+        {
+            var index = block.Id;
+            _objects[index].Add(obj);
+        }
+        public void RemoveObjects(TileBlock block, IEnumerable<GameObject> objs)
+        {
+            var index = block.Id;
+            foreach (var gameObject in objs)
+            {
+                _objects[index].Remove(gameObject);
+            }
         }
 
         private long GetBlockId(int x, int y)
         {
             return (((long)x) << 32) + y;
-        }
-    }
-
-    public class TypeSerializers
-    {
-        public static ObjectType ReadObjectType(DataReader reader)
-        {
-            return WorldStorage.ObjectTypes[reader.ReadInt64()];
-        }
-
-        public static void WriteObjectType(DataWriter writer, ObjectType objType)
-        {
-            writer.Write(objType.Id);
         }
     }
 }

@@ -8,5 +8,9 @@ namespace GameModel.Abstract
         bool GetTileBlock(int xAdj, int yAdj, out TileBlock block);
         bool GetTileBlockObjects(int xAdj, int yAdj, out IEnumerable<GameObject> objects);
         void Save(TileBlock block, IEnumerable<GameObject> objects);
+
+        void AddObject(TileBlock block, GameObject obj);
+        void RemoveObjects(TileBlock block, IEnumerable<GameObject> objs);
+
     }
 }

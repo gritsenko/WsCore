@@ -7,6 +7,9 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Console;
+using Microsoft.Extensions.Logging.Debug;
+using WsServer.Abstract;
 
 namespace WsServer
 {
@@ -16,6 +19,17 @@ namespace WsServer
         // For more information on how to configure your application, visit https://go.microsoft.com/fwlink/?LinkID=398940
         public void ConfigureServices(IServiceCollection services)
         {
+            services.AddLogging(builder =>
+            {
+                builder.AddConsole()
+                    .AddDebug()
+                    .AddFilter<ConsoleLoggerProvider>(category: null, level: LogLevel.Debug)
+                    .AddFilter<DebugLoggerProvider>(category: null, level: LogLevel.Debug);
+            });
+
+
+            //init game server
+            WsServerBootstrap.Initialize();
         }
 
         // This method gets called by the runtime. Use this method to configure the HTTP request pipeline.
@@ -25,7 +39,7 @@ namespace WsServer
             //{
             //    app.UseDeveloperExceptionPage();
             //}
-            loggerFactory.AddConsole();
+            //loggerFactory.AddConsole();
 
             if (env.IsDevelopment())
             {

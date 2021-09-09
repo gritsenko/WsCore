@@ -9,9 +9,6 @@ namespace WsServer
     {
         public static void Main(string[] args)
         {
-            //init game server
-            WsServerBootstrap.Initialize();
-
             //init asp.net core (typescript client)
             BuildWebHost(args).Run();
         }

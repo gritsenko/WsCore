@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using WsServer.ClientBuilder.Js;
 using WsServer.ClientBuilder.Ts;
 
 namespace WsClientBuilder
@@ -9,13 +10,13 @@ namespace WsClientBuilder
         static void Main(string[] args)
         {
             Console.WriteLine("Building clients...");
-
-            var serverDir = @"C:\Projects\Html5Games\WsServer\WsServer";
+            
+            var serverDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "TsClient");
 
             var path = Path.Combine(serverDir ?? Directory.GetCurrentDirectory(), "wwwroot", "Scripts");
             if (!Directory.Exists(path))
                 Directory.CreateDirectory(path);
-
+            //var clientBuilder = new JsClientBuilder(path);
             var clientBuilder = new TypeScriptClientBuilder(path);
             var res = clientBuilder.Build();
         }

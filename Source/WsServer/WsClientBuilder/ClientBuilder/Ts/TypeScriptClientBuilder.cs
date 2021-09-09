@@ -23,7 +23,8 @@ namespace WsServer.ClientBuilder.Ts
         {
             var sb = new StringBuilder();
 
-            sb.AppendLine("/// <reference path=\"ReadBuffer.ts\" />\r\n/// <reference path=\"WriteBuffer.ts\" />");
+            sb.AppendLine("import WriteBuffer from \"./WriteBuffer.js\"");
+            sb.AppendLine("import ReadBuffer from \"./ReadBuffer.js\"");
 
             sb.AppendLine("//MessageType enum builder");
             BuildEnumDef(sb, typeof(ServerMessageType));
@@ -35,7 +36,7 @@ namespace WsServer.ClientBuilder.Ts
             BuildTypeDefs<IClientMessage>(sb);
 
 
-            sb.AppendLine("class Wsc {");
+            sb.AppendLine("export default class Wsc {");
 
             WriteConstructor(sb);
 
@@ -76,7 +77,7 @@ namespace WsServer.ClientBuilder.Ts
         {
             var infos = typeInfo.GetFields(BindingFlags.Public | BindingFlags.Instance);
 
-            sb.AppendLine("class " + typeInfo.Name + "{");
+            sb.AppendLine("export class " + typeInfo.Name + "{");
 
             foreach (var info in infos)
             {

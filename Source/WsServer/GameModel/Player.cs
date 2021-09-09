@@ -18,7 +18,7 @@ namespace GameModel
 
         public uint Id { get; set; }
 
-        public PlayerMovmentState Movment { get; set; } = new PlayerMovmentState();
+        public PlayerMovementState Movement { get; set; } = new PlayerMovementState();
 
         public byte Hp { get; set; }
         public byte Maxhp { get; set; }
@@ -37,7 +37,7 @@ namespace GameModel
 
         public void UpdateFrom(Player p)
         {
-            Movment = p.Movment;
+            Movement = p.Movement;
 
             BodyIndex = p.BodyIndex;
             WeaponIndex = p.WeaponIndex;
@@ -67,21 +67,21 @@ namespace GameModel
 
         public void Move(Vector2D speed)
         {
-            Movment.Pos = Movment.Pos + speed;
+            Movement.Pos = Movement.Pos + speed;
         }
         public void Move(float dx, float dy)
         {
-            Movment.Pos = Movment.Pos.Translate(dx,dy);
+            Movement.Pos = Movement.Pos.Translate(dx,dy);
         }
 
-        public void MoveTarget(float dx, float dy)
+        public virtual void MoveTarget(float dx, float dy)
         {
             TargetPos = TargetPos.Translate(dx, dy);
         }
 
         public void SetPos(float x, float y)
         {
-            Movment.Pos = new Vector2D(x, y);
+            Movement.Pos = new Vector2D(x, y);
         }
 
         public void UpdateActivity()
@@ -94,14 +94,20 @@ namespace GameModel
             CheckControls(dt);
             //Move((float)(_rnd.NextDouble() * 10 - 5), (float)(_rnd.NextDouble() * 10 - 5));
             if (!IsTargetReached())
+            {
                 MoveToTarget(dt);
-            else 
-                Movment.Velocity = Vector2D.Zero;
+                AnimationState = 1;
+            }
+            else
+            {
+                AnimationState = 0;
+                Movement.Velocity = Vector2D.Zero;
+            }
         }
 
         private void CheckControls(float dt)
         {
-            var contols = this.Movment.ControlsState;
+            var contols = this.Movement.ControlsState;
 
             var isUpPressed = (contols & 0b0000_0001) > 0;
             var isDownPressed = (contols & 0b0000_0010) > 0;
@@ -126,21 +132,21 @@ namespace GameModel
 
         public void MoveToTarget(float dt)
         {
-            var dir = (TargetPos - Movment.Pos);
+            var dir = (TargetPos - Movement.Pos);
             var ds = Speed * 1.3f;
-            Movment.Velocity = dir.Normalize() * ds;
+            Movement.Velocity = dir.Normalize() * ds;
 
-            if (dir.Length > (Movment.Velocity * dt).Length)
+            if (dir.Length > (Movement.Velocity * dt).Length)
             {
-                Move(Movment.Velocity * dt);
+                Move(Movement.Velocity * dt);
             }
             else
             {
-                Movment.Pos = TargetPos;
+                Movement.Pos = TargetPos;
             }
         }
 
-        public bool IsTargetReached() =>  (TargetPos - Movment.Pos).Length < 3;
+        public bool IsTargetReached() =>  (TargetPos - Movement.Pos).Length < 3;
 
 
         public void SetTarget(float x, float y)

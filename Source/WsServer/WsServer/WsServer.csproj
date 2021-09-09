@@ -1,9 +1,9 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>netcoreapp2.1</TargetFramework>
+    <TargetFramework>net5.0</TargetFramework>
     <UserSecretsId>aspnet-WsServer-2670D944-BCB8-41AB-B27E-24D82E676C94</UserSecretsId>
-    <TypeScriptToolsVersion>3.0</TypeScriptToolsVersion>
+    <TypeScriptToolsVersion>4.3</TypeScriptToolsVersion>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
@@ -15,51 +15,53 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Content Remove="wwwroot\Scripts\AnimationDef.ts" />
-    <Content Remove="wwwroot\Scripts\App.ts" />
-    <Content Remove="wwwroot\Scripts\Common.ts" />
-    <Content Remove="wwwroot\Scripts\MapObject.ts" />
-    <Content Remove="wwwroot\Scripts\World.ts" />
-    <Content Remove="wwwroot\Scripts\WsClient.ts" />
+    <Content Remove="Scripts\AnimationDef.ts" />
+    <Content Remove="Scripts\App.ts" />
+    <Content Remove="Scripts\Common.ts" />
+    <Content Remove="Scripts\MapObject.ts" />
+    <Content Remove="Scripts\World.ts" />
+    <Content Remove="Scripts\WsClient.ts" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Remove="wwwroot\Scripts\Player.ts" />
-    <None Remove="wwwroot\Scripts\ReadBuffer.ts" />
-    <None Remove="wwwroot\Scripts\WriteBuffer.ts" />
+    <None Remove="Scripts\Player.ts" />
+    <None Remove="Scripts\ReadBuffer.ts" />
+    <None Remove="Scripts\WriteBuffer.ts" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Lex.Db" Version="1.2.6" />
-    <PackageReference Include="Microsoft.AspNetCore.All" Version="2.0.0-preview2-final" />
+    <Content Include="Scripts\Player.ts" />
+    <Content Include="Scripts\typings\matter.d.ts" />
+    <Content Include="Scripts\typings\phaser.d.ts" />
+  </ItemGroup>
+
+  <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="2.0.0-preview2-final" />
   </ItemGroup>
 
   <ItemGroup>
-    <None Include="wwwroot\js\pixi.min.js" />
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\GameModel\GameModel.csproj" />
-    <ProjectReference Include="..\IoC\IoC.csproj" />
     <ProjectReference Include="..\WsServer.Shared\WsServer.Shared.csproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <TypeScriptCompile Include="wwwroot\Scripts\AnimationDef.ts" />
-    <TypeScriptCompile Include="wwwroot\Scripts\App.ts" />
-    <TypeScriptCompile Include="wwwroot\Scripts\Common.ts" />
-    <TypeScriptCompile Include="wwwroot\Scripts\MapObject.ts" />
-    <TypeScriptCompile Include="wwwroot\Scripts\Player.ts" />
-    <TypeScriptCompile Include="wwwroot\Scripts\ReadBuffer.ts" />
-    <TypeScriptCompile Include="wwwroot\Scripts\World.ts" />
-    <TypeScriptCompile Include="wwwroot\Scripts\WriteBuffer.ts" />
-    <TypeScriptCompile Include="wwwroot\js\typings\pixi.js.d.ts" />
-    <TypeScriptCompile Include="wwwroot\Scripts\WsClient.ts" />
+    <TypeScriptCompile Include="Scripts\AnimationDef.ts" />
+    <TypeScriptCompile Include="Scripts\App.ts" />
+    <TypeScriptCompile Include="Scripts\Common.ts" />
+    <TypeScriptCompile Include="Scripts\MapObject.ts" />
+    <TypeScriptCompile Include="Scripts\Player.ts" />
+    <TypeScriptCompile Include="Scripts\World.ts" />
   </ItemGroup>
 
   <ItemGroup>
     <Folder Include="wwwroot\assets\characters\master\" />
+    <Folder Include="wwwroot\js\client2\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Update="tsconfig.json">
+      <CopyToOutputDirectory>Never</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">

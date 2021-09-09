@@ -14,5 +14,7 @@ namespace WsServer.Common
 
         GetTiles = 50,
         GetMapObjects = 51,
+        SetMapObject = 52,
+        DestroyMapObject = 53
     }
 }
