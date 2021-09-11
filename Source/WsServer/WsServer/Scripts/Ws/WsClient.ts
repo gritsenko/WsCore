@@ -32,7 +32,7 @@ export default class WsClient extends Wsc {
         this.writeToChat(msg.ClientId, msg.Message);
     }
 
-    onPlayerJoined(msg) {
+    onPlayerJoined(msg: WsConnection.PlayerJoinedServerMessage) {
         this.updatePlayer(msg.PlayerStateData);
     }
 
@@ -47,11 +47,11 @@ export default class WsClient extends Wsc {
         }
     }
 
-    onPlayersMovment(msg) {
-        const playersCount = msg.MovmentStates.length;
+    onGameTickState(msg: WsConnection.GameTickStateServerMessage) {
+        const playersCount = msg.MovementStates.length;
 
         for (let i = 0; i < playersCount; i++) {
-            const state = msg.MovmentStates[i];
+            const state = msg.MovementStates[i];
 
             const playerId = state.PlayerId;
             const p = this.players[playerId];
@@ -114,15 +114,15 @@ export default class WsClient extends Wsc {
         }
     }
 
-    setPlayerData(p, pd) {
+    setPlayerData(p, pd: WsConnection.PlayerStateData) {
         p.name = pd.Name.trim();
-        p.hp = pd.HP;
+        p.hp = pd.Hp;
         p.maxHp = pd.MaxHp;
         p.body = pd.BodyIndex;
         p.weapon = pd.WeaponIndex;
         p.armor = pd.ArmorIndex;
 
-        const ms = pd.MovmentState;
+        const ms = pd.MovementState;
         p.x = ms.X;
         p.y = ms.Y;
         p.ax = ms.AimX;

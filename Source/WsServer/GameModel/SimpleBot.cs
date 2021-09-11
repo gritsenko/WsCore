@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Threading.Tasks;
 using GameModel.Common.Math;
 
 namespace GameModel
@@ -22,7 +21,6 @@ namespace GameModel
             }
 
             base.Update(dt);
-            //MoveToTarget(dt);
         }
     }
 }

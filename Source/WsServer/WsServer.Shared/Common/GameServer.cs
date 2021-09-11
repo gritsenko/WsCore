@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using GameModel;
 using WsServer.Abstract;
@@ -12,7 +14,7 @@ namespace WsServer.Common
     {
         private readonly IGameMessenger _messenger;
 
-        private readonly MyBuffer _movmentBuffer = new MyBuffer(1024 * 100);
+        private readonly MyBuffer _tickStateBuffer = new MyBuffer(1024 * 100);
 
         private DateTime _lastTickTime = DateTime.Now;
         private Timer _movmentTimer;
@@ -56,9 +58,12 @@ namespace WsServer.Common
             var time = DateTime.Now;
             var dt = time - _lastTickTime;
             _lastTickTime = time;
-            GameState.UpdatePlayers((float) dt.TotalSeconds);
+            GameState.ProcessGameState((float)dt.TotalSeconds);
 
-            _messenger.Broadcast(BuildMovmentState(GameState));
+            _messenger.Broadcast(BuildTickState(GameState));
+
+            //clean state
+            GameState.RemoveDestroyedBullets();
 
             _ticksToClean--;
 
@@ -69,24 +74,31 @@ namespace WsServer.Common
             }
         }
 
-        public MyBuffer BuildMovmentState(GameState state)
+        public MyBuffer BuildTickState(GameState state)
         {
-            var ps = state.GetPlayers();
-            var cnt = ps.Length;
+            var players = state.GetPlayers();
+            var playersCount = players.Length;
 
             //var buff = new MyBuffer();
-            _movmentBuffer.Clear();
-            _movmentBuffer.SetUint8((byte)ServerMessageType.PlayersMovment);
-            //first byte - count of players
-            _movmentBuffer.SetUint32((uint)cnt);
-            
-            //serialize each player
-            for (var i = 0; i < cnt; i++)
-            {
-                _movmentBuffer.SetData(new MovmentStateData(ps[i]));
-            }
-            return _movmentBuffer;
+            _tickStateBuffer.Clear();
 
+            //write directly to buffer to reduce allocations
+            //simulating GameTickStateServerMessage 
+
+            _tickStateBuffer.SetUint8((byte)ServerMessageType.GameTickState);
+            //first byte - count of players
+            _tickStateBuffer.SetUint32((uint)playersCount);
+            //serialize each player
+            for (var i = 0; i < playersCount; i++)
+            {
+                _tickStateBuffer.SetData(new MovementStateData(players[i]));
+            }
+
+            var bulletsToDestroy = state.GetDestroyedBullets().Select(x=>x.Id).ToArray();
+
+            _tickStateBuffer.SetData(new DestroyedBulletsStateData(bulletsToDestroy));
+
+            return _tickStateBuffer;
         }
 
         private void CleanZombieClinets(GameState state)
@@ -125,7 +137,7 @@ namespace WsServer.Common
                 {
                     handler.Handle(id, buffer, count);
                 }
-                Logger.Log("Handled by " + handler.GetType().Name);
+                //Debug.WriteLine("Handled by " + handler.GetType().Name);
             }
         }
 
@@ -143,7 +155,7 @@ namespace WsServer.Common
         {
             GameState.RemovePlayer(clientId);
 
-            var cnt = GameState.players.Count;
+            var cnt = GameState.PlayersCount;
             Logger.Log("Player left. Total count:" + cnt);
             _messenger.Broadcast(new PlayerLeftServerMessage(clientId));
         }
@@ -156,9 +168,9 @@ namespace WsServer.Common
             //notifying other players that new player joind
             _messenger.Broadcast(new PlayerJoinedServerMessage(p));
 
-            var cnt = GameState.players.Count;
+            var cnt = GameState.PlayersCount;
             Logger.Log("Player joined. Total count:" + cnt);
-            
+
             return p;
         }
     }

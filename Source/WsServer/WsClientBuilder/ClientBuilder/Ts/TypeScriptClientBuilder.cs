@@ -96,22 +96,23 @@ namespace WsServer.ClientBuilder.Ts
                       "\r\n     readBuff = new ReadBuffer();" +
                       "\r\n     ws : WebSocket;" +
                       "\r\n     overrideUrl : string;" +
+                      "\r\n     serverUrl : string;" +
                       "" +
                       "\r\n    constructor() {" +
                       "\r\n    }" +
                       "\r\n" +
-                      "\r\n    connect(overrideUrl : string = null) {" +
-                      "\r\n        this.ws = this.createSocket();" +
+                      "\r\n    connect(overrideUrl) {" +
                       "\r\n        this.overrideUrl = overrideUrl;" +
+                      "\r\n        this.ws = this.createSocket();" +
+                      "\r\n        this.ws.onmessage = e => this.processServerMessage(new ReadBuffer().setInput(e.data));" +
                       "\r\n    }" +
                       "\r\n    createSocket() {" +
                       "\r\n        const scheme = document.location.protocol == \"https:\" ? \"wss\" : \"ws\";" +
                       "\r\n        const port = document.location.port ? (\":\" + document.location.port) : \"\";" +
-                      "\r\n        const serverUrl = scheme + \"://\" + document.location.hostname + port + \"/ws\";" +
+                      "\r\n        this.serverUrl = scheme + \"://\" + document.location.hostname + port + \"/ws\";" +
                       "\r\n" +
-                      "\r\n        this.ws = new WebSocket(this.overrideUrl == undefined ? serverUrl : this.overrideUrl);" +
+                      "\r\n        this.ws = new WebSocket(this.overrideUrl == undefined ? this.serverUrl : this.overrideUrl);" +
                       "\r\n        this.ws.binaryType = \"arraybuffer\";" +
-                      "\r\n        this.ws.onmessage = e => this.processServerMessage(new ReadBuffer().setInput(e.data));" +
                       "\r\n        return this.ws;" +
                       "\r\n    }" +
                       "\r\n";
@@ -376,7 +377,11 @@ namespace WsServer.ClientBuilder.Ts
             else if (fieldType == typeof(string))
                 typeSuffix = "string";
             else if (typeof(Array).IsAssignableFrom(fieldType))
-                typeSuffix = fieldType.GetElementType().Name + "[]";
+            {
+                var elementType = fieldType.GetElementType();
+                var name = GetFieldTsType(elementType);
+                typeSuffix = name + "[]";
+            }
             else if (typeof(IMessageData).IsAssignableFrom(fieldType))
                 typeSuffix = fieldType.Name;
 

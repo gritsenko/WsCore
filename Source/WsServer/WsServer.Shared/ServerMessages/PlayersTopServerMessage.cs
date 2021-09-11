@@ -15,7 +15,7 @@ namespace WsServer.ServerMessages
 
         public PlayersTopServerMessage(GameState gameState) : this()
         {
-            PlayersTop = gameState.top ?? "";
+            PlayersTop = gameState.Top ?? "";
         }
     }
 }

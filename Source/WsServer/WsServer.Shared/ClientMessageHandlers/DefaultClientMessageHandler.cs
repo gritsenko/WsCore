@@ -30,6 +30,8 @@ namespace WsServer.ClientMessageHandlers
 
         public void OnPlayerShooting(uint clientId, PlayerShootingClientMessage msg)
         {
+            var player = GameState.GetPlayer(clientId);
+            GameState.SpawnBullet(player.Movement.Pos, player.Movement.AimPos, clientId);
             Messenger.Broadcast(new PlayerShootingServerMessage(clientId, msg.Weapon));
         }
 
@@ -60,7 +62,7 @@ namespace WsServer.ClientMessageHandlers
 
                 if (targetPlayer.Hp == 0)
                 {
-                    Logger.Log(GameState.top);
+                    Logger.Log(GameState.Top);
                     GameServer.BroadCastTop();
                 }
             }

@@ -4,7 +4,7 @@
     {
         InitPlayer = 255,
         GameState = 0,
-        PlayersMovment = 1,
+        GameTickState = 1,
         PlayerJoined = 2,
         PlayerLeft = 3,
         RespawnPlayer = 4,

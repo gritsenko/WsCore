@@ -6,9 +6,11 @@ namespace GameModel
 {
     public class Player
     {
+        public static double Radius { get; set; } = 48;
+
         public Vector2D TargetPos = Vector2D.Zero;
 
-        private static readonly Dictionary<int, int> ClassHp = new Dictionary<int, int>()
+        private static readonly Dictionary<int, int> ClassHp = new()
         {
             {0, 100}, {1, 200}, {2, 50}, {3, 80}, {4, 150}
         };
@@ -18,7 +20,7 @@ namespace GameModel
 
         public uint Id { get; set; }
 
-        public PlayerMovementState Movement { get; set; } = new PlayerMovementState();
+        public PlayerMovementState Movement { get; set; } = new();
 
         public byte Hp { get; set; }
         public byte Maxhp { get; set; }
@@ -92,7 +94,6 @@ namespace GameModel
         public virtual void Update(float dt)
         {
             CheckControls(dt);
-            //Move((float)(_rnd.NextDouble() * 10 - 5), (float)(_rnd.NextDouble() * 10 - 5));
             if (!IsTargetReached())
             {
                 MoveToTarget(dt);

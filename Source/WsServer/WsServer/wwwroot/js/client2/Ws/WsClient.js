@@ -51,10 +51,10 @@ var WsClient = /** @class */ (function (_super) {
             this.updatePlayer(msg.PlayerStateData[i]);
         }
     };
-    WsClient.prototype.onPlayersMovment = function (msg) {
-        var playersCount = msg.MovmentStates.length;
+    WsClient.prototype.onGameTickState = function (msg) {
+        var playersCount = msg.MovementStates.length;
         for (var i = 0; i < playersCount; i++) {
-            var state = msg.MovmentStates[i];
+            var state = msg.MovementStates[i];
             var playerId = state.PlayerId;
             var p = this.players[playerId];
             if (p != undefined) {
@@ -110,12 +110,12 @@ var WsClient = /** @class */ (function (_super) {
     };
     WsClient.prototype.setPlayerData = function (p, pd) {
         p.name = pd.Name.trim();
-        p.hp = pd.HP;
+        p.hp = pd.Hp;
         p.maxHp = pd.MaxHp;
         p.body = pd.BodyIndex;
         p.weapon = pd.WeaponIndex;
         p.armor = pd.ArmorIndex;
-        var ms = pd.MovmentState;
+        var ms = pd.MovementState;
         p.x = ms.X;
         p.y = ms.Y;
         p.ax = ms.AimX;

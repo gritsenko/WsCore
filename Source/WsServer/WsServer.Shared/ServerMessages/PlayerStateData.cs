@@ -17,7 +17,7 @@ namespace WsServer.ServerMessages
         public int BodyIndex;
         public int WeaponIndex;
         public int ArmorIndex;
-        public MovmentStateData MovmentState;
+        public MovementStateData MovementState;
 
         public PlayerStateData(Player p)
         {
@@ -28,7 +28,7 @@ namespace WsServer.ServerMessages
             BodyIndex = p.BodyIndex;
             WeaponIndex = p.WeaponIndex;
             ArmorIndex = p.ArmorIndex;
-            MovmentState = new MovmentStateData(p);
+            MovementState = new MovementStateData(p);
         }
     }
 }

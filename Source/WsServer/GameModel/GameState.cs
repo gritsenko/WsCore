@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using GameModel.Common.Math;
@@ -8,12 +9,17 @@ namespace GameModel
 
     public class GameState
     {
+        private uint _lastPlayerId;
+        private uint _lastBulletId;
+
+        private ConcurrentDictionary<uint, Bullet> _bullets = new();
+        private readonly ConcurrentDictionary<uint, Player> _players = new();
+        private readonly ConcurrentDictionary<string, int> _playersTop = new();
+
         public World World;
+        public int PlayersCount => _players.Count;
 
-        public Dictionary<uint, Player> players { get; set; } = new Dictionary<uint, Player>();
-        private Dictionary<string, int> players_top { get; set; } = new Dictionary<string, int>();
-
-        public string top { get; set; }
+        public string Top { get; set; }
 
         public GameState()
         {
@@ -29,7 +35,7 @@ namespace GameModel
             for (int i = 0; i < 10; i++)
             {
                 var p = CreateNewPlayer(true);
-                players[p.Id] = p;
+                _players[p.Id] = p;
             }
         }
 
@@ -38,11 +44,11 @@ namespace GameModel
             var r = new Random();
             var p = isBot ? new SimpleBot() : new Player();
 
-            p.Id = GetNewId();
+            p.Id = GetNewPlayerId();
             p.Movement = new PlayerMovementState()
             {
                 Pos = new Vector2D((float)(r.NextDouble() * 800), (float)(r.NextDouble() * 600)),
-                BodyAngle = (int) (r.NextDouble() * 360),
+                BodyAngle = (int)(r.NextDouble() * 360),
                 AimPos = new Vector2D((float)(r.NextDouble() * 800), (float)(r.NextDouble() * 600)),
                 ControlsState = 0
             };
@@ -50,7 +56,7 @@ namespace GameModel
             p.TargetPos = p.Movement.Pos;
             p.Hp = 100;
             p.Maxhp = 100;
-        
+
             p.Name = "Player " + p.Id;
 
             if (isBot)
@@ -58,55 +64,58 @@ namespace GameModel
             return p;
         }
 
-        private uint _lastId { get; set; }
+        public uint GetNewPlayerId() => ++_lastPlayerId;
 
-        public uint GetNewId()
+        public void ProcessGameState(float dt)
         {
-            _lastId++;
-            return _lastId;
-        }
-
-        public void UpdatePlayers(float dt)
-        {
-            lock (players)
+            foreach (var bot in _players)
             {
-                foreach (var bot in players.Values)
+                bot.Value.Update(dt);
+            }
+
+            foreach (var (_, bullet) in _bullets)
+            {
+                bullet.Update(dt);
+                if (CheckBulletForCollisions(bullet))
                 {
-                    bot.Update(dt);
+                    bullet.IsDestroyed = true;
                 }
             }
         }
 
+        private bool CheckBulletForCollisions(Bullet bullet)
+        {
+            if (bullet.IsDestroyed) return false;
+
+            foreach (var (id, player) in _players)
+            {
+                if (id == bullet.SpawnerId)
+                    continue;
+
+                var dist = (player.Movement.Pos - bullet.Pos).Length;
+                if (dist <= Player.Radius)
+                    return true;
+            }
+
+            return false;
+        }
+
         public void RemovePlayer(uint id)
         {
-            lock (players)
-            {
-                if (players.ContainsKey(id))
-                    players.Remove(id);
-            }
+            _players.TryRemove(id, out _);
         }
 
         public void AddPlayer(Player player)
         {
-            lock (players)
-            {
-                players[player.Id] = player;
-            }
-
-            lock (players_top)
-            {
-                if (!players_top.ContainsKey(player.Name))
-                    players_top[player.Name] = 0;
-            }
+            _players[player.Id] = player;
+            if (!_playersTop.ContainsKey(player.Name))
+                _playersTop[player.Name] = 0;
         }
 
         public Player[] GetPlayers()
         {
             Player[] result = null;
-            lock (players)
-            {
-                result = players.Values.ToArray();
-            }
+            result = _players.Values.ToArray();
             return result;
         }
 
@@ -128,12 +137,7 @@ namespace GameModel
 
         public Player GetPlayer(uint id)
         {
-            Player p;
-            lock (players)
-            {
-                players.TryGetValue(id, out p);
-            }
-
+            _players.TryGetValue(id, out var p);
             return p;
         }
 
@@ -141,13 +145,10 @@ namespace GameModel
         {
             player.AddFrag(value);
 
-            lock (players_top)
-            {
-                if (!players_top.ContainsKey(player.Name))
-                    players_top[player.Name] = 0;
+            if (!_playersTop.ContainsKey(player.Name))
+                _playersTop[player.Name] = 0;
 
-                players_top[player.Name] += value;
-            }
+            _playersTop[player.Name] += value;
         }
 
         public Player RespawnPlayer(uint id)
@@ -158,7 +159,7 @@ namespace GameModel
             if (p != null)
             {
                 p.Hp = 100;
-                p.SetPos((float) (r.NextDouble()*1700), (float) (r.NextDouble()*960));
+                p.SetPos((float)(r.NextDouble() * 1700), (float)(r.NextDouble() * 960));
             }
             return p;
         }
@@ -215,9 +216,33 @@ namespace GameModel
             return p;
         }
 
-        public void SpawnBullet(Vector2D pos, Vector2D aimPos)
+        public void SpawnBullet(Vector2D pos, Vector2D aimPos, uint spawnerId)
         {
-        
+            var bullet = new Bullet()
+            {
+                Id = GetNewBulletId(),
+                Pos = pos,
+                Type = 0,
+                Velocity = aimPos.Normalize() * 400,
+                SpawnerId = spawnerId
+            };
+
+            _bullets.TryAdd(bullet.Id, bullet);
+        }
+
+        public uint GetNewBulletId() => ++_lastBulletId;
+
+        public IEnumerable<Bullet> GetDestroyedBullets()
+        {
+            return _bullets.Values.Where(x => x.IsDestroyed);
+        }
+
+        public void RemoveDestroyedBullets()
+        {
+            foreach (var bullet in _bullets.Values.Where(x => x.IsDestroyed).ToArray())
+            {
+                _bullets.TryRemove(bullet.Id, out _);
+            }
         }
     }
 }

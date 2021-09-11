@@ -5,7 +5,7 @@ using WsServer.Common;
 
 namespace WsServer.ServerMessages
 {
-    public struct MovmentStateData : IMessageData
+    public struct MovementStateData : IMessageData
     {
         public uint PlayerId;
         public float X;
@@ -20,7 +20,7 @@ namespace WsServer.ServerMessages
         public float VelocityY;
         public int AnimationState;
 
-        public MovmentStateData(Player player)
+        public MovementStateData(Player player)
         {
             PlayerId = player.Id;
             var ms = player.Movement;

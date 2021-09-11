@@ -3,7 +3,7 @@ import ReadBuffer from "./ReadBuffer.js"
 //MessageType enum builder
 enum ServerMessageType {
     GameState = 0,
-    PlayersMovment = 1,
+    GameTickState = 1,
     PlayerJoined = 2,
     PlayerLeft = 3,
     RespawnPlayer = 4,
@@ -32,13 +32,16 @@ enum ClientMessageType {
     ChatMessage = 200
 };
 //Data definitions
+export class DestroyedBulletsStateData {
+    BulletIds: number[];
+}
 export class MapObjectData {
     ObjectId: number;
     X: number;
     Y: number;
     ObjectType: number;
 }
-export class MovmentStateData {
+export class MovementStateData {
     PlayerId: number;
     X: number;
     Y: number;
@@ -60,7 +63,7 @@ export class PlayerStateData {
     BodyIndex: number;
     WeaponIndex: number;
     ArmorIndex: number;
-    MovmentState: MovmentStateData;
+    MovementState: MovementStateData;
 }
 export class ChatServerMessage {
     ClientId: number;
@@ -68,6 +71,10 @@ export class ChatServerMessage {
 }
 export class GameStateServerMessage {
     PlayerStateData: PlayerStateData[];
+}
+export class GameTickStateServerMessage {
+    MovementStates: MovementStateData[];
+    DestroyedBulletsState: DestroyedBulletsStateData;
 }
 export class InitPlayerServerMessage {
     ClientId: number;
@@ -87,9 +94,6 @@ export class PlayerRespawnServerMessage {
 export class PlayerShootingServerMessage {
     ClientId: number;
     Weapon: number;
-}
-export class PlayersMovementServerMessage {
-    MovmentStates: MovmentStateData[];
 }
 export class PlayersTopServerMessage {
     PlayersTop: string;
@@ -162,19 +166,22 @@ export default class Wsc {
     readBuff = new ReadBuffer();
     ws: WebSocket;
     overrideUrl: string;
+    serverUrl: string;
+    constructor() {
+    }
 
-    connect(overrideUrl: string = null) {
-        this.ws = this.createSocket();
+    connect(overrideUrl) {
         this.overrideUrl = overrideUrl;
+        this.ws = this.createSocket();
+        this.ws.onmessage = e => this.processServerMessage(new ReadBuffer().setInput(e.data));
     }
     createSocket() {
         const scheme = document.location.protocol == "https:" ? "wss" : "ws";
         const port = document.location.port ? (":" + document.location.port) : "";
-        const serverUrl = scheme + "://" + document.location.hostname + port + "/ws";
+        this.serverUrl = scheme + "://" + document.location.hostname + port + "/ws";
 
-        this.ws = new WebSocket(this.overrideUrl == undefined ? serverUrl : this.overrideUrl);
+        this.ws = new WebSocket(this.overrideUrl == undefined ? this.serverUrl : this.overrideUrl);
         this.ws.binaryType = "arraybuffer";
-        this.ws.onmessage = e => this.processServerMessage(new ReadBuffer().setInput(e.data));
         return this.ws;
     }
     //Array reader
@@ -187,6 +194,11 @@ export default class Wsc {
         return items;
     }
     //Data readers
+    readDestroyedBulletsStateData(buff) {
+        const obj = new DestroyedBulletsStateData();
+        obj.BulletIds = this.readArray(buff, b => { return b.popUInt32(); });
+        return obj;
+    }
     readMapObjectData(buff) {
         const obj = new MapObjectData();
         obj.ObjectId = buff.popUInt32();
@@ -195,8 +207,8 @@ export default class Wsc {
         obj.ObjectType = buff.popUInt32();
         return obj;
     }
-    readMovmentStateData(buff) {
-        const obj = new MovmentStateData();
+    readMovementStateData(buff) {
+        const obj = new MovementStateData();
         obj.PlayerId = buff.popUInt32();
         obj.X = buff.popFloat();
         obj.Y = buff.popFloat();
@@ -220,13 +232,15 @@ export default class Wsc {
         obj.BodyIndex = buff.popInt32();
         obj.WeaponIndex = buff.popInt32();
         obj.ArmorIndex = buff.popInt32();
-        obj.MovmentState = this.readMovmentStateData(buff);
+        obj.MovementState = this.readMovementStateData(buff);
         return obj;
     }
     //Message readers
     onChatMessage(msg: ChatServerMessage) {
     }
     onGameState(msg: GameStateServerMessage) {
+    }
+    onGameTickState(msg: GameTickStateServerMessage) {
     }
     onInitPlayer(msg: InitPlayerServerMessage) {
     }
@@ -239,8 +253,6 @@ export default class Wsc {
     onRespawnPlayer(msg: PlayerRespawnServerMessage) {
     }
     onPlayerShooting(msg: PlayerShootingServerMessage) {
-    }
-    onPlayersMovment(msg: PlayersMovementServerMessage) {
     }
     onPlayersTop(msg: PlayersTopServerMessage) {
     }
@@ -264,6 +276,12 @@ export default class Wsc {
                 var GameStateMessage = new GameStateServerMessage();
                 GameStateMessage.PlayerStateData = this.readArray(buff, b => { return this.readPlayerStateData(b); });
                 this.onGameState(GameStateMessage);
+                break;
+            case ServerMessageType.GameTickState:
+                var GameTickStateMessage = new GameTickStateServerMessage();
+                GameTickStateMessage.MovementStates = this.readArray(buff, b => { return this.readMovementStateData(b); });
+                GameTickStateMessage.DestroyedBulletsState = this.readDestroyedBulletsStateData(buff);
+                this.onGameTickState(GameTickStateMessage);
                 break;
             case ServerMessageType.InitPlayer:
                 var InitPlayerMessage = new InitPlayerServerMessage();
@@ -295,11 +313,6 @@ export default class Wsc {
                 PlayerShootingMessage.ClientId = buff.popUInt32();
                 PlayerShootingMessage.Weapon = buff.popInt32();
                 this.onPlayerShooting(PlayerShootingMessage);
-                break;
-            case ServerMessageType.PlayersMovment:
-                var PlayersMovmentMessage = new PlayersMovementServerMessage();
-                PlayersMovmentMessage.MovmentStates = this.readArray(buff, b => { return this.readMovmentStateData(b); });
-                this.onPlayersMovment(PlayersMovmentMessage);
                 break;
             case ServerMessageType.PlayersTop:
                 var PlayersTopMessage = new PlayersTopServerMessage();

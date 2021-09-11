@@ -4,7 +4,7 @@ import ReadBuffer from "./ReadBuffer.js";
 var ServerMessageType;
 (function (ServerMessageType) {
     ServerMessageType[ServerMessageType["GameState"] = 0] = "GameState";
-    ServerMessageType[ServerMessageType["PlayersMovment"] = 1] = "PlayersMovment";
+    ServerMessageType[ServerMessageType["GameTickState"] = 1] = "GameTickState";
     ServerMessageType[ServerMessageType["PlayerJoined"] = 2] = "PlayerJoined";
     ServerMessageType[ServerMessageType["PlayerLeft"] = 3] = "PlayerLeft";
     ServerMessageType[ServerMessageType["RespawnPlayer"] = 4] = "RespawnPlayer";
@@ -36,18 +36,24 @@ var ClientMessageType;
 })(ClientMessageType || (ClientMessageType = {}));
 ;
 //Data definitions
+var DestroyedBulletsStateData = /** @class */ (function () {
+    function DestroyedBulletsStateData() {
+    }
+    return DestroyedBulletsStateData;
+}());
+export { DestroyedBulletsStateData };
 var MapObjectData = /** @class */ (function () {
     function MapObjectData() {
     }
     return MapObjectData;
 }());
 export { MapObjectData };
-var MovmentStateData = /** @class */ (function () {
-    function MovmentStateData() {
+var MovementStateData = /** @class */ (function () {
+    function MovementStateData() {
     }
-    return MovmentStateData;
+    return MovementStateData;
 }());
-export { MovmentStateData };
+export { MovementStateData };
 var PlayerStateData = /** @class */ (function () {
     function PlayerStateData() {
     }
@@ -66,6 +72,12 @@ var GameStateServerMessage = /** @class */ (function () {
     return GameStateServerMessage;
 }());
 export { GameStateServerMessage };
+var GameTickStateServerMessage = /** @class */ (function () {
+    function GameTickStateServerMessage() {
+    }
+    return GameTickStateServerMessage;
+}());
+export { GameTickStateServerMessage };
 var InitPlayerServerMessage = /** @class */ (function () {
     function InitPlayerServerMessage() {
     }
@@ -102,12 +114,6 @@ var PlayerShootingServerMessage = /** @class */ (function () {
     return PlayerShootingServerMessage;
 }());
 export { PlayerShootingServerMessage };
-var PlayersMovementServerMessage = /** @class */ (function () {
-    function PlayersMovementServerMessage() {
-    }
-    return PlayersMovementServerMessage;
-}());
-export { PlayersMovementServerMessage };
 var PlayersTopServerMessage = /** @class */ (function () {
     function PlayersTopServerMessage() {
     }
@@ -211,18 +217,17 @@ var Wsc = /** @class */ (function () {
         this.readBuff = new ReadBuffer();
     }
     Wsc.prototype.connect = function (overrideUrl) {
-        if (overrideUrl === void 0) { overrideUrl = null; }
-        this.ws = this.createSocket();
+        var _this = this;
         this.overrideUrl = overrideUrl;
+        this.ws = this.createSocket();
+        this.ws.onmessage = function (e) { return _this.processServerMessage(new ReadBuffer().setInput(e.data)); };
     };
     Wsc.prototype.createSocket = function () {
-        var _this = this;
         var scheme = document.location.protocol == "https:" ? "wss" : "ws";
         var port = document.location.port ? (":" + document.location.port) : "";
-        var serverUrl = scheme + "://" + document.location.hostname + port + "/ws";
-        this.ws = new WebSocket(this.overrideUrl == undefined ? serverUrl : this.overrideUrl);
+        this.serverUrl = scheme + "://" + document.location.hostname + port + "/ws";
+        this.ws = new WebSocket(this.overrideUrl == undefined ? this.serverUrl : this.overrideUrl);
         this.ws.binaryType = "arraybuffer";
-        this.ws.onmessage = function (e) { return _this.processServerMessage(new ReadBuffer().setInput(e.data)); };
         return this.ws;
     };
     //Array reader
@@ -235,6 +240,11 @@ var Wsc = /** @class */ (function () {
         return items;
     };
     //Data readers
+    Wsc.prototype.readDestroyedBulletsStateData = function (buff) {
+        var obj = new DestroyedBulletsStateData();
+        obj.BulletIds = this.readArray(buff, function (b) { return b.popUInt32(); });
+        return obj;
+    };
     Wsc.prototype.readMapObjectData = function (buff) {
         var obj = new MapObjectData();
         obj.ObjectId = buff.popUInt32();
@@ -243,8 +253,8 @@ var Wsc = /** @class */ (function () {
         obj.ObjectType = buff.popUInt32();
         return obj;
     };
-    Wsc.prototype.readMovmentStateData = function (buff) {
-        var obj = new MovmentStateData();
+    Wsc.prototype.readMovementStateData = function (buff) {
+        var obj = new MovementStateData();
         obj.PlayerId = buff.popUInt32();
         obj.X = buff.popFloat();
         obj.Y = buff.popFloat();
@@ -268,13 +278,15 @@ var Wsc = /** @class */ (function () {
         obj.BodyIndex = buff.popInt32();
         obj.WeaponIndex = buff.popInt32();
         obj.ArmorIndex = buff.popInt32();
-        obj.MovmentState = this.readMovmentStateData(buff);
+        obj.MovementState = this.readMovementStateData(buff);
         return obj;
     };
     //Message readers
     Wsc.prototype.onChatMessage = function (msg) {
     };
     Wsc.prototype.onGameState = function (msg) {
+    };
+    Wsc.prototype.onGameTickState = function (msg) {
     };
     Wsc.prototype.onInitPlayer = function (msg) {
     };
@@ -287,8 +299,6 @@ var Wsc = /** @class */ (function () {
     Wsc.prototype.onRespawnPlayer = function (msg) {
     };
     Wsc.prototype.onPlayerShooting = function (msg) {
-    };
-    Wsc.prototype.onPlayersMovment = function (msg) {
     };
     Wsc.prototype.onPlayersTop = function (msg) {
     };
@@ -313,6 +323,12 @@ var Wsc = /** @class */ (function () {
                 var GameStateMessage = new GameStateServerMessage();
                 GameStateMessage.PlayerStateData = this.readArray(buff, function (b) { return _this.readPlayerStateData(b); });
                 this.onGameState(GameStateMessage);
+                break;
+            case ServerMessageType.GameTickState:
+                var GameTickStateMessage = new GameTickStateServerMessage();
+                GameTickStateMessage.MovementStates = this.readArray(buff, function (b) { return _this.readMovementStateData(b); });
+                GameTickStateMessage.DestroyedBulletsState = this.readDestroyedBulletsStateData(buff);
+                this.onGameTickState(GameTickStateMessage);
                 break;
             case ServerMessageType.InitPlayer:
                 var InitPlayerMessage = new InitPlayerServerMessage();
@@ -344,11 +360,6 @@ var Wsc = /** @class */ (function () {
                 PlayerShootingMessage.ClientId = buff.popUInt32();
                 PlayerShootingMessage.Weapon = buff.popInt32();
                 this.onPlayerShooting(PlayerShootingMessage);
-                break;
-            case ServerMessageType.PlayersMovment:
-                var PlayersMovmentMessage = new PlayersMovementServerMessage();
-                PlayersMovmentMessage.MovmentStates = this.readArray(buff, function (b) { return _this.readMovmentStateData(b); });
-                this.onPlayersMovment(PlayersMovmentMessage);
                 break;
             case ServerMessageType.PlayersTop:
                 var PlayersTopMessage = new PlayersTopServerMessage();
