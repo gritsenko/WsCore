@@ -29,7 +29,6 @@ var ClientMessageType;
     ClientMessageType[ClientMessageType["UpdatePlayerState"] = 101] = "UpdatePlayerState";
     ClientMessageType[ClientMessageType["UpdatePlayerSlots"] = 102] = "UpdatePlayerSlots";
     ClientMessageType[ClientMessageType["PlayerShooting"] = 103] = "PlayerShooting";
-    ClientMessageType[ClientMessageType["HitPlayer"] = 104] = "HitPlayer";
     ClientMessageType[ClientMessageType["RespawnPlayer"] = 105] = "RespawnPlayer";
     ClientMessageType[ClientMessageType["UpdatePlayerTarget"] = 106] = "UpdatePlayerTarget";
     ClientMessageType[ClientMessageType["ChatMessage"] = 200] = "ChatMessage";
@@ -42,6 +41,12 @@ var DestroyedBulletsStateData = /** @class */ (function () {
     return DestroyedBulletsStateData;
 }());
 export { DestroyedBulletsStateData };
+var HitPlayerStateData = /** @class */ (function () {
+    function HitPlayerStateData() {
+    }
+    return HitPlayerStateData;
+}());
+export { HitPlayerStateData };
 var MapObjectData = /** @class */ (function () {
     function MapObjectData() {
     }
@@ -156,12 +161,6 @@ var GetTilesClientMessage = /** @class */ (function () {
     return GetTilesClientMessage;
 }());
 export { GetTilesClientMessage };
-var PlayerHitClientMessage = /** @class */ (function () {
-    function PlayerHitClientMessage() {
-    }
-    return PlayerHitClientMessage;
-}());
-export { PlayerHitClientMessage };
 var PlayerRespawnClientMessage = /** @class */ (function () {
     function PlayerRespawnClientMessage() {
     }
@@ -243,6 +242,13 @@ var Wsc = /** @class */ (function () {
     Wsc.prototype.readDestroyedBulletsStateData = function (buff) {
         var obj = new DestroyedBulletsStateData();
         obj.BulletIds = this.readArray(buff, function (b) { return b.popUInt32(); });
+        return obj;
+    };
+    Wsc.prototype.readHitPlayerStateData = function (buff) {
+        var obj = new HitPlayerStateData();
+        obj.PlayerId = buff.popUInt32();
+        obj.HitterId = buff.popUInt32();
+        obj.NewHp = buff.popInt32();
         return obj;
     };
     Wsc.prototype.readMapObjectData = function (buff) {
@@ -328,6 +334,7 @@ var Wsc = /** @class */ (function () {
                 var GameTickStateMessage = new GameTickStateServerMessage();
                 GameTickStateMessage.MovementStates = this.readArray(buff, function (b) { return _this.readMovementStateData(b); });
                 GameTickStateMessage.DestroyedBulletsState = this.readDestroyedBulletsStateData(buff);
+                GameTickStateMessage.HitPlayersState = this.readArray(buff, function (b) { return _this.readHitPlayerStateData(b); });
                 this.onGameTickState(GameTickStateMessage);
                 break;
             case ServerMessageType.InitPlayer:
@@ -408,13 +415,6 @@ var Wsc = /** @class */ (function () {
             .pushUInt8(ClientMessageType.GetTiles)
             .pushInt32(MapX)
             .pushInt32(MapY)
-            .send(this.ws);
-    };
-    Wsc.prototype.sendHitPlayer = function (PlayeId, HitPoints) {
-        this.writeBuff.newMessage()
-            .pushUInt8(ClientMessageType.HitPlayer)
-            .pushUInt32(PlayeId)
-            .pushInt32(HitPoints)
             .send(this.ws);
     };
     Wsc.prototype.sendRespawnPlayer = function (PlayerId) {

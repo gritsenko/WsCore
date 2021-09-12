@@ -9,8 +9,8 @@ namespace WsServer.ServerMessages
     {
         public MovementStateData[] MovementStates;
         public DestroyedBulletsStateData DestroyedBulletsState;
-
-        public GameTickStateServerMessage(GameState gameState) : this()
+        public HitPlayerStateData[] HitPlayersState;
+        public GameTickStateServerMessage(Game game) : this()
         {
         }
     }

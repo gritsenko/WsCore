@@ -23,7 +23,7 @@ namespace WsServer.Common
 
     public abstract class MessageHandlerBase : IMessageHandler
     {
-        protected GameState GameState;
+        protected Game Game;
         protected IGameMessenger Messenger;
         protected GameServer GameServer;
 
@@ -43,11 +43,11 @@ namespace WsServer.Common
             }
         }
 
-        public void Initialize(GameServer gameServer, IGameMessenger messenger, GameState gameState)
+        public void Initialize(GameServer gameServer, IGameMessenger messenger, Game game)
         {
             this.GameServer = gameServer;
             this.Messenger = messenger;
-            this.GameState = gameState;
+            this.Game = game;
         }
 
         protected virtual T DecodeToMessage<T>(byte[] buffer, int count) where  T : struct 

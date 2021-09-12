@@ -26,7 +26,6 @@ enum ClientMessageType {
     UpdatePlayerState = 101,
     UpdatePlayerSlots = 102,
     PlayerShooting = 103,
-    HitPlayer = 104,
     RespawnPlayer = 105,
     UpdatePlayerTarget = 106,
     ChatMessage = 200
@@ -34,6 +33,11 @@ enum ClientMessageType {
 //Data definitions
 export class DestroyedBulletsStateData {
     BulletIds: number[];
+}
+export class HitPlayerStateData {
+    PlayerId: number;
+    HitterId: number;
+    NewHp: number;
 }
 export class MapObjectData {
     ObjectId: number;
@@ -75,6 +79,7 @@ export class GameStateServerMessage {
 export class GameTickStateServerMessage {
     MovementStates: MovementStateData[];
     DestroyedBulletsState: DestroyedBulletsStateData;
+    HitPlayersState: HitPlayerStateData[];
 }
 export class InitPlayerServerMessage {
     ClientId: number;
@@ -123,10 +128,6 @@ export class GetMapObjectsClientMessage {
 export class GetTilesClientMessage {
     MapX: number;
     MapY: number;
-}
-export class PlayerHitClientMessage {
-    PlayeId: number;
-    HitPoints: number;
 }
 export class PlayerRespawnClientMessage {
     PlayerId: number;
@@ -198,6 +199,13 @@ export default class Wsc {
     readDestroyedBulletsStateData(buff) {
         const obj = new DestroyedBulletsStateData();
         obj.BulletIds = this.readArray(buff, b => { return b.popUInt32(); });
+        return obj;
+    }
+    readHitPlayerStateData(buff) {
+        const obj = new HitPlayerStateData();
+        obj.PlayerId = buff.popUInt32();
+        obj.HitterId = buff.popUInt32();
+        obj.NewHp = buff.popInt32();
         return obj;
     }
     readMapObjectData(buff) {
@@ -282,6 +290,7 @@ export default class Wsc {
                 var GameTickStateMessage = new GameTickStateServerMessage();
                 GameTickStateMessage.MovementStates = this.readArray(buff, b => { return this.readMovementStateData(b); });
                 GameTickStateMessage.DestroyedBulletsState = this.readDestroyedBulletsStateData(buff);
+                GameTickStateMessage.HitPlayersState = this.readArray(buff, b => { return this.readHitPlayerStateData(b); });
                 this.onGameTickState(GameTickStateMessage);
                 break;
             case ServerMessageType.InitPlayer:
@@ -362,13 +371,6 @@ export default class Wsc {
             .pushUInt8(ClientMessageType.GetTiles)
             .pushInt32(MapX)
             .pushInt32(MapY)
-            .send(this.ws);
-    }
-    sendHitPlayer(PlayeId: number, HitPoints: number) {
-        this.writeBuff.newMessage()
-            .pushUInt8(ClientMessageType.HitPlayer)
-            .pushUInt32(PlayeId)
-            .pushInt32(HitPoints)
             .send(this.ws);
     }
     sendRespawnPlayer(PlayerId: number) {

@@ -14,6 +14,7 @@ namespace GameModel
 
         public bool IsDestroyed { get; set; }
         public uint SpawnerId { get; set; }
+        public int HitPoints { get; set; } = 10;
 
         public virtual void Update(float dt)
         {

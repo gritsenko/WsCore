@@ -1,29 +1,30 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using GameModel.Common.Math;
 
 namespace GameModel
 {
 
-    public class GameState
+    public class Game
     {
         private uint _lastPlayerId;
         private uint _lastBulletId;
 
-        private ConcurrentDictionary<uint, Bullet> _bullets = new();
+        private readonly ConcurrentDictionary<uint, Bullet> _bullets = new();
         private readonly ConcurrentDictionary<uint, Player> _players = new();
         private readonly ConcurrentDictionary<string, int> _playersTop = new();
 
+        private readonly ConcurrentBag<HitInfo> _tickHits = new();
+
         public World World;
         public int PlayersCount => _players.Count;
+        public int HitsCount => _tickHits.Count;
 
         public string Top { get; set; }
 
-        public GameState()
+        public Game()
         {
             World = new World();
             //_npcProcessor = new NpcProcessor();
@@ -76,7 +77,7 @@ namespace GameModel
 
         public uint GetNewPlayerId() => ++_lastPlayerId;
 
-        public void ProcessGameState(float dt)
+        public void OnTick(float dt)
         {
             foreach (var bot in _players)
             {
@@ -86,15 +87,24 @@ namespace GameModel
             foreach (var (_, bullet) in _bullets)
             {
                 bullet.Update(dt);
-                if (CheckBulletForCollisions(bullet))
+                if (CheckBulletForCollisions(bullet, out var hitPlayer))
                 {
+                    var hitInfo = HitPlayer(hitPlayer.Id, bullet.HitPoints, bullet.SpawnerId);
+                    _tickHits.Add(hitInfo);
                     bullet.IsDestroyed = true;
                 }
             }
         }
-
-        private bool CheckBulletForCollisions(Bullet bullet)
+        public void FlushTickData()
         {
+            RemoveDestroyedBullets();
+            _tickHits.Clear();
+        }
+
+
+        private bool CheckBulletForCollisions(Bullet bullet, out Player hitPlayer)
+        {
+            hitPlayer = default;
             if (bullet.IsDestroyed) return false;
 
             foreach (var (id, player) in _players)
@@ -104,7 +114,10 @@ namespace GameModel
 
                 var dist = (player.Movement.Pos - bullet.Pos).Length;
                 if (dist <= Player.Radius)
+                {
+                    hitPlayer = player;
                     return true;
+                }
             }
 
             return false;
@@ -122,20 +135,20 @@ namespace GameModel
                 _playersTop[player.Name] = 0;
         }
 
-        public Player HitPlayer(uint id, int hitPoint, uint hitter)
+        public HitInfo HitPlayer(uint playerId, int hitPoints, uint hitterId)
         {
-            var p1 = GetPlayer(id);
-            var p2 = GetPlayer(hitter);
+            var p1 = GetPlayer(playerId);
+            var p2 = GetPlayer(hitterId);
 
-            if (p1.Hit(hitPoint))
+            if (p1.Hit(hitPoints))
             {
                 AddFrag(p1, -1);
 
-                if (id != hitter)
+                if (playerId != hitterId)
                     AddFrag(p2, 2);
             }
 
-            return p1;
+            return new HitInfo(playerId, p1.Hp, hitterId);
         }
 
         public Player GetPlayer(uint id)
@@ -249,5 +262,9 @@ namespace GameModel
             }
         }
 
+        public IEnumerable<HitInfo> GetHits()
+        {
+            return _tickHits;
+        }
     }
 }

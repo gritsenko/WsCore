@@ -8,6 +8,6 @@ namespace WsServer.Abstract
     {
         bool Handle(uint clientId, byte[] buffer, int count);
         IEnumerable<ClientMessageType> GetMessageTypes();
-        void Initialize(GameServer gameServer, IGameMessenger messenger, GameState gameState);
+        void Initialize(GameServer gameServer, IGameMessenger messenger, Game game);
     }
 }

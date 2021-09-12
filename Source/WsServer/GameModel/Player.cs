@@ -97,12 +97,17 @@ namespace GameModel
             if (!IsTargetReached())
             {
                 MoveToTarget(dt);
-                AnimationState = 1;
+                AnimationState = 1; //walk
             }
             else
             {
-                AnimationState = 0;
+                AnimationState = 0; // idle
                 Movement.Velocity = Vector2D.Zero;
+            }
+
+            if (Hp <= 0)
+            {
+                AnimationState = 2; //Death
             }
         }
 

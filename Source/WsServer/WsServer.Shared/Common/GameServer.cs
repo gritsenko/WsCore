@@ -28,7 +28,7 @@ namespace WsServer.Common
 
 
 
-        public GameState GameState { get; set; } = new GameState();
+        public Game Game { get; set; } = new Game();
 
         public GameServer(IGameMessenger messenger)
         {
@@ -56,7 +56,7 @@ namespace WsServer.Common
 
         private void RegisterHandler(IMessageHandler messageHandler)
         {
-            messageHandler.Initialize(this, _messenger, GameState);
+            messageHandler.Initialize(this, _messenger, Game);
 
             foreach (var clientMessageType in messageHandler.GetMessageTypes())
             {
@@ -73,12 +73,12 @@ namespace WsServer.Common
             var time = DateTime.Now;
             var dt = time - _lastTickTime;
             _lastTickTime = time;
-            GameState.ProcessGameState((float)dt.TotalSeconds);
+            Game.OnTick((float)dt.TotalSeconds);
 
-            _messenger.Broadcast(BuildTickState(GameState));
+            _messenger.Broadcast(BuildTickState(Game));
 
             //clean state
-            GameState.RemoveDestroyedBullets();
+            Game.FlushTickData();
 
             _ticksToClean--;
 
@@ -89,9 +89,9 @@ namespace WsServer.Common
             }
         }
 
-        public MyBuffer BuildTickState(GameState state)
+        public MyBuffer BuildTickState(Game game)
         {
-            var playersCount = GameState.PlayersCount;
+            var playersCount = Game.PlayersCount;
 
             //var buff = new MyBuffer();
             _tickStateBuffer.Clear();
@@ -103,19 +103,26 @@ namespace WsServer.Common
             //first byte - count of players
             _tickStateBuffer.SetUint32((uint)playersCount);
             //serialize each player
-            foreach (var player in GameState.GetPlayers())
-            {
+            foreach (var player in Game.GetPlayers()) 
                 _tickStateBuffer.SetData(new MovementStateData(player));
-            }
 
-            var bulletsToDestroy = state.GetDestroyedBullets().Select(x => x.Id).ToArray();
-
+            //serialize bullets to be destroyed
+            var bulletsToDestroy = game.GetDestroyedBullets().Select(x => x.Id).ToArray();
             _tickStateBuffer.SetData(new DestroyedBulletsStateData(bulletsToDestroy));
-            
+
+            //serialize player hit events
+            var hitsInfos = game.GetHits();
+            var hitsCount = game.HitsCount;
+            _tickStateBuffer.SetUint32((uint)hitsCount);
+
+            foreach (var hitInfo in hitsInfos)
+            {
+                _tickStateBuffer.SetData(new HitPlayerStateData(hitInfo));
+            }
             return _tickStateBuffer;
         }
 
-        private void CleanZombieClinets(GameState state)
+        private void CleanZombieClinets(Game state)
         {
             var now = DateTime.Now.Ticks;
 
@@ -131,7 +138,7 @@ namespace WsServer.Common
 
         public void SendGameState(uint clientId)
         {
-            _messenger.SendMessage(clientId, new GameStateServerMessage(GameState));
+            _messenger.SendMessage(clientId, new GameStateServerMessage(Game));
         }
 
         public void NotifyMessageRecieved(uint id, ref byte[] buffer, int count)
@@ -161,27 +168,27 @@ namespace WsServer.Common
 
         public void BroadCastTop()
         {
-            _messenger.Broadcast(new PlayersTopServerMessage(GameState));
+            _messenger.Broadcast(new PlayersTopServerMessage(Game));
         }
 
         public void RemovePlayer(uint clientId)
         {
-            GameState.RemovePlayer(clientId);
+            Game.RemovePlayer(clientId);
 
-            var cnt = GameState.PlayersCount;
+            var cnt = Game.PlayersCount;
             Logger.Log("Player left. Total count:" + cnt);
             _messenger.Broadcast(new PlayerLeftServerMessage(clientId));
         }
 
         public Player AddNewPlayer()
         {
-            var p = GameState.CreateNewPlayer();
-            GameState.AddPlayer(p);
+            var p = Game.CreateNewPlayer();
+            Game.AddPlayer(p);
 
             //notifying other players that new player joind
             _messenger.Broadcast(new PlayerJoinedServerMessage(p));
 
-            var cnt = GameState.PlayersCount;
+            var cnt = Game.PlayersCount;
             Logger.Log("Player joined. Total count:" + cnt);
 
             return p;

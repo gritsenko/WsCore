@@ -10,7 +10,7 @@ namespace WsServer.ClientMessageHandlers
     {
         public void OnSetPlayerName(uint clientId, SetPlayerNameClientMessage clientClientMessage)
         {
-            GameState.SetPlayerName(clientId, clientClientMessage.Name);
+            Game.SetPlayerName(clientId, clientClientMessage.Name);
             Messenger.Broadcast(new SetPlayerNameServerMessage(clientId, clientClientMessage.Name));
 
             Logger.Log($"Player {clientId} set name: {clientClientMessage.Name}");
@@ -25,24 +25,24 @@ namespace WsServer.ClientMessageHandlers
 
         public void OnUpdatePlayerState(uint clientId, UpdatePlayerStateClientMessage msg)
         {
-            var p = GameState.SetPlayerControls(clientId, new Vector2D(msg.AimX, msg.AimY), msg.ControlsState);
+            var p = Game.SetPlayerControls(clientId, new Vector2D(msg.AimX, msg.AimY), msg.ControlsState);
         }
 
         public void OnPlayerShooting(uint clientId, PlayerShootingClientMessage msg)
         {
-            var player = GameState.GetPlayer(clientId);
-            var bulletIds = GameState.SpawnBullet(player.Movement.Pos, player.Movement.AimPos, clientId);
+            var player = Game.GetPlayer(clientId);
+            var bulletIds = Game.SpawnBullet(player.Movement.Pos, player.Movement.AimPos, clientId);
             Messenger.Broadcast(new PlayerShootingServerMessage(clientId, msg.Weapon, bulletIds));
         }
 
         public void OnPlayerTargetUpdate(uint clientId, UpdatePlayerTargetClientMessage msg)
         {
-            var p = GameState.SetPlayerTarget(clientId, msg.AimX, msg.AimY);
+            var p = Game.SetPlayerTarget(clientId, msg.AimX, msg.AimY);
         }
 
         public void OnPlayerSlotsUpdate(uint clientId, UpdatePlayerSlotsClientMessage msg)
         {
-            var player = GameState.GetPlayer(clientId);
+            var player = Game.GetPlayer(clientId);
 
             player.BodyIndex = msg.Body;
             player.WeaponIndex = msg.Gun;
@@ -51,44 +51,44 @@ namespace WsServer.ClientMessageHandlers
             Messenger.Broadcast(new UpdatePlayerSlotsServerMessage(player));
         }
 
-        public void OnPlayerHit(uint clientId, PlayerHitClientMessage msg)
-        {
-            var hitterPlayer = GameState.GetPlayer(msg.PlayeId);
-            if (hitterPlayer != null && hitterPlayer.Hp > 0)
-            {
-                var targetPlayer = GameState.HitPlayer(msg.PlayeId, msg.HitPoints, clientId);
+        //public void OnPlayerHit(uint clientId, PlayerHitClientMessage msg)
+        //{
+        //    var hitterPlayer = GameState.GetPlayer(msg.PlayeId);
+        //    if (hitterPlayer != null && hitterPlayer.Hp > 0)
+        //    {
+        //        var targetPlayer = GameState.HitPlayer(msg.PlayeId, msg.HitPoints, clientId);
 
-                Messenger.Broadcast(new SetPlayerHpServerMessage(targetPlayer));
+        //        Messenger.Broadcast(new SetPlayerHpServerMessage(targetPlayer));
 
-                if (targetPlayer.Hp == 0)
-                {
-                    Logger.Log(GameState.Top);
-                    GameServer.BroadCastTop();
-                }
-            }
-        }
+        //        if (targetPlayer.Hp == 0)
+        //        {
+        //            Logger.Log(GameState.Top);
+        //            GameServer.BroadCastTop();
+        //        }
+        //    }
+        //}
 
         public void OnPlayerRespawn(uint clientId, PlayerRespawnClientMessage msg)
         {
-            var respawnPlayer = GameState.RespawnPlayer(msg.PlayerId);
+            var respawnPlayer = Game.RespawnPlayer(msg.PlayerId);
 
             Messenger.Broadcast(new PlayerRespawnServerMessage(respawnPlayer));
         }
 
         public void OnSetMapObject(uint clientId, SetMapObjectClientMessage msg)
         {
-            var player = GameState.GetPlayer(clientId);
-            GameState.World.SetMapObject(msg.MapX, msg.MapY, msg.ObjectType);
+            var player = Game.GetPlayer(clientId);
+            Game.World.SetMapObject(msg.MapX, msg.MapY, msg.ObjectType);
             Messenger.Broadcast(
-                new MapObjectsServerMessage(GameState.World.GetTileBlockObjects(0, 0).ToArray()));
+                new MapObjectsServerMessage(Game.World.GetTileBlockObjects(0, 0).ToArray()));
         }
 
         public void OnDestroyMapObject(uint clientId, DestroyMapObjectClientMessage msg)
         {
-            var player = GameState.GetPlayer(clientId);
-            GameState.World.DestroyObjects(msg.MapX, msg.MapY);
+            var player = Game.GetPlayer(clientId);
+            Game.World.DestroyObjects(msg.MapX, msg.MapY);
             Messenger.Broadcast(
-                new MapObjectsServerMessage(GameState.World.GetTileBlockObjects(0, 0).ToArray()));
+                new MapObjectsServerMessage(Game.World.GetTileBlockObjects(0, 0).ToArray()));
         }
 
     }

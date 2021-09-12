@@ -10,7 +10,7 @@ namespace WsServer.ServerMessages
     {
         public PlayerStateData[] PlayerStateData;
 
-        public GameStateServerMessage(GameState state) : this()
+        public GameStateServerMessage(Game state) : this()
         {
             PlayerStateData = new PlayerStateData[state.PlayersCount];
             var i = 0;

@@ -13,9 +13,9 @@ namespace WsServer.ServerMessages
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 1024)]
         public string PlayersTop;
 
-        public PlayersTopServerMessage(GameState gameState) : this()
+        public PlayersTopServerMessage(Game game) : this()
         {
-            PlayersTop = gameState.Top ?? "";
+            PlayersTop = game.Top ?? "";
         }
     }
 }

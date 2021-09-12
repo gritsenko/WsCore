@@ -11,7 +11,7 @@ namespace WsServer.ClientMessageHandlers
     {
         public void OnGetTiles(uint clientId, GetTilesClientMessage msg)
         {
-            var tileBlock = GameState.World.GetTileBlock(msg.MapX, msg.MapY);
+            var tileBlock = Game.World.GetTileBlock(msg.MapX, msg.MapY);
             var tilesBuffer = MyBuffer.Create(TileBlock.Size + 1)
                 .SetUint8((byte)ServerMessageType.MapTiles)
                 .SetInt32(tileBlock.X)
@@ -24,7 +24,7 @@ namespace WsServer.ClientMessageHandlers
 
         public void OnGetMapObjects(uint clientId, GetMapObjectsClientMessage msg)
         {
-            var objects = GameState.World.GetTileBlockObjects(msg.MapX, msg.MapY).ToArray();
+            var objects = Game.World.GetTileBlockObjects(msg.MapX, msg.MapY).ToArray();
             var mapObjectsMessage = new MapObjectsServerMessage(objects);
 
             Messenger.SendMessage(clientId, mapObjectsMessage);

@@ -7,7 +7,6 @@ namespace WsServer.Common
         UpdatePlayerState = 101,
         UpdatePlayerSlots = 102,
         PlayerShooting = 103,
-        HitPlayer = 104,
         RespawnPlayer = 105,
         UpdatePlayerTarget = 106,
         ChatMessage = 200,
