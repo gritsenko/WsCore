@@ -63,7 +63,7 @@ var MyApp = /** @class */ (function () {
             //height: 200,
             backgroundColor: "#fbf0e4",
             physics: {
-                "default": 'arcade',
+                "default": 'arcade'
             },
             scene: {
                 preload: function () { self.phaserPreload(this); },
@@ -71,7 +71,7 @@ var MyApp = /** @class */ (function () {
                     self.phaserCreate(this);
                     self.initGameClient();
                 },
-                update: function () { self.phaserUpdate(this); },
+                update: function () { self.phaserUpdate(this); }
             }
         };
         var view = window.document.getElementById("game");

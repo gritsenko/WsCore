@@ -12,11 +12,13 @@ namespace WsServer.ServerMessages
 
         public GameStateServerMessage(GameState state) : this()
         {
-            var ps = state.GetPlayers();
-            var cnt = ps.Length;
-            PlayerStateData = new PlayerStateData[cnt];
-            for (var i = 0; i < cnt; i++)
-                PlayerStateData[i] = new PlayerStateData(ps[i]);
+            PlayerStateData = new PlayerStateData[state.PlayersCount];
+            var i = 0;
+            foreach (var player in state.GetPlayers())
+            {
+                PlayerStateData[i] = new PlayerStateData(player);
+                i++;
+            }
         }
     }
 }

@@ -31,8 +31,8 @@ namespace WsServer.ClientMessageHandlers
         public void OnPlayerShooting(uint clientId, PlayerShootingClientMessage msg)
         {
             var player = GameState.GetPlayer(clientId);
-            GameState.SpawnBullet(player.Movement.Pos, player.Movement.AimPos, clientId);
-            Messenger.Broadcast(new PlayerShootingServerMessage(clientId, msg.Weapon));
+            var bulletIds = GameState.SpawnBullet(player.Movement.Pos, player.Movement.AimPos, clientId);
+            Messenger.Broadcast(new PlayerShootingServerMessage(clientId, msg.Weapon, bulletIds));
         }
 
         public void OnPlayerTargetUpdate(uint clientId, UpdatePlayerTargetClientMessage msg)

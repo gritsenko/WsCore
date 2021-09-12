@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Threading;
+using System.Threading.Tasks;
 using GameModel;
 using WsServer.Abstract;
 using WsServer.ClientMessageHandlers;
@@ -32,9 +33,19 @@ namespace WsServer.Common
         public GameServer(IGameMessenger messenger)
         {
             _messenger = messenger;
-            _movmentTimer = new Timer(OnTimerCallback, this, _updatePeriod, _updatePeriod);
-
+            //_movmentTimer = new Timer(OnTimerCallback, this, _updatePeriod, _updatePeriod);
             RegisterMessageHandlers();
+
+            StartGameLoop();
+        }
+
+        private async void StartGameLoop()
+        {
+            while (true)
+            {
+                Tick();
+                await Task.Delay(_updatePeriod);
+            }
         }
 
         private void RegisterMessageHandlers()
@@ -54,6 +65,10 @@ namespace WsServer.Common
         }
 
         private void OnTimerCallback(object state)
+        {
+        }
+
+        private void Tick()
         {
             var time = DateTime.Now;
             var dt = time - _lastTickTime;
@@ -76,8 +91,7 @@ namespace WsServer.Common
 
         public MyBuffer BuildTickState(GameState state)
         {
-            var players = state.GetPlayers();
-            var playersCount = players.Length;
+            var playersCount = GameState.PlayersCount;
 
             //var buff = new MyBuffer();
             _tickStateBuffer.Clear();
@@ -89,31 +103,30 @@ namespace WsServer.Common
             //first byte - count of players
             _tickStateBuffer.SetUint32((uint)playersCount);
             //serialize each player
-            for (var i = 0; i < playersCount; i++)
+            foreach (var player in GameState.GetPlayers())
             {
-                _tickStateBuffer.SetData(new MovementStateData(players[i]));
+                _tickStateBuffer.SetData(new MovementStateData(player));
             }
 
-            var bulletsToDestroy = state.GetDestroyedBullets().Select(x=>x.Id).ToArray();
+            var bulletsToDestroy = state.GetDestroyedBullets().Select(x => x.Id).ToArray();
 
             _tickStateBuffer.SetData(new DestroyedBulletsStateData(bulletsToDestroy));
-
+            
             return _tickStateBuffer;
         }
 
         private void CleanZombieClinets(GameState state)
         {
-            var ps = state.GetPlayers();
-            var cnt = ps.Length;
-
             var now = DateTime.Now.Ticks;
 
-            for (var i = 0; i < cnt; i++)
-                if (now - ps[i].LastActivity > _cleanTimeout)
+            foreach (var player in state.GetPlayers())
+            {
+                if (now - player.LastActivity > _cleanTimeout)
                 {
-                    Logger.Log("Killing zombie player: " + ps[i].Name + " " + ps[i].Id);
-                    _messenger.TerminateConnection(ps[i].Id);
+                    Logger.Log("Killing zombie player: " + player.Name + " " + player.Id);
+                    _messenger.TerminateConnection(player.Id);
                 }
+            }
         }
 
         public void SendGameState(uint clientId)

@@ -10,10 +10,12 @@ namespace WsServer.ServerMessages
     {
         public uint ClientId;
         public int Weapon;
-        public PlayerShootingServerMessage(uint clinetId, int weapon)
+        public uint[] BulletIds;
+        public PlayerShootingServerMessage(uint clinetId, int weapon, uint[] bulletIds)
         {
             ClientId = clinetId;
             Weapon = weapon;
+            BulletIds = bulletIds;
         }
     }
 }

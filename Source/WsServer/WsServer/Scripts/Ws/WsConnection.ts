@@ -94,6 +94,7 @@ export class PlayerRespawnServerMessage {
 export class PlayerShootingServerMessage {
     ClientId: number;
     Weapon: number;
+    BulletIds: number[];
 }
 export class PlayersTopServerMessage {
     PlayersTop: string;
@@ -312,6 +313,7 @@ export default class Wsc {
                 var PlayerShootingMessage = new PlayerShootingServerMessage();
                 PlayerShootingMessage.ClientId = buff.popUInt32();
                 PlayerShootingMessage.Weapon = buff.popInt32();
+                PlayerShootingMessage.BulletIds = this.readArray(buff, b => { return b.popUInt32(); });
                 this.onPlayerShooting(PlayerShootingMessage);
                 break;
             case ServerMessageType.PlayersTop:

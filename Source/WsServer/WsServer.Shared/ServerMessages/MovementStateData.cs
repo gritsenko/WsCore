@@ -5,7 +5,7 @@ using WsServer.Common;
 
 namespace WsServer.ServerMessages
 {
-    public struct MovementStateData : IMessageData
+    public struct MovementStateData : IMessageData, ISelfSerializable
     {
         public uint PlayerId;
         public float X;
@@ -36,6 +36,22 @@ namespace WsServer.ServerMessages
             TargetX = player.TargetPos.X;
             TargetY = player.TargetPos.Y;
             AnimationState = player.AnimationState;
+        }
+
+        public void WriteToBuffer(MyBuffer buffer)
+        {
+            buffer.SetUint32(PlayerId);
+            buffer.SetFloat(X);
+            buffer.SetFloat(Y);
+            buffer.SetFloat(AimX);
+            buffer.SetFloat(AimY);
+            buffer.SetFloat(TargetX);
+            buffer.SetFloat(TargetY);
+            buffer.SetInt32(BodyAngle);
+            buffer.SetInt32(ControlsState);
+            buffer.SetFloat(VelocityX);
+            buffer.SetFloat(VelocityY);
+            buffer.SetInt32(AnimationState);
         }
     }
 }

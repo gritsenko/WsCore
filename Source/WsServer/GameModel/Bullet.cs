@@ -9,7 +9,7 @@ namespace GameModel
         public Vector2D Pos { get; set; }
         public Vector2D Velocity { get; set; }
 
-        public static double MaxLifetime = 5;
+        public static double MaxLifetime = 2;
         public double LifeTime = 0;
 
         public bool IsDestroyed { get; set; }
@@ -17,9 +17,12 @@ namespace GameModel
 
         public virtual void Update(float dt)
         {
-            Pos += Velocity;
+            Pos += Velocity * dt;
             LifeTime += dt;
-            
+            if (LifeTime > MaxLifetime)
+            {
+                IsDestroyed = true;
+            }
         }
 
 

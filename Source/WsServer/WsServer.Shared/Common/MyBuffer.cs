@@ -5,6 +5,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using WsServer.Abstract;
 
 namespace WsServer.Common
 {
@@ -103,17 +104,28 @@ namespace WsServer.Common
             Index += 8;
             return this;
         }
+
+
         public unsafe MyBuffer SetFloat(float value)
         {
-            var floatArray1 = new[] { value };
+            //var floatArray1 = new[] { value };
             // create a byte array and copy the floats into it...
-            var byteArray = new byte[floatArray1.Length * 4];
-            Buffer.BlockCopy(floatArray1, 0, byteArray, 0, 4);
-            Buffer.BlockCopy(byteArray, 0, buffer, Index, 4);
+            //var byteArray = new byte[floatArray1.Length * 4];
+            //Buffer.BlockCopy(floatArray1, 0, byteArray, 0, 4);
+            //Buffer.BlockCopy(byteArray, 0, buffer, Index, 4);
+
+            //var arr = BitConverter.GetBytes(value);
+
+            var val = *((uint*)&value);
+
+            SetUint8((byte)(val & 0xFF));
+            SetUint8((byte)((val >> 8) & 0xFF));
+            SetUint8((byte)((val >> 16) & 0xFF));
+            SetUint8((byte)((val >> 24) & 0xFF));
 
             //fixed (byte* p = &buffer[Index])
             //    *((float*)p) = value;
-            Index += 4;
+            //Index += 4;
             return this;
         }
 
@@ -194,6 +206,12 @@ namespace WsServer.Common
         {
             if (obj == null)
                 return this;
+
+            if (obj is ISelfSerializable ss)
+            {
+                ss.WriteToBuffer(this);
+                return this;
+            }
 
             var typeInfo = obj.GetType();
             if (!typeInfo.IsValueType || typeInfo.IsPrimitive || obj is string)

@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
 using GameModel.Common.Math;
 
@@ -32,10 +34,18 @@ namespace GameModel
 
         private void InitTestState()
         {
-            for (int i = 0; i < 10; i++)
+            for (int i = 0; i < 0; i++)
             {
                 var p = CreateNewPlayer(true);
                 _players[p.Id] = p;
+            }
+        }
+
+        public IEnumerable<Player> GetPlayers()
+        {
+            foreach (var player in _players)
+            {
+                yield return player.Value;
             }
         }
 
@@ -110,13 +120,6 @@ namespace GameModel
             _players[player.Id] = player;
             if (!_playersTop.ContainsKey(player.Name))
                 _playersTop[player.Name] = 0;
-        }
-
-        public Player[] GetPlayers()
-        {
-            Player[] result = null;
-            result = _players.Values.ToArray();
-            return result;
         }
 
         public Player HitPlayer(uint id, int hitPoint, uint hitter)
@@ -216,18 +219,19 @@ namespace GameModel
             return p;
         }
 
-        public void SpawnBullet(Vector2D pos, Vector2D aimPos, uint spawnerId)
+        public uint[] SpawnBullet(Vector2D pos, Vector2D aimPos, uint spawnerId)
         {
             var bullet = new Bullet()
             {
                 Id = GetNewBulletId(),
                 Pos = pos,
                 Type = 0,
-                Velocity = aimPos.Normalize() * 400,
+                Velocity = (aimPos-pos).Normalize() * 500f,
                 SpawnerId = spawnerId
             };
 
             _bullets.TryAdd(bullet.Id, bullet);
+            return new[] {bullet.Id};
         }
 
         public uint GetNewBulletId() => ++_lastBulletId;
@@ -244,5 +248,6 @@ namespace GameModel
                 _bullets.TryRemove(bullet.Id, out _);
             }
         }
+
     }
 }
