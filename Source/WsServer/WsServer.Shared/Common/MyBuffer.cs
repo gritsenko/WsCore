@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net.WebSockets;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -6,6 +7,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using WsServer.Abstract;
+using WsServer.ServerMessages;
 
 namespace WsServer.Common
 {
@@ -238,6 +240,23 @@ namespace WsServer.Common
             return this;
         }
 
+        public unsafe void SetCollection<TItem>(IEnumerable<TItem> items)
+        {
+            var lenIndex = Index;
+            Index += 4;
+
+            uint len = 0;
+            foreach (var item in items)
+            {
+                SetData(item);
+                len++;
+            }
+
+            //write length of collection
+            fixed (byte* p = &buffer[lenIndex])
+                *((UInt32*)p) = len;
+        }
+
         public int GetFieldLenght(FieldInfo info)
         {
             try
@@ -291,5 +310,6 @@ namespace WsServer.Common
                     break;
             }
         }
+
     }
 }

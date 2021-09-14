@@ -78,7 +78,8 @@ export class GameStateServerMessage {
 }
 export class GameTickStateServerMessage {
     MovementStates: MovementStateData[];
-    DestroyedBulletsState: DestroyedBulletsStateData;
+    DestroyedBulletsIds: number[];
+    RespawnedPlayerIds: number[];
     HitPlayersState: HitPlayerStateData[];
 }
 export class InitPlayerServerMessage {
@@ -289,7 +290,8 @@ export default class Wsc {
             case ServerMessageType.GameTickState:
                 var GameTickStateMessage = new GameTickStateServerMessage();
                 GameTickStateMessage.MovementStates = this.readArray(buff, b => { return this.readMovementStateData(b); });
-                GameTickStateMessage.DestroyedBulletsState = this.readDestroyedBulletsStateData(buff);
+                GameTickStateMessage.DestroyedBulletsIds = this.readArray(buff, b => { return b.popUInt32(); });
+                GameTickStateMessage.RespawnedPlayerIds = this.readArray(buff, b => { return b.popUInt32(); });
                 GameTickStateMessage.HitPlayersState = this.readArray(buff, b => { return this.readHitPlayerStateData(b); });
                 this.onGameTickState(GameTickStateMessage);
                 break;

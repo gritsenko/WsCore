@@ -333,7 +333,8 @@ var Wsc = /** @class */ (function () {
             case ServerMessageType.GameTickState:
                 var GameTickStateMessage = new GameTickStateServerMessage();
                 GameTickStateMessage.MovementStates = this.readArray(buff, function (b) { return _this.readMovementStateData(b); });
-                GameTickStateMessage.DestroyedBulletsState = this.readDestroyedBulletsStateData(buff);
+                GameTickStateMessage.DestroyedBulletsIds = this.readArray(buff, function (b) { return b.popUInt32(); });
+                GameTickStateMessage.RespawnedPlayerIds = this.readArray(buff, function (b) { return b.popUInt32(); });
                 GameTickStateMessage.HitPlayersState = this.readArray(buff, function (b) { return _this.readHitPlayerStateData(b); });
                 this.onGameTickState(GameTickStateMessage);
                 break;

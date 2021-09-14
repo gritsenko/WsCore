@@ -36,6 +36,9 @@ namespace GameModel
         public int ArmorIndex { get; set; }
 
         public int AnimationState { get; set; }
+        public bool IsDead => Hp <= 0;
+
+        public double RespawnTime = 0;
 
         public void UpdateFrom(Player p)
         {
@@ -93,6 +96,17 @@ namespace GameModel
 
         public virtual void Update(float dt)
         {
+            if (IsDead)
+            {
+                if (RespawnTime > 0)
+                {
+                    RespawnTime -= dt;
+                }
+
+                AnimationState = 2; //Death
+                return;
+            }
+
             CheckControls(dt);
             if (!IsTargetReached())
             {
@@ -103,11 +117,6 @@ namespace GameModel
             {
                 AnimationState = 0; // idle
                 Movement.Velocity = Vector2D.Zero;
-            }
-
-            if (Hp <= 0)
-            {
-                AnimationState = 2; //Death
             }
         }
 

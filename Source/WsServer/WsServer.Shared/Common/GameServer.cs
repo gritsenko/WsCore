@@ -17,8 +17,9 @@ namespace WsServer.Common
 
         private readonly MyBuffer _tickStateBuffer = new MyBuffer(1024 * 100);
 
+        private GameTickStateServerMessage _tickStateServerMessage = new GameTickStateServerMessage();
+
         private DateTime _lastTickTime = DateTime.Now;
-        private Timer _movmentTimer;
         private readonly TimeSpan _updatePeriod = TimeSpan.FromMilliseconds(33);
         private const int CleanPeriod = 10000 / 33;
         private int _ticksToClean = CleanPeriod;
@@ -91,34 +92,9 @@ namespace WsServer.Common
 
         public MyBuffer BuildTickState(Game game)
         {
-            var playersCount = Game.PlayersCount;
-
-            //var buff = new MyBuffer();
             _tickStateBuffer.Clear();
-
-            //write directly to buffer to reduce allocations
-            //simulating GameTickStateServerMessage 
-
             _tickStateBuffer.SetUint8((byte)ServerMessageType.GameTickState);
-            //first byte - count of players
-            _tickStateBuffer.SetUint32((uint)playersCount);
-            //serialize each player
-            foreach (var player in Game.GetPlayers()) 
-                _tickStateBuffer.SetData(new MovementStateData(player));
-
-            //serialize bullets to be destroyed
-            var bulletsToDestroy = game.GetDestroyedBullets().Select(x => x.Id).ToArray();
-            _tickStateBuffer.SetData(new DestroyedBulletsStateData(bulletsToDestroy));
-
-            //serialize player hit events
-            var hitsInfos = game.GetHits();
-            var hitsCount = game.HitsCount;
-            _tickStateBuffer.SetUint32((uint)hitsCount);
-
-            foreach (var hitInfo in hitsInfos)
-            {
-                _tickStateBuffer.SetData(new HitPlayerStateData(hitInfo));
-            }
+            _tickStateServerMessage.WriteToBuffer(_tickStateBuffer, game);
             return _tickStateBuffer;
         }
 

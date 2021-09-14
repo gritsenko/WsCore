@@ -17,6 +17,7 @@ namespace GameModel
         private readonly ConcurrentDictionary<string, int> _playersTop = new();
 
         private readonly ConcurrentBag<HitInfo> _tickHits = new();
+        private readonly ConcurrentBag<uint> _respawnedPlayerIds = new();
 
         public World World;
         public int PlayersCount => _players.Count;
@@ -50,6 +51,12 @@ namespace GameModel
             }
         }
 
+        public IEnumerable<TItem> ForEachPlayers<TItem>(Func<Player, TItem> processFunc)
+        {
+            foreach (var player in _players)
+                yield return processFunc(player.Value);
+        }
+
         public Player CreateNewPlayer(bool isBot = false)
         {
             var r = new Random();
@@ -79,9 +86,17 @@ namespace GameModel
 
         public void OnTick(float dt)
         {
-            foreach (var bot in _players)
+            foreach (var player in _players)
             {
-                bot.Value.Update(dt);
+                player.Value.Update(dt);
+
+                //respawn players
+                if (player.Value.IsDead && player.Value.RespawnTime <= 0)
+                {
+                    _respawnedPlayerIds.Add(player.Key);
+                    RespawnPlayer(player.Key);
+                }
+
             }
 
             foreach (var (_, bullet) in _bullets)
@@ -99,23 +114,24 @@ namespace GameModel
         {
             RemoveDestroyedBullets();
             _tickHits.Clear();
+            _respawnedPlayerIds.Clear();
         }
 
 
-        private bool CheckBulletForCollisions(Bullet bullet, out Player hitPlayer)
+        private bool CheckBulletForCollisions(Bullet bullet, out Player collidedPlayer)
         {
-            hitPlayer = default;
+            collidedPlayer = default;
             if (bullet.IsDestroyed) return false;
 
             foreach (var (id, player) in _players)
             {
-                if (id == bullet.SpawnerId)
+                if (id == bullet.SpawnerId || player.IsDead)
                     continue;
 
                 var dist = (player.Movement.Pos - bullet.Pos).Length;
                 if (dist <= Player.Radius)
                 {
-                    hitPlayer = player;
+                    collidedPlayer = player;
                     return true;
                 }
             }
@@ -142,6 +158,8 @@ namespace GameModel
 
             if (p1.Hit(hitPoints))
             {
+                p1.RespawnTime = 5;
+
                 AddFrag(p1, -1);
 
                 if (playerId != hitterId)
@@ -174,8 +192,9 @@ namespace GameModel
 
             if (p != null)
             {
-                p.Hp = 100;
+                p.Hp = p.Maxhp;
                 p.SetPos((float)(r.NextDouble() * 1700), (float)(r.NextDouble() * 960));
+                p.SetTarget(p.Movement.Pos.X, p.Movement.Pos.Y);
             }
             return p;
         }
@@ -249,9 +268,13 @@ namespace GameModel
 
         public uint GetNewBulletId() => ++_lastBulletId;
 
-        public IEnumerable<Bullet> GetDestroyedBullets()
+        public IEnumerable<uint> GetDestroyedBulletIds()
         {
-            return _bullets.Values.Where(x => x.IsDestroyed);
+            foreach (var bullet in _bullets)
+            {
+                if (bullet.Value.IsDestroyed)
+                    yield return bullet.Key;
+            }
         }
 
         public void RemoveDestroyedBullets()
@@ -265,6 +288,14 @@ namespace GameModel
         public IEnumerable<HitInfo> GetHits()
         {
             return _tickHits;
+        }
+
+        public IEnumerable<uint> GetRespawnedPlayerIds() => _respawnedPlayerIds;
+
+        public IEnumerable<PlayerMovementState> GetPlayersMovementStates()
+        {
+            foreach (var player in _players)
+                yield return player.Value.Movement;
         }
     }
 }
