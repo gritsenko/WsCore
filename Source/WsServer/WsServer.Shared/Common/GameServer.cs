@@ -78,6 +78,9 @@ namespace WsServer.Common
 
             _messenger.Broadcast(BuildTickState(Game));
 
+            if(Game.TopChanged)
+                BroadCastTop();
+
             //clean state
             Game.FlushTickData();
 

@@ -24,6 +24,7 @@ namespace GameModel
         public int HitsCount => _tickHits.Count;
 
         public string Top { get; set; }
+        public bool TopChanged { get; set; }
 
         public Game()
         {
@@ -115,6 +116,7 @@ namespace GameModel
             RemoveDestroyedBullets();
             _tickHits.Clear();
             _respawnedPlayerIds.Clear();
+            TopChanged = false;
         }
 
 
@@ -149,6 +151,14 @@ namespace GameModel
             _players[player.Id] = player;
             if (!_playersTop.ContainsKey(player.Name))
                 _playersTop[player.Name] = 0;
+
+            UpdateTopString();
+        }
+
+        private void UpdateTopString()
+        {
+            Top = string.Join('\n', _playersTop.OrderByDescending(x => x.Value).Select(x => x.Key + " : " + x.Value));
+            TopChanged = true;
         }
 
         public HitInfo HitPlayer(uint playerId, int hitPoints, uint hitterId)
@@ -163,7 +173,7 @@ namespace GameModel
                 AddFrag(p1, -1);
 
                 if (playerId != hitterId)
-                    AddFrag(p2, 2);
+                    AddFrag(p2, 1);
             }
 
             return new HitInfo(playerId, p1.Hp, hitterId);
@@ -183,6 +193,8 @@ namespace GameModel
                 _playersTop[player.Name] = 0;
 
             _playersTop[player.Name] += value;
+
+            UpdateTopString();
         }
 
         public Player RespawnPlayer(uint id)
@@ -202,6 +214,10 @@ namespace GameModel
         public void SetPlayerName(uint id, string name)
         {
             var p = GetPlayer(id);
+
+            var oldName = p.Name;
+            _playersTop.TryRemove(oldName, out var oldScore);
+
             if (string.IsNullOrEmpty(name))
             {
                 name = "Player " + p.Id;
@@ -209,7 +225,11 @@ namespace GameModel
 
             p.Name = name;
 
+            _playersTop.TryAdd(p.Name, oldScore);
+
             p.UpdateActivity();
+
+            TopChanged = true;
         }
 
         public Player MovePlayer(uint id, float x, float y)
