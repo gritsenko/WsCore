@@ -1,21 +1,22 @@
-﻿using Game.Model;
-using Game.Protocol.ClientMessages;
+﻿using Game.Core;
+using Game.ServerLogic.Map.Requests;
+using WsServer.Abstract;
 using WsServer.Common;
 
-namespace Game.Protocol.Map.Handlers;
+namespace Game.ServerLogic.Map.Handlers;
 
-public class TilesRequestMessageHandler : MessageHandlerBase<GetTilesClientRequest>
+public class TilesRequestMessageHandler(IGameMessenger messenger, GameModel gameModel) : MessageHandlerBase<GetTilesRequest>
 {
-    protected override void Handle(uint clientId, GetTilesClientRequest msg)
+    protected override void Handle(uint clientId, GetTilesRequest msg)
     {
-        var tileBlock = Game.World.GetTileBlock(msg.MapX, msg.MapY);
+        var tileBlock = gameModel.World.GetTileBlock(msg.MapX, msg.MapY);
         var tilesBuffer = MyBuffer.Create(TileBlock.Size + 1)
-            .SetUint8((byte)ServerMessageType.MapTiles)
+            .SetUint8(GetTilesRequest.TypeId)
             .SetInt32(tileBlock.X)
             .SetInt32(tileBlock.Y);
 
         Buffer.BlockCopy(tileBlock.Tiles.Cast<int>().ToArray(), 0, tilesBuffer.buffer, 9, tileBlock.Tiles.Length * sizeof(TileType));
 
-        Messenger.SendMessage(clientId, tilesBuffer);
+        messenger.SendMessage(clientId, tilesBuffer);
     }
 }

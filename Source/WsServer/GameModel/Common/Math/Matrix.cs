@@ -6,7 +6,7 @@
 using System;
 using System.Text;
 
-namespace Game.Model.Common.Math;
+namespace Game.Core.Common.Math;
 
 /// <summary>
 /// Represents a general purpose matrix class

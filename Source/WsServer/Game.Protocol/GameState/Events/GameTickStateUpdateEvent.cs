@@ -1,10 +1,11 @@
-﻿using Game.Protocol.Player.Events;
+﻿using Game.Core;
+using Game.ServerLogic.GameState.Events.GameTickStateUpdateEventData;
 using WsServer.Abstract;
 using WsServer.Common;
 
-namespace Game.Protocol.GameState.Events;
+namespace Game.ServerLogic.GameState.Events;
 
-public struct GameTickStateServerMessage : IServerMessage
+public struct GameTickStateUpdateEvent : IServerEvent
 {
     public static byte TypeId => 1;
 
@@ -17,7 +18,7 @@ public struct GameTickStateServerMessage : IServerMessage
     //write directly to buffer to reduce allocations
     public void WriteToBuffer(MyBuffer buffer, IGameModel gameModel)
     {
-        var game = (Model.Game)gameModel;
+        var game = (GameModel)gameModel;
         //MovementStates
         buffer.SetCollection(game.ForEachPlayers(x => new MovementStateData(x)));
         //DestroyedBulletsIds

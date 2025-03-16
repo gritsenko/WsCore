@@ -1,10 +1,11 @@
 ﻿using System.Runtime.InteropServices;
+using Game.Core;
 using WsServer.Abstract;
 
-namespace Game.Protocol.Player.Events;
+namespace Game.ServerLogic.Player.Events;
 
 [StructLayout(LayoutKind.Sequential)]
-public struct PlayersTopServerMessage(Model.Game game) : IServerMessage
+public struct PlayersTopEvent(GameModel game) : IServerEvent
 {
     public static byte TypeId => 6;
 

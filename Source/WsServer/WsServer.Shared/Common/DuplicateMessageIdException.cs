@@ -2,7 +2,7 @@ using System;
 
 namespace WsServer.Common;
 
-public class DuplicateMessageIdException : Exception
+public class DuplicateMessageIdException(byte id) : Exception
 {
-    public override string Message => "This Id already exists in registry";
+    public override string Message => $"This Id : {id} already exists in registry";
 }

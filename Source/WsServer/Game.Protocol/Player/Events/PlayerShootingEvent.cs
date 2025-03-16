@@ -1,10 +1,10 @@
 ﻿using System.Runtime.InteropServices;
 using WsServer.Abstract;
 
-namespace Game.Protocol.Player.Events;
+namespace Game.ServerLogic.Player.Events;
 
 [StructLayout(LayoutKind.Sequential)]
-public struct PlayerShootingServerMessage(uint clientId, int weapon, uint[] bulletIds) : IServerMessage
+public struct PlayerShootingEvent(uint clientId, int weapon, uint[] bulletIds) : IServerEvent
 {
     public static byte TypeId => 103;
 

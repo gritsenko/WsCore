@@ -1,10 +1,11 @@
 ﻿using WsServer.Abstract;
 
-namespace Game.Protocol.Map.Requests;
+namespace Game.ServerLogic.Map.Requests;
 
-[ClientMessageType(ClientMessageType.DestroyMapObject)]
 public struct DestroyMapObjectRequest : IClientRequest
 {
+    public static byte TypeId => 53;
+
     public int MapX;
     public int MapY;
 }

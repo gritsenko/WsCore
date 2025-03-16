@@ -2,8 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
-using Game.Protocol;
-using Game.Protocol.ServerMessages;
+using Game.ServerLogic.Player.Events;
 using WsServer.Abstract;
 using WsServer.Common;
 
@@ -19,7 +18,7 @@ public class GameMessenger : IGameMessenger
         {
             Clients[id] = webSocketClient;
         }
-        SendMessage(id, new InitPlayerServerMessage(id));
+        SendMessage(id, new InitPlayerEvent(id));
 
         //client id is player id for now
         return id;
@@ -54,21 +53,21 @@ public class GameMessenger : IGameMessenger
         }
     }
 
-    public void Broadcast(IServerMessage message)
+    public void Broadcast(IServerEvent @event)
     {
-        Broadcast(MessageToBuffer(message));
+        Broadcast(MessageToBuffer(@event));
     }
 
-    private MyBuffer MessageToBuffer(IServerMessage message)
+    private MyBuffer MessageToBuffer(IServerEvent @event)
     {
-        if (!(message.GetType().GetCustomAttribute(typeof(ServerMessageTypeAttribute)) is ServerMessageTypeAttribute messageTypeAttr))
-            throw new NotImplementedException($"Not found message type for{message.GetType().Name}");
+        if (!(@event.GetType().GetCustomAttribute(typeof(ServerMessageTypeAttribute)) is ServerMessageTypeAttribute messageTypeAttr))
+            throw new NotImplementedException($"Not found message type for{@event.GetType().Name}");
 
         var mesageType = messageTypeAttr.ServerMessageType;
 
         var buff = MyBuffer.Create()
             .SetUint8((byte)mesageType)
-            .SetData(message);
+            .SetData(@event);
 
         return buff;
     }
@@ -93,9 +92,9 @@ public class GameMessenger : IGameMessenger
         }
     }
 
-    public void SendMessage(uint clientId, IServerMessage message)
+    public void SendMessage(uint clientId, IServerEvent @event)
     {
-        SendMessage(clientId, MessageToBuffer(message));
+        SendMessage(clientId, MessageToBuffer(@event));
     }
 
     public void SendMessage(uint clientId, MyBuffer buff)

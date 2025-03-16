@@ -1,11 +1,11 @@
 ﻿using System.Runtime.InteropServices;
-using Game.Model;
+using Game.ServerLogic.GameState.Events.GameTickStateUpdateEventData;
 using WsServer.Abstract;
 
-namespace Game.Protocol.Player.Events;
+namespace Game.ServerLogic.Player.Events.PlayerData;
 
 [StructLayout(LayoutKind.Sequential)]
-public struct PlayerStateData(Player p) : IMessageData
+public struct PlayerStateData(Core.Player p) : IMessageData
 {
     public uint Id = p.Id;
 

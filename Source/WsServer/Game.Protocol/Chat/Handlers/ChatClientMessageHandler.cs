@@ -1,8 +1,7 @@
-﻿using Game.Protocol.Chat.Requests;
-using Game.Protocol.ServerMessages;
+﻿using Game.ServerLogic.Chat.Requests;
 using WsServer.Common;
 
-namespace Game.Protocol.Chat.Handlers;
+namespace Game.ServerLogic.Chat.Handlers;
 
 public class ChatClientMessageHandler() : MessageHandlerBase<ChatMessageRequest>
 {

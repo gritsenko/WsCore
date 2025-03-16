@@ -1,17 +1,17 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
-VisualStudioVersion = 17.14.35906.104 d17.14
+VisualStudioVersion = 17.14.35906.104
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "WsServer", "WsServer\WsServer.csproj", "{A119A38E-D8E7-424E-86D2-FA32116F62F8}"
 EndProject
-Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Game.Model", "GameModel\Game.Model.csproj", "{E7FBA0C1-DAB1-4ECF-9BE8-74D8652C4EB5}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Game.Core", "GameModel\Game.Core.csproj", "{E7FBA0C1-DAB1-4ECF-9BE8-74D8652C4EB5}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "WsClientBuilder", "WsClientBuilder\WsClientBuilder.csproj", "{779DCFE8-93DF-474C-930F-57AC2B696CDF}"
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "WsServer.Shared", "WsServer.Shared\WsServer.Shared.csproj", "{7702580E-E38A-456A-A7FB-16198FE3D5BA}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Game.Protocol", "Game.Protocol\Game.Protocol.csproj", "{19CBA9D3-332B-4057-AF8B-93607FB6C893}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Game.ServerLogic", "Game.Protocol\Game.ServerLogic.csproj", "{19CBA9D3-332B-4057-AF8B-93607FB6C893}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

@@ -1,6 +1,6 @@
 ﻿using System.Collections.Generic;
 
-namespace Game.Model.Abstract;
+namespace Game.Core.Abstract;
 
 internal interface IWorldStorage
 {

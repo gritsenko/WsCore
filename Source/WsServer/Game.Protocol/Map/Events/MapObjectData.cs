@@ -1,7 +1,7 @@
-﻿using Game.Model;
+﻿using Game.Core;
 using WsServer.Abstract;
 
-namespace Game.Protocol.Map.Events;
+namespace Game.ServerLogic.Map.Events;
 
 public struct MapObjectData(GameObject obj) : IMessageData
 {

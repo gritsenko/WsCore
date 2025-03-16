@@ -1,10 +1,11 @@
 ﻿using WsServer.Abstract;
 
-namespace Game.Protocol.Map.Requests;
+namespace Game.ServerLogic.Map.Requests;
 
-[ClientMessageType(ClientMessageType.SetMapObject)]
 public struct SetMapObjectRequest : IClientRequest
 {
+    public static byte TypeId => 52;
+
     public int MapX;
     public int MapY;
     public int ObjectType;

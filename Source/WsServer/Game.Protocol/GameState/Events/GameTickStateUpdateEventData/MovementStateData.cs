@@ -1,8 +1,7 @@
-﻿using Game.Model;
-using WsServer.Abstract;
+﻿using WsServer.Abstract;
 using WsServer.Common;
 
-namespace Game.Protocol.Player.Events;
+namespace Game.ServerLogic.GameState.Events.GameTickStateUpdateEventData;
 
 public struct MovementStateData : IMessageData, ISelfSerializable
 {
@@ -19,7 +18,7 @@ public struct MovementStateData : IMessageData, ISelfSerializable
     public float VelocityY;
     public int AnimationState;
 
-    public MovementStateData(Player player)
+    public MovementStateData(Core.Player player)
     {
         PlayerId = player.Id;
         var ms = player.MovementState;

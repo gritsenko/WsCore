@@ -1,6 +1,6 @@
 ﻿using WsServer.Abstract;
 
-namespace Game.Protocol.Bullets.Events;
+namespace Game.ServerLogic.Bullets.Events;
 
 public struct DestroyedBulletsStateData(uint[] bulletIds) : IMessageData
 {

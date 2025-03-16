@@ -1,10 +1,11 @@
 ﻿using WsServer.Abstract;
 
-namespace Game.Protocol.Player.Requests;
+namespace Game.ServerLogic.Player.Requests;
 
-[ClientMessageType(ClientMessageType.UpdatePlayerTarget)]
 public struct UpdatePlayerTargetRequest : IClientRequest
 {
+    public static byte TypeId => 106;
+
     public float AimX;
     public float AimY;
 }

@@ -1,4 +1,4 @@
-﻿namespace Game.Model;
+﻿namespace Game.Core;
 
 public enum ObjectClass
 {

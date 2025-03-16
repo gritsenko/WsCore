@@ -26,7 +26,7 @@ public class TypeScriptClientBuilder(string outputPath)
 
         sb.AppendLine("//Data definitions");
         BuildTypeDefinitions<IMessageData>(sb);
-        BuildTypeDefinitions<IServerMessage>(sb);
+        BuildTypeDefinitions<IServerEvent>(sb);
         BuildTypeDefinitions<IClientRequest>(sb);
 
 
@@ -169,7 +169,7 @@ public class TypeScriptClientBuilder(string outputPath)
 
     private void BuildMessageReaders(StringBuilder sb)
     {
-        var type = typeof(IServerMessage);
+        var type = typeof(IServerEvent);
         var types = AppDomain.CurrentDomain.GetAssemblies()
             .SelectMany(s => s.GetTypes())
             .Where(p => type.IsAssignableFrom(p) && !p.IsInterface);

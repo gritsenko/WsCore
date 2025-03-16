@@ -1,38 +1,39 @@
-﻿using Game.Protocol;
-using Game.Protocol.GameState.Events;
+﻿using Game.Core;
+using Game.ServerLogic.GameState.Events;
+using Game.ServerLogic.Player.Events;
 using WsServer.Abstract;
 using WsServer.Common;
 
 namespace WsServer;
 
-public class GameServer(IGameMessenger messenger) : GameServerBase<Game.Model.Game>(messenger)
+public class GameServer(IGameMessenger messenger) : GameServerBase<GameModel>(messenger)
 {
-    private GameTickStateServerMessage _tickStateServerMessage;
+    private GameTickStateUpdateEvent _tickStateUpdateEvent;
     private readonly MyBuffer _tickStateBuffer = new(1024 * 100);
 
-    public override MyBuffer BuildTickState(Game.Model.Game game)
+    public override MyBuffer BuildTickState(GameModel game)
     {
         _tickStateBuffer.Clear();
-        _tickStateBuffer.SetUint8((byte)ServerMessageType.GameTickState);
-        _tickStateServerMessage.WriteToBuffer(_tickStateBuffer, game);
+        _tickStateBuffer.SetUint8(GameTickStateUpdateEvent.TypeId);
+        _tickStateUpdateEvent.WriteToBuffer(_tickStateBuffer, game);
         return _tickStateBuffer;
     }
     public override uint AddNewPlayer()
     {
         var id = base.AddNewPlayer();
-        //notifying other players that new player joind
+        //notifying other players that new player joined
         var player = GameModel.GetPlayer(id);
-        Messenger.Broadcast(new PlayerJoinedServerMessage(player));
+        Messenger.Broadcast(new PlayerJoinedEvent(player));
         return id;
     }
     public override void SendGameState(uint clientId)
     {
-        Messenger.SendMessage(clientId, new GameStateServerMessage(GameModel));
+        Messenger.SendMessage(clientId, new GameStateUpdateEvent(GameModel));
     }
 
     public override void RemovePlayer(uint clientId)
     {
         base.RemovePlayer(clientId);
-        Messenger.Broadcast(new PlayerLeftServerMessage(clientId));
+        Messenger.Broadcast(new PlayerLeftEvent(clientId));
     }
 }

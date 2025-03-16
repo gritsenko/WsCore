@@ -1,10 +1,10 @@
 ﻿using WsServer.Abstract;
 
-namespace Game.Protocol.Player.Requests;
+namespace Game.ServerLogic.Player.Requests;
 
-[ClientMessageType(ClientMessageType.RespawnPlayer)]
 public struct PlayerRespawnRequest : IClientRequest
 {
-    public uint PlayerId;
+    public static byte TypeId => 105;
 
+    public uint PlayerId;
 }

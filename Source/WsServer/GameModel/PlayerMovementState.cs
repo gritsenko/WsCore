@@ -1,6 +1,6 @@
-using Game.Model.Common.Math;
+using Game.Core.Common.Math;
 
-namespace Game.Model;
+namespace Game.Core;
 
 public class PlayerMovementState
 {

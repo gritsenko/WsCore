@@ -1,8 +1,8 @@
 ﻿using WsServer.Abstract;
 
-namespace Game.Protocol.Player.Events;
+namespace Game.ServerLogic.Player.Events;
 
-public struct UpdatePlayerSlotsServerMessage(uint playerId, int bodyIndex, int weaponIndex, int armorIndex) : IServerMessage
+public struct UpdatePlayerSlotsEvent(uint playerId, int bodyIndex, int weaponIndex, int armorIndex) : IServerEvent
 {
     public static byte TypeId => 102;
 

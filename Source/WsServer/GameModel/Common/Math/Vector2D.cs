@@ -1,6 +1,6 @@
 using System;
 
-namespace Game.Model.Common.Math;
+namespace Game.Core.Common.Math;
 
 /// <summary>
 /// Provides the vector class that is the basis for this project.

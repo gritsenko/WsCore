@@ -44,8 +44,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Game.Protocol\Game.Protocol.csproj" />
-    <ProjectReference Include="..\GameModel\Game.Model.csproj" />
+    <ProjectReference Include="..\Game.Protocol\Game.ServerLogic.csproj" />
     <ProjectReference Include="..\WsServer.Shared\WsServer.Shared.csproj" />
   </ItemGroup>
 

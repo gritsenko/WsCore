@@ -1,8 +1,8 @@
-﻿using Game.Model.Common.Math;
-using Game.Protocol.Player.Requests;
+﻿using Game.Core.Common.Math;
+using Game.ServerLogic.Player.Requests;
 using WsServer.Common;
 
-namespace Game.Protocol.Player.Handlers;
+namespace Game.ServerLogic.Player.Handlers;
 
 public class UpdatePlayerStateClientMessageHandler() : MessageHandlerBase<UpdatePlayerStateRequest>
 {

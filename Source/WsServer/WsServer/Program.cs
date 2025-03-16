@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Logging.Debug;
 using WsServer;
+using WsServer.Abstract;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddLogging(builder =>
@@ -15,9 +16,16 @@ builder.Services.AddLogging(builder =>
 		.AddFilter<DebugLoggerProvider>(category: null, level: LogLevel.Debug);
 });
 
+builder.Services.AddTransient<WebSocketHandlerFactory>();
+builder.Services.AddScoped<WebSocketHandler>();
 
 //init game server
-WsServerBootstrap.Initialize();
+builder.Services.AddSingleton<IMessageSerializer, MessageSerializer>();
+builder.Services.AddSingleton<IClientConnectionManager, ClientConnectionManager>();
+builder.Services.AddSingleton<IGameServer, GameServer>();
+builder.Services.AddSingleton<IGameMessenger, GameMessenger>();
+builder.Services.AddSingleton<GameServerFacade>();
+
 
 var app = builder.Build();
 
@@ -29,6 +37,8 @@ if (app.Environment.IsDevelopment())
 app.UseDefaultFiles();
 app.UseStaticFiles();
 
-app.Map("/ws", SocketHandler.Map);
+// WebSocket handling
+app.UseWebSockets();
+app.Map("/ws", WebSocketHandler.HandleWebSocket);
 
 app.Run();

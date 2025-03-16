@@ -1,7 +1,7 @@
-﻿using Game.Model;
+﻿using Game.Core;
 using WsServer.Abstract;
 
-namespace Game.Protocol.Player.Events;
+namespace Game.ServerLogic.GameState.Events.GameTickStateUpdateEventData;
 
 public struct HitPlayerStateData(HitInfo hitInfo) : IMessageData
 {

@@ -2,12 +2,12 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using Game.Model.Common.Math;
+using Game.Core.Common.Math;
 using WsServer.Abstract;
 
-namespace Game.Model;
+namespace Game.Core;
 
-public class Game : IGameModel
+public class GameModel : IGameModel
 {
     private uint _lastPlayerId;
     private uint _lastBulletId;
@@ -26,7 +26,7 @@ public class Game : IGameModel
     public string Top { get; set; }
     public bool TopChanged { get; set; }
 
-    public Game()
+    public GameModel()
     {
         World = new World();
         //_npcProcessor = new NpcProcessor();

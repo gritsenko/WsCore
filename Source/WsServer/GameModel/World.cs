@@ -1,10 +1,10 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
-using Game.Model.Abstract;
-using Game.Model.Common;
+using Game.Core.Abstract;
+using Game.Core.Common;
 
-namespace Game.Model;
+namespace Game.Core;
 
 public class World
 {

@@ -1,11 +1,12 @@
 ﻿using System.Runtime.InteropServices;
 using WsServer.Abstract;
 
-namespace Game.Protocol.Player.Requests;
+namespace Game.ServerLogic.Player.Requests;
 
 [StructLayout(LayoutKind.Sequential)]
-[ClientMessageType(ClientMessageType.PlayerShooting)]
 public struct PlayerShootingRequest : IClientRequest
 {
+    public static byte TypeId => 103;
+
     public int Weapon;
 }

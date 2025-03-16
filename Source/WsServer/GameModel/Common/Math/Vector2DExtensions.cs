@@ -1,4 +1,4 @@
-namespace Game.Model.Common.Math;
+namespace Game.Core.Common.Math;
 
 public static class Vector2DExtensions
 {

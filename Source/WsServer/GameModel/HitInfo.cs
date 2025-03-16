@@ -1,4 +1,4 @@
-namespace Game.Model;
+namespace Game.Core;
 
 public struct HitInfo(uint playerId, byte newHp, uint hitterId)
 {

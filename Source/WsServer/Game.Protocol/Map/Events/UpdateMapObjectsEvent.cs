@@ -1,15 +1,15 @@
-﻿using Game.Model;
+﻿using Game.Core;
 using WsServer.Abstract;
 
-namespace Game.Protocol.Map.Events;
+namespace Game.ServerLogic.Map.Events;
 
-public struct MapObjectsServerMessage : IServerMessage
+public struct UpdateMapObjectsEvent : IServerEvent
 {
     public static byte TypeId => 52;
 
     public MapObjectData[] MapObjects;
 
-    public MapObjectsServerMessage(GameObject[] objects)
+    public UpdateMapObjectsEvent(GameObject[] objects)
     {
         MapObjects = objects.Select(x => new MapObjectData(x)).ToArray();
     }

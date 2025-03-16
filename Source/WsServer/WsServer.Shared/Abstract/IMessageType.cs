@@ -1,6 +1,6 @@
 ﻿namespace WsServer.Abstract;
 
-public interface IServerMessage
+public interface IMessageType
 {
     static abstract byte TypeId { get; }
 }

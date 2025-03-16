@@ -1,8 +1,8 @@
-﻿using Game.Protocol.Map.Requests;
-using Game.Protocol.ServerMessages;
+﻿using Game.ServerLogic.Map.Events;
+using Game.ServerLogic.Map.Requests;
 using WsServer.Common;
 
-namespace Game.Protocol.Map.Handlers;
+namespace Game.ServerLogic.Map.Handlers;
 
 public class DestroyMapObjectClientMessageHandler() : MessageHandlerBase<DestroyMapObjectRequest>
 {
@@ -11,6 +11,6 @@ public class DestroyMapObjectClientMessageHandler() : MessageHandlerBase<Destroy
         var player = Game.GetPlayer(clientId);
         Game.World.DestroyObjects(msg.MapX, msg.MapY);
         Messenger.Broadcast(
-            new MapObjectsServerMessage(Game.World.GetTileBlockObjects(0, 0).ToArray()));
+            new UpdateMapObjectsEvent(Game.World.GetTileBlockObjects(0, 0).ToArray()));
     }
 }

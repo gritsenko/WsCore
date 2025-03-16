@@ -1,10 +1,10 @@
 ﻿using System.Runtime.InteropServices;
 using WsServer.Abstract;
 
-namespace Game.Protocol.Player.Events;
+namespace Game.ServerLogic.Player.Events;
 
 [StructLayout(LayoutKind.Sequential)]
-public struct SetPlayerNameServerMessage(uint clinetId, string name) : IServerMessage
+public struct SetPlayerNameEvent(uint clinetId, string name) : IServerEvent
 {
     public static byte TypeId => 100;
 

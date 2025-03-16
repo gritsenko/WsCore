@@ -12,7 +12,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\GameModel\Game.Model.csproj" />
+    <ProjectReference Include="..\GameModel\Game.Core.csproj" />
     <ProjectReference Include="..\WsServer.Shared\WsServer.Shared.csproj" />
   </ItemGroup>
 

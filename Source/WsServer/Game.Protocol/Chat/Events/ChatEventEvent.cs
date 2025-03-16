@@ -1,9 +1,9 @@
 ﻿using System.Runtime.InteropServices;
 using WsServer.Abstract;
 
-namespace Game.Protocol.Chat.Events;
+namespace Game.ServerLogic.Chat.Events;
 
-public struct ChatServerMessage(uint clientId, string message) : IServerMessage
+public struct ChatEventEvent(uint clientId, string message) : IServerEvent
 {
     public static byte TypeId => 200;
     public uint ClientId = clientId;

@@ -1,16 +1,16 @@
-﻿using Game.Protocol.Map.Requests;
-using Game.Protocol.ServerMessages;
+﻿using Game.Core;
+using Game.ServerLogic.Map.Events;
+using Game.ServerLogic.Map.Requests;
+using WsServer.Abstract;
 using WsServer.Common;
 
-namespace Game.Protocol.Map.Handlers;
+namespace Game.ServerLogic.Map.Handlers;
 
-public class GetMapObjectsClientMessageHandler : MessageHandlerBase<GetMapObjectsRequest>
+public class GetMapObjectsClientMessageHandler(IGameMessenger messenger, GameModel gameModel) : MessageHandlerBase<GetMapObjectsRequest>
 {
     protected override void Handle(uint clientId, GetMapObjectsRequest msg)
     {
-        var objects = Game.World.GetTileBlockObjects(msg.MapX, msg.MapY).ToArray();
-        var mapObjectsMessage = new MapObjectsServerMessage(objects);
-
-        Messenger.SendMessage(clientId, mapObjectsMessage);
+        var objects = gameModel.World.GetTileBlockObjects(msg.MapX, msg.MapY).ToArray();
+        messenger.SendMessage(clientId, new UpdateMapObjectsEvent(objects));
     }
 }

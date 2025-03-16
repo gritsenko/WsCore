@@ -45,5 +45,3 @@ public abstract class MessageHandlerBase : IMessageHandler
         return result;
     }
 }
-
-public delegate void MessageHandlerMethod(uint clientId, IClientRequest msg);
