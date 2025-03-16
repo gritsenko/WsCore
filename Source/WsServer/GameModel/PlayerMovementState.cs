@@ -1,16 +1,15 @@
-using GameModel.Common.Math;
+using Game.Model.Common.Math;
 
-namespace GameModel
+namespace Game.Model;
+
+public class PlayerMovementState
 {
-    public class PlayerMovementState
-    {
-        public Vector2D Pos { get; set; } = new Vector2D();
-        public Vector2D AimPos { get; set; } = new Vector2D();
+    public Vector2D Pos { get; set; } = new();
+    public Vector2D AimPos { get; set; } = new();
 
-        public int BodyAngle { get; set; }
+    public int BodyAngle { get; set; }
 
-        public int ControlsState { get; set; }
+    public int ControlsState { get; set; }
 
-        public Vector2D Velocity { get; set; } = new Vector2D();
-    }
+    public Vector2D Velocity { get; set; } = new();
 }

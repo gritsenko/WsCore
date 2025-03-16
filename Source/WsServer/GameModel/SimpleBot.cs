@@ -1,26 +1,25 @@
 ﻿using System;
-using GameModel.Common.Math;
+using Game.Model.Common.Math;
 
-namespace GameModel
+namespace Game.Model;
+
+public class SimpleBot : Player
 {
-    public class SimpleBot : Player
+    private readonly Random _rnd = new();
+
+
+    public SimpleBot()
     {
-        readonly Random _rnd = new Random();
+        IsBot = true;
+    }
 
-
-        public SimpleBot()
+    public override void Update(float dt)
+    {
+        if (IsTargetReached())
         {
-            IsBot = true;
+            TargetPos = new Vector2D(_rnd.Next(-1000, 2000), _rnd.Next(-1000, 2000));
         }
 
-        public override void Update(float dt)
-        {
-            if (IsTargetReached())
-            {
-                TargetPos = new Vector2D(_rnd.Next(-1000, 2000), _rnd.Next(-1000, 2000));
-            }
-
-            base.Update(dt);
-        }
+        base.Update(dt);
     }
 }

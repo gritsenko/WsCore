@@ -1,16 +1,15 @@
 ﻿using System.Collections.Generic;
 
-namespace GameModel.Abstract
+namespace Game.Model.Abstract;
+
+internal interface IWorldStorage
 {
-    internal interface IWorldStorage
-    {
-        long GetLastObjectId();
-        bool GetTileBlock(int xAdj, int yAdj, out TileBlock block);
-        bool GetTileBlockObjects(int xAdj, int yAdj, out IEnumerable<GameObject> objects);
-        void Save(TileBlock block, IEnumerable<GameObject> objects);
+    long GetLastObjectId();
+    bool GetTileBlock(int xAdj, int yAdj, out TileBlock block);
+    bool GetTileBlockObjects(int xAdj, int yAdj, out IEnumerable<GameObject> objects);
+    void Save(TileBlock block, IEnumerable<GameObject> objects);
 
-        void AddObject(TileBlock block, GameObject obj);
-        void RemoveObjects(TileBlock block, IEnumerable<GameObject> objs);
+    void AddObject(TileBlock block, GameObject obj);
+    void RemoveObjects(TileBlock block, IEnumerable<GameObject> objs);
 
-    }
 }

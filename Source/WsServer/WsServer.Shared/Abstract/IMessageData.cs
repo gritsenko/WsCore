@@ -1,6 +1,5 @@
-﻿namespace WsServer.Abstract
+﻿namespace WsServer.Abstract;
+
+public interface IMessageData
 {
-    public interface IMessageData
-    {
-    }
 }

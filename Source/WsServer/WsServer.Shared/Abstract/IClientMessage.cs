@@ -1,6 +1,7 @@
-﻿namespace WsServer.Abstract
+﻿namespace WsServer.Abstract;
+
+public interface IClientMessage
 {
-    public interface IClientMessage
-    {
-    }
+    byte MessageTypeId { get; }
+
 }

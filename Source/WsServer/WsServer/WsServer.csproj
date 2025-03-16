@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>net5.0</TargetFramework>
+    <TargetFramework>net9.0</TargetFramework>
     <UserSecretsId>aspnet-WsServer-2670D944-BCB8-41AB-B27E-24D82E676C94</UserSecretsId>
     <TypeScriptToolsVersion>4.3</TypeScriptToolsVersion>
   </PropertyGroup>
@@ -44,7 +44,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\GameModel\GameModel.csproj" />
+    <ProjectReference Include="..\Game.Protocol\Game.Protocol.csproj" />
+    <ProjectReference Include="..\GameModel\Game.Model.csproj" />
     <ProjectReference Include="..\WsServer.Shared\WsServer.Shared.csproj" />
   </ItemGroup>
 

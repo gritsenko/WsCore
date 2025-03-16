@@ -1,9 +1,8 @@
 ﻿using System.Collections.Generic;
 
-namespace GameModel.Abstract
+namespace Game.Model.Abstract;
+
+internal interface IWorldGenerator
 {
-    internal interface IWorldGenerator
-    {
-        (TileBlock, IEnumerable<GameObject>) GenerateTileBlock(int x, int y);
-    }
+    (TileBlock, IEnumerable<GameObject>) GenerateTileBlock(int x, int y);
 }

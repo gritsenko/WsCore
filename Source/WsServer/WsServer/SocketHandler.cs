@@ -7,126 +7,125 @@ using Microsoft.AspNetCore.Http;
 using WsServer.Abstract;
 using WsServer.Common;
 
-namespace WsServer
+namespace WsServer;
+
+public class SocketHandler : IWebSocketClient
 {
-    public class SocketHandler : IWsClient
+    public const int BufferSize = 4096;
+    public uint ClientId { get; set; }
+
+
+    private readonly WebSocket _socket;
+
+    private readonly IGameServer _gameServer;
+    private readonly IGameMessenger _gameMessenger;
+
+    private bool _isInitialized;
+    private CancellationTokenSource _cts;
+
+    SocketHandler(WebSocket socket, IGameServer gameServer, IGameMessenger gameMessenger)
     {
-        public const int BufferSize = 4096;
-        public uint ClientId { get; set; }
+        this._socket = socket;
+        _gameServer = gameServer;
+        _gameMessenger = gameMessenger;
+    }
 
+    async Task EchoLoop()
+    {
+        _cts = new CancellationTokenSource();
 
-        private readonly WebSocket _socket;
-
-        private readonly IGameServer _gameServer;
-        private readonly IGameMessenger _gameMessenger;
-
-        private bool _isInitialized;
-        private CancellationTokenSource _cts;
-
-        SocketHandler(WebSocket socket, IGameServer gameServer, IGameMessenger gameMessenger)
+        try
         {
-            this._socket = socket;
-            _gameServer = gameServer;
-            _gameMessenger = gameMessenger;
-        }
+            var buffer = new byte[BufferSize];
+            var seg = new ArraySegment<byte>(buffer);
 
-        async Task EchoLoop()
-        {
-            _cts = new CancellationTokenSource();
-
-            try
+            while (this._socket.State == WebSocketState.Open || _cts.Token.IsCancellationRequested)
             {
-                var buffer = new byte[BufferSize];
-                var seg = new ArraySegment<byte>(buffer);
-
-                while (this._socket.State == WebSocketState.Open || _cts.Token.IsCancellationRequested)
+                try
                 {
-                    try
+                    if (!_isInitialized)
                     {
-                        if (!_isInitialized)
-                        {
-                            _isInitialized = true;
-                            ClientId = RegisterNewClient();
-                        }
-                        await Task.Delay(1);
-                        var incoming = await this._socket.ReceiveAsync(seg, _cts.Token);
+                        _isInitialized = true;
+                        ClientId = RegisterNewClient();
+                    }
+                    await Task.Delay(1);
+                    var incoming = await this._socket.ReceiveAsync(seg, _cts.Token);
 
-                        if (_cts.Token.IsCancellationRequested)
-                            break;
+                    if (_cts.Token.IsCancellationRequested)
+                        break;
 
-                        if (incoming.MessageType == WebSocketMessageType.Binary)
-                            _gameServer.NotifyMessageRecieved(ClientId, ref buffer, incoming.Count);
-                    }
-                    catch (OperationCanceledException ce)
-                    {
-                        Logger.Log(ce);
-                        break;
-                    }
-                    catch (WebSocketException wse)
-                    {
-                        Logger.Log(wse);
-                        break;
-                    }
-                    catch (Exception e)
-                    {
-                        Logger.Log(e);
-                    }
+                    if (incoming.MessageType == WebSocketMessageType.Binary)
+                        _gameServer.NotifyMessageReceived(ClientId, ref buffer, incoming.Count);
                 }
-
+                catch (OperationCanceledException ce)
+                {
+                    Logger.Log(ce);
+                    break;
+                }
+                catch (WebSocketException wse)
+                {
+                    Logger.Log(wse);
+                    break;
+                }
+                catch (Exception e)
+                {
+                    Logger.Log(e);
+                }
             }
-            catch (Exception ex)
-            {
-                Logger.Log(ex);
-            }
-            finally
-            {
-                if (ClientId != 0)
-                    RemoveClient(ClientId);
-            }
-        }
 
-        private uint RegisterNewClient()
+        }
+        catch (Exception ex)
         {
-            var player = _gameServer.AddNewPlayer();
-            var clientId = _gameMessenger.RegisterClient(player.Id, this);
-            _gameServer.SendGameState(player.Id);
-            return clientId;
+            Logger.Log(ex);
         }
-
-        private void RemoveClient(uint clientId)
+        finally
         {
-            _gameMessenger.RemoveClient(clientId);
-            _gameServer.RemovePlayer(clientId);
+            if (ClientId != 0)
+                RemoveClient(ClientId);
         }
+    }
 
-        public Task SendMessage(MyBuffer buffer)
-        {
-            return buffer.SendAsync(_socket);
-        }
+    private uint RegisterNewClient()
+    {
+        var playerId = _gameServer.AddNewPlayer();
+        var clientId = _gameMessenger.RegisterClient(playerId, this);
+        _gameServer.SendGameState(playerId);
+        return clientId;
+    }
 
-        public void TryToCloseConnection()
-        {
-            _cts.Cancel();
-        }
+    private void RemoveClient(uint clientId)
+    {
+        _gameMessenger.RemoveClient(clientId);
+        _gameServer.RemovePlayer(clientId);
+    }
 
-        static async Task Acceptor(HttpContext hc, Func<Task> n)
-        {
-            if (!hc.WebSockets.IsWebSocketRequest)
-                return;
+    public Task SendMessage(MyBuffer buffer)
+    {
+        return buffer.SendAsync(_socket);
+    }
 
-            var socket = await hc.WebSockets.AcceptWebSocketAsync();
+    public void TryToCloseConnection()
+    {
+        _cts.Cancel();
+    }
 
-            var server = WsServerBootstrap.GameServer;
-            var messenger = WsServerBootstrap.GameMessenger;
+    static async Task Acceptor(HttpContext hc, Func<Task> n)
+    {
+        if (!hc.WebSockets.IsWebSocketRequest)
+            return;
 
-            var h = new SocketHandler(socket, server, messenger);
-            await h.EchoLoop();
-        }
+        var socket = await hc.WebSockets.AcceptWebSocketAsync();
 
-        public static void Map(IApplicationBuilder app)
-        {
-            app.UseWebSockets();
-            app.Use(Acceptor);
-        }
+        var server = WsServerBootstrap.GameServer;
+        var messenger = WsServerBootstrap.GameMessenger;
+
+        var h = new SocketHandler(socket, server, messenger);
+        await h.EchoLoop();
+    }
+
+    public static void Map(IApplicationBuilder app)
+    {
+        app.UseWebSockets();
+        app.Use(Acceptor);
     }
 }

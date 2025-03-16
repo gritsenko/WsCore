@@ -1,20 +1,18 @@
-﻿using System.Threading.Tasks;
-using WsServer.Common;
+﻿using WsServer.Common;
 
-namespace WsServer.Abstract
+namespace WsServer.Abstract;
+
+public interface IGameMessenger
 {
-    public interface IGameMessenger
-    {
-        uint RegisterClient(uint id, IWsClient wsClient);
+    uint RegisterClient(uint id, IWebSocketClient webSocketClient);
 
-        void RemoveClient(uint client);
-        //void NotifyMessageRecieved(IWsClient wsClient, ref byte[] buffer, int count);
-        void TerminateConnection(uint clientId);
+    void RemoveClient(uint client);
 
-        void Broadcast(IServerMessage message);
-        void Broadcast(MyBuffer buff);
+    void TerminateConnection(uint clientId);
 
-        void SendMessage(uint clientId, IServerMessage message);
-        void SendMessage(uint clientId, MyBuffer buff);
-    }
+    void Broadcast(IServerMessage message);
+    void Broadcast(MyBuffer buff);
+
+    void SendMessage(uint clientId, IServerMessage message);
+    void SendMessage(uint clientId, MyBuffer buff);
 }

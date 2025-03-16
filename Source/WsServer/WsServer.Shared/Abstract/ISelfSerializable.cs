@@ -1,9 +1,8 @@
 ﻿using WsServer.Common;
 
-namespace WsServer.Abstract
+namespace WsServer.Abstract;
+
+public interface ISelfSerializable
 {
-    public interface ISelfSerializable
-    {
-        void WriteToBuffer(MyBuffer buffer);
-    }
+    void WriteToBuffer(MyBuffer buffer);
 }

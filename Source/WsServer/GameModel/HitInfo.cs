@@ -1,16 +1,8 @@
-namespace GameModel
-{
-    public struct HitInfo
-    {
-        public uint PlayerId;
-        public uint HitterId;
-        public int NewHp;
+namespace Game.Model;
 
-        public HitInfo(uint playerId, byte newHp, uint hitterId)
-        {
-            PlayerId = playerId;
-            NewHp = newHp;
-            HitterId = hitterId;
-        }
-    }
+public struct HitInfo(uint playerId, byte newHp, uint hitterId)
+{
+    public uint PlayerId = playerId;
+    public uint HitterId = hitterId;
+    public int NewHp = newHp;
 }

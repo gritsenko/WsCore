@@ -1,6 +1,6 @@
-﻿namespace WsServer.Abstract
+﻿namespace WsServer.Abstract;
+
+public interface IServerMessage
 {
-    public interface IServerMessage
-    {
-    }
+    static abstract byte TypeId { get; }
 }

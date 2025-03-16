@@ -1,12 +1,14 @@
-﻿using GameModel;
+﻿namespace WsServer.Abstract;
 
-namespace WsServer.Abstract
+public interface IGameServer<out TGameModel> : IGameServer where TGameModel : class
 {
-    public interface IGameServer
-    {
-        void NotifyMessageRecieved(uint id, ref byte[] buffer, int count);
-        Player AddNewPlayer();
-        void SendGameState(uint id);
-        void RemovePlayer(uint clientId);
-    }
+    TGameModel GameModel { get; }
+}
+
+public interface IGameServer
+{
+    void NotifyMessageReceived(uint id, ref byte[] buffer, int count);
+    uint AddNewPlayer();
+    void SendGameState(uint id);
+    void RemovePlayer(uint clientId);
 }
