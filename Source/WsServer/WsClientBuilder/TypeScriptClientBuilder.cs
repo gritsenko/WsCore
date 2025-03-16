@@ -27,7 +27,7 @@ public class TypeScriptClientBuilder(string outputPath)
         sb.AppendLine("//Data definitions");
         BuildTypeDefinitions<IMessageData>(sb);
         BuildTypeDefinitions<IServerMessage>(sb);
-        BuildTypeDefinitions<IClientMessage>(sb);
+        BuildTypeDefinitions<IClientRequest>(sb);
 
 
         sb.AppendLine("export default class Wsc {");
@@ -252,7 +252,7 @@ public class TypeScriptClientBuilder(string outputPath)
 
     private void BuildMessageSenders(StringBuilder sb)
     {
-        var type = typeof(IClientMessage);
+        var type = typeof(IClientRequest);
         var types = AppDomain.CurrentDomain.GetAssemblies()
             .SelectMany(s => s.GetTypes())
             .Where(p => type.IsAssignableFrom(p) && !p.IsInterface);

@@ -5,7 +5,7 @@ using WsServer.Abstract;
 namespace WsServer.Common;
 
 public abstract class MessageHandlerBase<T> : MessageHandlerBase
-    where T : struct, IClientMessage
+    where T : struct, IClientRequest
 {
     protected abstract void Handle(uint clientId, T clientMessage);
 
@@ -46,4 +46,4 @@ public abstract class MessageHandlerBase : IMessageHandler
     }
 }
 
-public delegate void MessageHandlerMethod(uint clientId, IClientMessage msg);
+public delegate void MessageHandlerMethod(uint clientId, IClientRequest msg);

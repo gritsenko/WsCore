@@ -1,5 +1,5 @@
 ﻿using Game.Protocol;
-using Game.Protocol.ServerMessages;
+using Game.Protocol.GameState.Events;
 using WsServer.Abstract;
 using WsServer.Common;
 

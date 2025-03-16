@@ -1,4 +1,4 @@
-using Game.Protocol.ServerMessages;
+using Game.Protocol.Player.Events;
 using WsServer.Abstract;
 using WsServer.Common;
 
