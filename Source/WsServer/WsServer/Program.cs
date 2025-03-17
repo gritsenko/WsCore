@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Builder;
+﻿using Game.ServerLogic;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -20,6 +21,7 @@ builder.Services.AddSingleton<IMessageSerializer, MessageSerializer>();
 //init game server
 builder.Services.AddSingleton<IClientConnectionManager, ConnectionManager>();
 builder.Services.AddSingleton<IGameMessenger, GameMessenger>();
+builder.Services.AddSingleton<IServerLogicProvider, ReflectionServerLogicProvider>();
 builder.Services.AddSingleton<IGameServer, GameServer>();
 
 builder.Services.AddTransient<WebSocketHandlerFactory>();

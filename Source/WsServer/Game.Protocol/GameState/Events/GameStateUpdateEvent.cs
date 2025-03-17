@@ -1,6 +1,7 @@
 ﻿using Game.Core;
 using Game.ServerLogic.Player.Events.PlayerData;
 using WsServer.Abstract;
+using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.GameState.Events;
 

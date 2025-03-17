@@ -1,4 +1,4 @@
-﻿namespace WsServer.Abstract;
+﻿namespace WsServer.Abstract.Messages;
 
 public interface IMessageType
 {

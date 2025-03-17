@@ -1,4 +1,5 @@
-﻿using WsServer.Common;
+﻿using WsServer.Abstract.Messages;
+using WsServer.Common;
 
 namespace WsServer.Abstract;
 

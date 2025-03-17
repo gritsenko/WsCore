@@ -1,12 +1,13 @@
-﻿using Game.ServerLogic.Player.Requests;
+﻿using Game.Core;
+using Game.ServerLogic.Player.Requests;
 using WsServer.Common;
 
 namespace Game.ServerLogic.Player.Handlers;
 
-public class UpdatePlayerTargetClientMessageHandler() : MessageHandlerBase<UpdatePlayerTargetRequest>
+public class UpdatePlayerTargetClientMessageHandler(GameModel gameModel) : MessageHandlerBase<UpdatePlayerTargetRequest>
 {
     protected override void Handle(uint clientId, UpdatePlayerTargetRequest msg)
     {
-        var p = Game.SetPlayerTarget(clientId, msg.AimX, msg.AimY);
+        var p = gameModel.SetPlayerTarget(clientId, msg.AimX, msg.AimY);
     }
 }

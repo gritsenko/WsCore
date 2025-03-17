@@ -5,9 +5,7 @@ using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
-using Game.Protocol;
-using WsServer.Abstract;
-using WsServer.Common;
+using WsServer.Abstract.Messages;
 
 namespace WsClientBuilder;
 

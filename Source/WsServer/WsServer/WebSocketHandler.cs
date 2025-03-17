@@ -6,6 +6,7 @@ using System.Net.WebSockets;
 using System.Threading;
 using System.Threading.Tasks;
 using WsServer.Abstract;
+using WsServer.Abstract.Messages;
 
 namespace WsServer;
 
@@ -57,7 +58,7 @@ public class WebSocketHandler(
                 if (!_isInitialized)
                 {
                     _isInitialized = true;
-                    Id = gameServer.OnClientConnected();
+                    gameServer.OnClientConnected(this, newId => Id = newId);
                 }
 
                 if (result.MessageType == WebSocketMessageType.Binary)

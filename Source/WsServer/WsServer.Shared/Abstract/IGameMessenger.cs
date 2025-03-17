@@ -1,4 +1,6 @@
-﻿namespace WsServer.Abstract;
+﻿using WsServer.Abstract.Messages;
+
+namespace WsServer.Abstract;
 
 public interface IGameMessenger
 {

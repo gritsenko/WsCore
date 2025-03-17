@@ -5,22 +5,34 @@ namespace WsServer;
 
 public class ConnectionManager : IClientConnectionManager
 {
-    public Dictionary<uint, IClientConnection> Clients = new();
+    private readonly Dictionary<uint, IClientConnection> _connections = new();
+
+    public IEnumerable<IClientConnection> Connections => _connections.Values;
+
+    public IClientConnection? GetConnectionById(uint connectionId)
+    {
+        lock (_connections)
+        {
+            if (_connections.TryGetValue(connectionId, out var id))
+                return id;
+        }
+        return null;
+    }
 
     public void Register(IClientConnection connection)
     {
-        lock (Clients)
+        lock (_connections)
         {
-            Clients[connection.Id] = connection;
+            _connections[connection.Id] = connection;
         }
     }
 
     public void Remove(uint clientId)
     {
-        lock (Clients)
+        lock (_connections)
         {
-            if (Clients.ContainsKey(clientId)) 
-                Clients.Remove(clientId);
+            if (_connections.ContainsKey(clientId)) 
+                _connections.Remove(clientId);
         }
     }
 }

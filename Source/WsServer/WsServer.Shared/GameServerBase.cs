@@ -1,6 +1,8 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using WsServer.Abstract;
+using WsServer.Abstract.Messages;
 using WsServer.Common;
 
 namespace WsServer;
@@ -11,24 +13,66 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
     public TGameModel GameModel { get; } = new();
     protected readonly IGameMessenger Messenger;
 
+
+    private readonly IClientConnectionManager _connectionManager;
+    private readonly IServerLogicProvider _serverLogicProvider;
+
+    private MessageRegistry _requestRegistry = new();
+    private MessageRegistry _eventRegistry = new();
+
+
     private DateTime _lastTickTime = DateTime.Now;
     private readonly TimeSpan _updatePeriod = TimeSpan.FromMilliseconds(33);
     private const int CleanPeriod = 10000 / 33;
     private int _ticksToClean = CleanPeriod;
     private readonly long _cleanTimeout = TimeSpan.FromSeconds(600).Ticks;
+    public abstract MyBuffer BuildTickState(TGameModel game);
+    public abstract void SendGameState(uint clientId);
+
 
     //private readonly Dictionary<ClientMessageType, IMessageHandler> _messageHandlers = new();
 
-    protected GameServerBase(IGameMessenger messenger)
+    protected GameServerBase(IGameMessenger messenger, IClientConnectionManager connectionManager, IServerLogicProvider serverLogicProvider)
     {
         Messenger = messenger;
-        //_movmentTimer = new Timer(OnTimerCallback, this, _updatePeriod, _updatePeriod);
-        //RegisterMessageHandlers();
+        _connectionManager = connectionManager;
+        _serverLogicProvider = serverLogicProvider;
+        RegisterMessages(_requestRegistry, serverLogicProvider.GetRequestTypes());
+        RegisterMessages(_eventRegistry, serverLogicProvider.GetEventTypes());
+        RegisterMessageHandlers(serverLogicProvider.GetRequestHandlers());
 
         StartGameLoop();
     }
-    public abstract MyBuffer BuildTickState(TGameModel game);
-    public abstract void SendGameState(uint clientId);
+
+    private void RegisterMessages(MessageRegistry registry, IEnumerable<Type> messageTypes)
+    {
+        foreach (var type in messageTypes)
+        {
+            try
+            {
+                // Use the concrete type directly
+                var registerMethod = typeof(MessageRegistry)
+                    .GetMethod(nameof(MessageRegistry.Register))
+                    .MakeGenericMethod(type);
+
+                registerMethod.Invoke(registry, null);
+                Console.WriteLine($"Registered: {type.Name}");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to register {type.Name}: {ex.Message}");
+                throw;
+            }
+        }
+    }
+
+    private void RegisterMessageHandlers(IEnumerable<Type> requestHandlerTypes)
+    {
+        foreach (var handlerType in requestHandlerTypes)
+        {
+            
+        }
+    }
 
 
     private async void StartGameLoop()
@@ -47,11 +91,6 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
         }
     }
 
-    //private void RegisterMessageHandlers()
-    //{
-    //    RegisterHandler(new TilesRequestMessageHandler());
-    //    RegisterHandler(new DefaultClientMessageHandler());
-    //}
 
     //private void RegisterHandler(IMessageHandler messageHandler)
     //{
@@ -71,7 +110,7 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
         _lastTickTime = time;
         GameModel.OnTick((float)dt.TotalSeconds);
 
-        Messenger.Broadcast(BuildTickState(GameModel));
+        //Messenger.Broadcast(BuildTickState(GameModel));
 
         //if (GameModel.TopChanged)
         //    BroadCastTop();
@@ -138,13 +177,16 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
         throw new NotImplementedException();
     }
 
-    public uint OnClientConnected()
+    public void OnClientConnected(IClientConnection connection, Action<uint> onIdCreated)
     {
-        var connection = gameServerFacade.Connections.Register(this);
-        var playerId = gameServer.AddNewPlayer();
-        var clientId = gameMessenger.RegisterClient(playerId, this);
-        gameServer.SendGameState(playerId);
-        return clientId;
+        var playerId = AddNewPlayer();
+        onIdCreated(playerId);
+        _connectionManager.Register(connection);
+        SendGameState(playerId);
+    }
 
+    public void OnClientDisconnected(uint connectionId)
+    {
+        throw new NotImplementedException();
     }
 }

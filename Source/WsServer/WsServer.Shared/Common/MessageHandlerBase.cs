@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Runtime.InteropServices;
 using WsServer.Abstract;
+using WsServer.Abstract.Messages;
 
 namespace WsServer.Common;
 

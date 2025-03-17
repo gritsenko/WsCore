@@ -1,5 +1,5 @@
 ﻿using Game.ServerLogic.Player.Events.PlayerData;
-using WsServer.Abstract;
+using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.Player.Events;
 

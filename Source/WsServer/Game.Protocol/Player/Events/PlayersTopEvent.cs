@@ -1,6 +1,6 @@
 ﻿using System.Runtime.InteropServices;
 using Game.Core;
-using WsServer.Abstract;
+using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.Player.Events;
 

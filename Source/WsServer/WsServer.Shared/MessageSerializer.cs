@@ -1,6 +1,5 @@
-﻿using System;
-using System.Reflection;
-using WsServer.Abstract;
+﻿using WsServer.Abstract;
+using WsServer.Abstract.Messages;
 using WsServer.Common;
 
 namespace WsServer;
@@ -9,7 +8,7 @@ public class MessageSerializer : IMessageSerializer
 {
     public MyBuffer Serialize(IServerEvent message)
     {
-        var messageType = messageTypeAttr.ServerMessageType;
+        var messageType = 0;// messageTypeAttr.ServerMessageType;
 
         var buff = MyBuffer.Create()
             .SetUint8((byte)messageType)

@@ -17,6 +17,6 @@ public class TilesRequestMessageHandler(IGameMessenger messenger, GameModel game
 
         Buffer.BlockCopy(tileBlock.Tiles.Cast<int>().ToArray(), 0, tilesBuffer.buffer, 9, tileBlock.Tiles.Length * sizeof(TileType));
 
-        messenger.Send(clientId, tilesBuffer);
+        //messenger.Send(clientId, tilesBuffer);
     }
 }

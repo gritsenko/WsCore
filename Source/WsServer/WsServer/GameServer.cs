@@ -6,7 +6,11 @@ using WsServer.Common;
 
 namespace WsServer;
 
-public class GameServer(IGameMessenger messenger) : GameServerBase<GameModel>(messenger)
+public class GameServer(
+    IGameMessenger messenger,
+    IClientConnectionManager connectionManager,
+    IServerLogicProvider serverLogicProvider)
+    : GameServerBase<GameModel>(messenger, connectionManager, serverLogicProvider)
 {
     private GameTickStateUpdateEvent _tickStateUpdateEvent;
     private readonly MyBuffer _tickStateBuffer = new(1024 * 100);
@@ -18,6 +22,7 @@ public class GameServer(IGameMessenger messenger) : GameServerBase<GameModel>(me
         _tickStateUpdateEvent.WriteToBuffer(_tickStateBuffer, game);
         return _tickStateBuffer;
     }
+
     public override uint AddNewPlayer()
     {
         var id = base.AddNewPlayer();
@@ -26,6 +31,7 @@ public class GameServer(IGameMessenger messenger) : GameServerBase<GameModel>(me
         Messenger.Broadcast(new PlayerJoinedEvent(player));
         return id;
     }
+
     public override void SendGameState(uint clientId)
     {
         Messenger.Send(clientId, new GameStateUpdateEvent(GameModel));

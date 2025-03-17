@@ -4,6 +4,7 @@
     <TargetFramework>net9.0</TargetFramework>
     <RootNamespace>WsServer</RootNamespace>
     <LangVersion>latest</LangVersion>
+    <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|AnyCPU'">
