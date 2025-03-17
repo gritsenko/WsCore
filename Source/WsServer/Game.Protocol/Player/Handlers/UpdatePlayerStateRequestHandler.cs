@@ -1,11 +1,11 @@
 ﻿using Game.Core;
 using Game.Core.Common.Math;
 using Game.ServerLogic.Player.Requests;
-using WsServer.Common;
+using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.Player.Handlers;
 
-public class UpdatePlayerStateClientMessageHandler(GameModel gameModel) : MessageHandlerBase<UpdatePlayerStateRequest>
+public class UpdatePlayerStateRequestHandler(GameModel gameModel) : RequestHandlerBase<UpdatePlayerStateRequest>
 {
     protected override void Handle(uint clientId, UpdatePlayerStateRequest request)
     {

@@ -3,7 +3,7 @@ using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.Chat.Events;
 
-public struct ChatEventEvent(uint clientId, string message) : IServerEvent
+public struct ChatMessageEvent(uint clientId, string message) : IServerEvent
 {
     public static byte TypeId => 200;
     public uint ClientId = clientId;

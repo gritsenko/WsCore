@@ -1,10 +1,14 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
 using WsServer.Abstract;
 using WsServer.Abstract.Messages;
 using WsServer.Common;
 
-namespace Game.ServerLogic;
+namespace WsServer;
 
-public class ReflectionServerLogicProvider : IServerLogicProvider
+public class ReflectionServerLogicProvider(Assembly assembly) : IServerLogicProvider
 {
     public IEnumerable<Type> GetRequestTypes() => 
         GetTypesImplementing(typeof(IClientRequest));
@@ -13,14 +17,13 @@ public class ReflectionServerLogicProvider : IServerLogicProvider
         GetTypesImplementing(typeof(IServerEvent));
 
     public IEnumerable<Type> GetRequestHandlers() => 
-        GetTypesImplementing(typeof(MessageHandlerBase));
+        GetTypesImplementing(typeof(IRequestHandler));
 
     private IEnumerable<Type> GetTypesImplementing(Type tInterface)
     {
-        var assembly = GetType().Assembly;
         var types = assembly.GetTypes()
             .Where(t =>
-                t is { IsValueType: true, IsAbstract: false } &&
+                t is { IsAbstract: false } &&
                 tInterface.IsAssignableFrom(t)
             );
         return types;

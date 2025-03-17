@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Threading.Tasks;
 using WsServer.Abstract;
 using WsServer.Abstract.Messages;
@@ -10,15 +11,15 @@ namespace WsServer;
 public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
     where TGameModel : class, IGameModel, new()
 {
-    public TGameModel GameModel { get; } = new();
+    public TGameModel GameModel { get; }
     protected readonly IGameMessenger Messenger;
 
 
     private readonly IClientConnectionManager _connectionManager;
-    private readonly IServerLogicProvider _serverLogicProvider;
-
-    private MessageRegistry _requestRegistry = new();
-    private MessageRegistry _eventRegistry = new();
+    
+    private readonly MessageTypeRegistry _requestRegistry = new();
+    private readonly MessageTypeRegistry _eventRegistry = new();
+    private readonly Dictionary<byte, IRequestHandler> _requestHandlers = new();
 
 
     private DateTime _lastTickTime = DateTime.Now;
@@ -29,30 +30,32 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
     public abstract MyBuffer BuildTickState(TGameModel game);
     public abstract void SendGameState(uint clientId);
 
-
-    //private readonly Dictionary<ClientMessageType, IMessageHandler> _messageHandlers = new();
-
-    protected GameServerBase(IGameMessenger messenger, IClientConnectionManager connectionManager, IServerLogicProvider serverLogicProvider)
+    protected GameServerBase(
+        IGameModel gameModel,
+        IGameMessenger messenger, 
+        IClientConnectionManager connectionManager, 
+        IServerLogicProvider serverLogicProvider, 
+        IRequestHandlerFactory requestHandlerFactory)
     {
+        GameModel = gameModel as TGameModel;
         Messenger = messenger;
         _connectionManager = connectionManager;
-        _serverLogicProvider = serverLogicProvider;
         RegisterMessages(_requestRegistry, serverLogicProvider.GetRequestTypes());
         RegisterMessages(_eventRegistry, serverLogicProvider.GetEventTypes());
-        RegisterMessageHandlers(serverLogicProvider.GetRequestHandlers());
+        RegisterMessageHandlers(serverLogicProvider.GetRequestHandlers(), requestHandlerFactory);
 
         StartGameLoop();
     }
 
-    private void RegisterMessages(MessageRegistry registry, IEnumerable<Type> messageTypes)
+    private void RegisterMessages(MessageTypeRegistry registry, IEnumerable<Type> messageTypes)
     {
         foreach (var type in messageTypes)
         {
             try
             {
                 // Use the concrete type directly
-                var registerMethod = typeof(MessageRegistry)
-                    .GetMethod(nameof(MessageRegistry.Register))
+                var registerMethod = typeof(MessageTypeRegistry)
+                    .GetMethod(nameof(MessageTypeRegistry.Register))
                     .MakeGenericMethod(type);
 
                 registerMethod.Invoke(registry, null);
@@ -66,14 +69,34 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
         }
     }
 
-    private void RegisterMessageHandlers(IEnumerable<Type> requestHandlerTypes)
+    private void RegisterMessageHandlers(IEnumerable<Type> requestHandlerTypes,
+        IRequestHandlerFactory requestHandlerFactory)
     {
         foreach (var handlerType in requestHandlerTypes)
         {
-            
+            var handlerBaseType = GetMessageHandlerBaseType(handlerType);
+            var messageType = handlerBaseType.GetGenericArguments()[0];
+            var handler = requestHandlerFactory.CreateHandler(handlerType);
+
+            var typeId = _requestRegistry.FindIdByType(messageType);
+
+            _requestHandlers[typeId] = handler;
         }
     }
 
+    private Type GetMessageHandlerBaseType(Type handlerType)
+    {
+        var baseType = handlerType.BaseType;
+        while (baseType != null)
+        {
+            if (baseType.IsGenericType &&
+                baseType.GetGenericTypeDefinition() == typeof(RequestHandlerBase<>))
+                return baseType;
+
+            baseType = baseType.BaseType;
+        }
+        throw new KeyNotFoundException($"Base type not found for {handlerType.Name}");
+    }
 
     private async void StartGameLoop()
     {
@@ -90,17 +113,6 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
             Logger.Log(e);
         }
     }
-
-
-    //private void RegisterHandler(IMessageHandler messageHandler)
-    //{
-    //    messageHandler.Initialize(this, _messenger, Game);
-
-    //    foreach (var clientMessageType in messageHandler.GetMessageTypes())
-    //    {
-    //        _messageHandlers[clientMessageType] = messageHandler;
-    //    }
-    //}
 
 
     private void Tick()
@@ -187,6 +199,7 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
 
     public void OnClientDisconnected(uint connectionId)
     {
-        throw new NotImplementedException();
+        Debug.WriteLine("Disconnected!");
+        //throw new NotImplementedException();
     }
 }

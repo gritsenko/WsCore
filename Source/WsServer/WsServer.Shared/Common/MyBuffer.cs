@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net.WebSockets;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -128,12 +129,6 @@ public class MyBuffer
         //    *((float*)p) = value;
         //Index += 4;
         return this;
-    }
-
-    public Task SendAsync(WebSocket socket)
-    {
-        var outgoing = new ArraySegment<byte>(buffer, 0, Index);
-        return socket.SendAsync(outgoing, WebSocketMessageType.Binary, true, CancellationToken.None);
     }
 
     public MyBuffer SetString(string str)
@@ -310,4 +305,8 @@ public class MyBuffer
         }
     }
 
+    public ArraySegment<byte> AsArraySegment()
+    {
+        return new ArraySegment<byte>(buffer, 0, Index);
+    }
 }

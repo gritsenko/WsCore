@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using WsServer.Abstract;
 using WsServer.Abstract.Messages;
+using WsServer.Common;
 
 namespace WsServer;
 
@@ -30,13 +31,13 @@ public class WebSocketHandler(
 
         var socket = await context.WebSockets.AcceptWebSocketAsync();
 
-        var handler = context.RequestServices.GetRequiredService<WebSocketHandlerFactory>()
+        var webSocketHandler = context.RequestServices.GetRequiredService<WebSocketHandlerFactory>()
             .CreateHandler(socket);
 
-        await handler.EchoLoop();
+        await webSocketHandler.ProcessLoop();
     }
 
-    private async Task EchoLoop()
+    private async Task ProcessLoop()
     {
         try
         {
@@ -99,13 +100,20 @@ public class WebSocketHandler(
         try
         {
             var data = messageSerializer.Serialize(@event);
-            await data.SendAsync(socket);
+            await SendBufferAsync(socket, data, _cts);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error sending message to client");
         }
     }
+
+    public static Task SendBufferAsync(WebSocket socket, MyBuffer buffer, CancellationTokenSource cts)
+    {
+        return socket.SendAsync(buffer.AsArraySegment(), WebSocketMessageType.Binary, true, cts.Token);
+    }
+
+
 }
 
 public class WebSocketHandlerFactory(IServiceProvider serviceProvider)
