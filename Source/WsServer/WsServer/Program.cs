@@ -8,23 +8,22 @@ using WsServer;
 using WsServer.Abstract;
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddLogging(builder =>
+builder.Services.AddLogging(b =>
 {
-	builder.AddConsole()
+	b.AddConsole()
 		.AddDebug()
 		.AddFilter<ConsoleLoggerProvider>(category: null, level: LogLevel.Debug)
 		.AddFilter<DebugLoggerProvider>(category: null, level: LogLevel.Debug);
 });
 
+builder.Services.AddSingleton<IMessageSerializer, MessageSerializer>();
+//init game server
+builder.Services.AddSingleton<IClientConnectionManager, ConnectionManager>();
+builder.Services.AddSingleton<IGameMessenger, GameMessenger>();
+builder.Services.AddSingleton<IGameServer, GameServer>();
+
 builder.Services.AddTransient<WebSocketHandlerFactory>();
 builder.Services.AddScoped<WebSocketHandler>();
-
-//init game server
-builder.Services.AddSingleton<IMessageSerializer, MessageSerializer>();
-builder.Services.AddSingleton<IClientConnectionManager, ClientConnectionManager>();
-builder.Services.AddSingleton<IGameServer, GameServer>();
-builder.Services.AddSingleton<IGameMessenger, GameMessenger>();
-builder.Services.AddSingleton<GameServerFacade>();
 
 
 var app = builder.Build();

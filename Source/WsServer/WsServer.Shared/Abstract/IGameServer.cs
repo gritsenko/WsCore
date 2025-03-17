@@ -1,6 +1,4 @@
-﻿using System.Collections.Generic;
-
-namespace WsServer.Abstract;
+﻿namespace WsServer.Abstract;
 
 public interface IGameServer<out TGameModel> : IGameServer where TGameModel : class;
 
@@ -11,6 +9,8 @@ public interface IGameServer
     //void SendGameState(uint id);
     //void RemovePlayer(uint clientId);
 
+    //IReadOnlyDictionary<uint, PlayerState> GetGameState();
     void ProcessClientMessage(uint clientId, IClientRequest request);
-    IReadOnlyDictionary<uint, PlayerState> GetGameState();
+    uint OnClientConnected();
+    void OnClientDisconnected(uint clientId);
 }

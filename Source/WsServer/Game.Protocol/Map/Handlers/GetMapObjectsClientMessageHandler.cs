@@ -11,6 +11,6 @@ public class GetMapObjectsClientMessageHandler(IGameMessenger messenger, GameMod
     protected override void Handle(uint clientId, GetMapObjectsRequest msg)
     {
         var objects = gameModel.World.GetTileBlockObjects(msg.MapX, msg.MapY).ToArray();
-        messenger.SendMessage(clientId, new UpdateMapObjectsEvent(objects));
+        messenger.Send(clientId, new UpdateMapObjectsEvent(objects));
     }
 }

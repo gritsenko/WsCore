@@ -6,21 +6,18 @@ using System.Net.WebSockets;
 using System.Threading;
 using System.Threading.Tasks;
 using WsServer.Abstract;
-using WsServer.Common;
 
 namespace WsServer;
 
 public class WebSocketHandler(
     WebSocket socket,
-    GameServerFacade gameServerFacade,
     IMessageSerializer messageSerializer,
     IGameServer gameServer,
-    IGameMessenger gameMessenger,
     ILogger<WebSocketHandler> logger)
-    : IWebSocketClient
+    : IClientConnection
 {
     public const int BufferSize = 4096;
-    public uint ClientId { get; set; }
+    public uint Id { get; private set; }
 
     private bool _isInitialized;
     private readonly CancellationTokenSource _cts = new();
@@ -60,13 +57,13 @@ public class WebSocketHandler(
                 if (!_isInitialized)
                 {
                     _isInitialized = true;
-                    ClientId = RegisterNewClient();
+                    Id = gameServer.OnClientConnected();
                 }
 
                 if (result.MessageType == WebSocketMessageType.Binary)
                 {
                     var message = messageSerializer.Deserialize(ref buffer);
-                    gameServer.ProcessClientMessage(ClientId, message);
+                    gameServer.ProcessClientMessage(Id, message);
                 }
             }
         }
@@ -84,43 +81,29 @@ public class WebSocketHandler(
         }
         finally
         {
-            if (ClientId != 0)
-                RemoveClient(ClientId);
+            if (Id != 0)
+                gameServer.OnClientDisconnected(Id);
 
             _cts.Dispose();
         }
     }
 
-    private uint RegisterNewClient()
+    public void Terminate()
     {
-        var connection = gameServerFacade.Connections.Register(this);
-        var playerId = gameServer.AddNewPlayer();
-        var clientId = gameMessenger.RegisterClient(playerId, this);
-        gameServer.SendGameState(playerId);
-        return clientId;
+        _cts.Cancel();
     }
 
-    private void RemoveClient(uint clientId)
-    {
-        gameMessenger.RemoveClient(clientId);
-        gameServer.RemovePlayer(clientId);
-    }
-
-    public async Task SendMessage(MyBuffer buffer)
+    public async Task Send(IServerEvent @event)
     {
         try
         {
-            await buffer.SendAsync(socket);
+            var data = messageSerializer.Serialize(@event);
+            await data.SendAsync(socket);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error sending message to client");
         }
-    }
-
-    public void TryToCloseConnection()
-    {
-        _cts.Cancel();
     }
 }
 

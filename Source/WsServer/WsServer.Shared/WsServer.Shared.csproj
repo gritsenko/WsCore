@@ -15,6 +15,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Abstract\IWebSocketClient.cs" />
     <Compile Remove="Common\CommonMessageHandler.cs" />
   </ItemGroup>
 

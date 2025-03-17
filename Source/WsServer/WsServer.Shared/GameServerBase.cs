@@ -132,4 +132,19 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
         Logger.Log("Player joined. Total count:" + cnt);
         return id;
     }
+
+    public void ProcessClientMessage(uint clientId, IClientRequest request)
+    {
+        throw new NotImplementedException();
+    }
+
+    public uint OnClientConnected()
+    {
+        var connection = gameServerFacade.Connections.Register(this);
+        var playerId = gameServer.AddNewPlayer();
+        var clientId = gameMessenger.RegisterClient(playerId, this);
+        gameServer.SendGameState(playerId);
+        return clientId;
+
+    }
 }

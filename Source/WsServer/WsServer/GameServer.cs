@@ -28,7 +28,7 @@ public class GameServer(IGameMessenger messenger) : GameServerBase<GameModel>(me
     }
     public override void SendGameState(uint clientId)
     {
-        Messenger.SendMessage(clientId, new GameStateUpdateEvent(GameModel));
+        Messenger.Send(clientId, new GameStateUpdateEvent(GameModel));
     }
 
     public override void RemovePlayer(uint clientId)

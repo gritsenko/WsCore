@@ -1,9 +1,11 @@
-﻿using WsServer.Common;
+﻿using System.Threading.Tasks;
+using WsServer.Common;
 
 namespace WsServer.Abstract;
 
 public interface IClientConnection
 {
     uint Id { get; }
-    void Send(MyBuffer data);
+    Task Send(IServerEvent @event);
+    void Terminate();
 }

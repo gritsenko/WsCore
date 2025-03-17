@@ -15,6 +15,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="SocketHandler.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Content Remove="Scripts\AnimationDef.ts" />
     <Content Remove="Scripts\App.ts" />
     <Content Remove="Scripts\Common.ts" />

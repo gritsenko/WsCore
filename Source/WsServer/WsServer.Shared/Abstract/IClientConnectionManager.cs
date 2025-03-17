@@ -2,6 +2,6 @@
 
 public interface IClientConnectionManager
 {
-    IClientConnection Register(IWebSocketClient socket);
+    void Register(IClientConnection connection);
     void Remove(uint clientId);
 }
