@@ -1,35 +1,32 @@
-﻿using Game.ServerLogic;
-using Game.ServerLogic.Chat.Events;
+﻿using Game.ServerLogic.Chat.Events;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Logging.Debug;
-using System.Net.WebSockets;
 using Game.Core;
 using WsServer;
 using WsServer.Abstract;
-using WsServer.Abstract.Messages;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddLogging(b =>
 {
-	b.AddConsole()
-		.AddDebug()
-		.AddFilter<ConsoleLoggerProvider>(category: null, level: LogLevel.Debug)
-		.AddFilter<DebugLoggerProvider>(category: null, level: LogLevel.Debug);
+    b.AddConsole()
+        .AddDebug()
+        .AddFilter<ConsoleLoggerProvider>(category: null, level: LogLevel.Debug)
+        .AddFilter<DebugLoggerProvider>(category: null, level: LogLevel.Debug);
 });
+
+builder.Services.AddSingleton<IServerLogicProvider, ReflectionServerLogicProvider>(sc =>
+    //pass our Game.ServerLogic assembly for parsing messages and handlers from it
+    new ReflectionServerLogicProvider(typeof(ChatMessageEvent).Assembly, new ClientRequestHandlerFactory(sc)));
 
 builder.Services.AddSingleton<IMessageSerializer, MessageSerializer>();
 //init game server
 builder.Services.AddSingleton<IClientConnectionManager, ConnectionManager>();
 builder.Services.AddSingleton<IGameMessenger, GameMessenger>();
-builder.Services.AddSingleton<IServerLogicProvider, ReflectionServerLogicProvider>(sc =>
-    //pass our Game.ServerLogic assembly for parsing messages and handlers from it
-    new ReflectionServerLogicProvider(typeof(ChatMessageEvent).Assembly));
 
-builder.Services.AddTransient<IRequestHandlerFactory, ClientRequestHandlerFactory>();
 builder.Services.AddSingleton<GameModel>();
 builder.Services.AddSingleton<IGameServer, GameServer>();
 
@@ -40,7 +37,7 @@ var app = builder.Build();
 
 if (app.Environment.IsDevelopment())
 {
-	app.UseDeveloperExceptionPage();
+    app.UseDeveloperExceptionPage();
 }
 
 app.UseDefaultFiles();

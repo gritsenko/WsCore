@@ -7,13 +7,7 @@ public interface IGameServer<out TGameModel> : IGameServer where TGameModel : cl
 
 public interface IGameServer
 {
-    //void NotifyMessageReceived(uint id, ref byte[] buffer, int count);
-    //uint AddNewPlayer();
-    //void SendGameState(uint id);
-    //void RemovePlayer(uint clientId);
-
-    //IReadOnlyDictionary<uint, PlayerState> GetGameState();
-    void ProcessClientMessage(uint connectionId, IClientRequest request);
+    void ProcessClientMessage(uint connectionId, byte typeId, IClientRequest request);
     void OnClientConnected(IClientConnection connection, Action<uint> onIdCreated);
     void OnClientDisconnected(uint connectionId);
 }

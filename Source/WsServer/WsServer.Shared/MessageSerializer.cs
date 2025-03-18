@@ -6,7 +6,7 @@ using WsServer.Common;
 
 namespace WsServer;
 
-public class MessageSerializer() : IMessageSerializer
+public class MessageSerializer(IServerLogicProvider serverLogicProvider) : IMessageSerializer
 {
     public MyBuffer Serialize(IServerEvent message)
     {
@@ -19,25 +19,33 @@ public class MessageSerializer() : IMessageSerializer
         return buff;
     }
 
-    public IClientRequest Deserialize(ref byte[] data)
+    public IClientRequest Deserialize(ref byte[] data, out byte messageTypeId)
     {
-        var msg = ByteArrayToStructure<T>(data);
-        return msg as IClientRequest;
-    }
+        if (data == null || data.Length == 0)
+            throw new ArgumentException("data is null or zero length");
 
-    protected virtual T DecodeToMessage<T>(byte[] buffer, int count) where T : struct
-    {
-        var subbuf = new ArraySegment<byte>(buffer, 1, count);
-        var msg = ByteArrayToStructure<T>(subbuf.ToArray());
-        return msg;
-    }
+        messageTypeId = data[0];
+        var structureType = serverLogicProvider.ClientRequests.FindTypeById(messageTypeId);
 
-    static T ByteArrayToStructure<T>(byte[] bytes) where T : struct
-    {
-        var handle = GCHandle.Alloc(bytes, GCHandleType.Pinned);
-        var result = (T)Marshal.PtrToStructure(handle.AddrOfPinnedObject(), typeof(T));
-        handle.Free();
-        return result;
-    }
+        if (structureType == null)
+            throw new ArgumentException($"Unknown message type ID: {messageTypeId}");
 
+        var size = Marshal.SizeOf(structureType);
+
+        if (data.Length - 1 < size)
+            throw new ArgumentException("Payload size is less than structure size");
+
+        var payload = new ArraySegment<byte>(data, 1, size);
+        IntPtr ptr = Marshal.AllocHGlobal(size);
+
+        try
+        {
+            Marshal.Copy(payload.Array, payload.Offset, ptr, size);
+            return (IClientRequest)Marshal.PtrToStructure(ptr, structureType);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(ptr);
+        }
+    }
 }

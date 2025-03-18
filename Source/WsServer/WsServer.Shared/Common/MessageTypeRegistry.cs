@@ -17,4 +17,5 @@ public class MessageTypeRegistry
     }
 
     public byte FindIdByType(Type type) => _registeredTypes.First(x => x.Value == type).Key;
+    public Type FindTypeById(byte typeId) => _registeredTypes[typeId];
 }

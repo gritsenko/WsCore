@@ -64,8 +64,8 @@ public class WebSocketHandler(
 
                 if (result.MessageType == WebSocketMessageType.Binary)
                 {
-                    var message = messageSerializer.Deserialize(ref buffer);
-                    gameServer.ProcessClientMessage(Id, message);
+                    var message = messageSerializer.Deserialize(ref buffer, out var typeId);
+                    gameServer.ProcessClientMessage(Id, typeId, message);
                 }
             }
         }

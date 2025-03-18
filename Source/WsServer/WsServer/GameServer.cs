@@ -2,7 +2,6 @@
 using Game.ServerLogic.GameState.Events;
 using Game.ServerLogic.Player.Events;
 using WsServer.Abstract;
-using WsServer.Abstract.Messages;
 using WsServer.Common;
 
 namespace WsServer;
@@ -11,9 +10,8 @@ public class GameServer(
     GameModel gameModel,
     IGameMessenger messenger,
     IClientConnectionManager connectionManager,
-    IServerLogicProvider serverLogicProvider,
-    IRequestHandlerFactory requestHandlerFactory)
-    : GameServerBase<GameModel>(gameModel, messenger, connectionManager, serverLogicProvider, requestHandlerFactory)
+    IServerLogicProvider serverLogicProvider)
+    : GameServerBase<GameModel>(gameModel, messenger, connectionManager, serverLogicProvider)
 {
     private GameTickStateUpdateEvent _tickStateUpdateEvent;
     private readonly MyBuffer _tickStateBuffer = new(1024 * 100);

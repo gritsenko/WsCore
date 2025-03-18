@@ -6,5 +6,5 @@ namespace WsServer.Abstract;
 public interface IMessageSerializer
 {
     MyBuffer Serialize(IServerEvent message);
-    IClientRequest Deserialize(ref byte[] data);
+    IClientRequest Deserialize(ref byte[] data, out byte messageTypeId);
 }
