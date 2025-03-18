@@ -6,7 +6,7 @@ using WsServer.Common;
 
 namespace Game.ServerLogic.GameState.Events;
 
-public struct GameTickStateUpdateEvent : IServerEvent
+public class GameTickUpdateEvent : IServerEvent
 {
     public static byte TypeId => 1;
 

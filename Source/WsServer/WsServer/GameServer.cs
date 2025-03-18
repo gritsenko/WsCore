@@ -13,14 +13,14 @@ public class GameServer(
     IServerLogicProvider serverLogicProvider)
     : GameServerBase<GameModel>(gameModel, messenger, connectionManager, serverLogicProvider)
 {
-    private GameTickStateUpdateEvent _tickStateUpdateEvent;
+    private GameTickUpdateEvent _tickUpdateEvent;
     private readonly MyBuffer _tickStateBuffer = new(1024 * 100);
 
     public override MyBuffer BuildTickState(GameModel game)
     {
         _tickStateBuffer.Clear();
-        _tickStateBuffer.SetUint8(GameTickStateUpdateEvent.TypeId);
-        _tickStateUpdateEvent.WriteToBuffer(_tickStateBuffer, game);
+        _tickStateBuffer.SetUint8(GameTickUpdateEvent.TypeId);
+        _tickUpdateEvent.WriteToBuffer(_tickStateBuffer, game);
         return _tickStateBuffer;
     }
 
