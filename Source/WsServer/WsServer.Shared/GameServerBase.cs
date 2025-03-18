@@ -95,16 +95,6 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
         //}
     }
 
-    public void NotifyMessageReceived(uint id, ref byte[] buffer, int count)
-    {
-        //var messageType = (ClientMessageType)buffer[0];
-        //GetMessageHandlerFromId(messageType)?.Handle(id, buffer, count);
-        //Debug.WriteLine("Handled by " + handler.GetType().Name);
-    }
-
-    //private IMessageHandler GetMessageHandlerFromId(ClientMessageType messageType) =>
-    //    _messageHandlers.GetValueOrDefault(messageType);
-
     //public void BroadCastTop()
     //{
     //    Messenger.Broadcast(new PlayersTopServerMessage(GameModel));
