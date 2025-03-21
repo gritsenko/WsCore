@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Diagnostics;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using WsServer.Abstract;
 using WsServer.Abstract.Messages;
 using WsServer.Common;
@@ -16,25 +17,28 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
 
     private readonly IClientConnectionManager _connectionManager;
     private readonly IServerLogicProvider _serverLogicProvider;
+    private readonly ILogger<GameServerBase<TGameModel>> _logger;
 
     private DateTime _lastTickTime = DateTime.Now;
     private readonly TimeSpan _updatePeriod = TimeSpan.FromMilliseconds(33);
     private const int CleanPeriod = 10000 / 33;
     private int _ticksToClean = CleanPeriod;
     private readonly long _cleanTimeout = TimeSpan.FromSeconds(600).Ticks;
-    public abstract MyBuffer BuildTickState(TGameModel game);
+    public abstract IServerEvent BuildTickState(TGameModel game);
     public abstract void SendGameState(uint clientId);
 
     protected GameServerBase(
         IGameModel gameModel,
         IGameMessenger messenger,
         IClientConnectionManager connectionManager,
-        IServerLogicProvider serverLogicProvider)
+        IServerLogicProvider serverLogicProvider,
+        ILogger<GameServerBase<TGameModel>> logger)
     {
         GameModel = gameModel as TGameModel;
         Messenger = messenger;
         _connectionManager = connectionManager;
         _serverLogicProvider = serverLogicProvider;
+        _logger = logger;
 
         StartGameLoop();
     }
@@ -51,7 +55,7 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
         }
         catch (Exception e)
         {
-            Logger.Log(e);
+            _logger.LogError(e, $"Can't start game loop! {e.Message}");
         }
     }
 
@@ -63,7 +67,7 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
         _lastTickTime = time;
         GameModel.OnTick((float)dt.TotalSeconds);
 
-        //Messenger.Broadcast(BuildTickState(GameModel));
+        Messenger.Broadcast(BuildTickState(GameModel));
 
         //if (GameModel.TopChanged)
         //    BroadCastTop();
@@ -104,14 +108,14 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
     {
         GameModel.RemovePlayer(clientId);
         var cnt = GameModel.PlayersCount;
-        Logger.Log("Player left. Total count:" + cnt);
+        _logger.LogInformation("Player left. Total count:" + cnt);
     }
 
     public virtual uint AddNewPlayer()
     {
         var id = GameModel.AddNewPlayer();
         var cnt = GameModel.PlayersCount;
-        Logger.Log("Player joined. Total count:" + cnt);
+        _logger.LogInformation("Player joined. Total count:" + cnt);
         return id;
     }
 

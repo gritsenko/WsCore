@@ -21,7 +21,6 @@ public class WebSocketHandler(
     public const int BufferSize = 4096;
     public uint Id { get; private set; }
 
-    private bool _isInitialized;
     private readonly CancellationTokenSource _cts = new();
 
     public static async Task HandleWebSocket(HttpContext context)
@@ -44,6 +43,9 @@ public class WebSocketHandler(
             var buffer = new byte[BufferSize];
             var seg = new ArraySegment<byte>(buffer);
 
+            if(socket.State == WebSocketState.Open)
+                gameServer.OnClientConnected(this, newId => Id = newId);
+
             while (socket.State == WebSocketState.Open && !_cts.IsCancellationRequested)
             {
                 var result = await socket.ReceiveAsync(seg, _cts.Token);
@@ -54,12 +56,6 @@ public class WebSocketHandler(
                         "Closing",
                         CancellationToken.None);
                     break;
-                }
-
-                if (!_isInitialized)
-                {
-                    _isInitialized = true;
-                    gameServer.OnClientConnected(this, newId => Id = newId);
                 }
 
                 if (result.MessageType == WebSocketMessageType.Binary)
@@ -100,20 +96,13 @@ public class WebSocketHandler(
         try
         {
             var data = messageSerializer.Serialize(@event);
-            await SendBufferAsync(socket, data, _cts);
+            await socket.SendAsync(data.AsArraySegment(), WebSocketMessageType.Binary, true, _cts.Token);
         }
         catch (Exception ex)
         {
             logger.LogError(ex, "Error sending message to client");
         }
     }
-
-    public static Task SendBufferAsync(WebSocket socket, MyBuffer buffer, CancellationTokenSource cts)
-    {
-        return socket.SendAsync(buffer.AsArraySegment(), WebSocketMessageType.Binary, true, cts.Token);
-    }
-
-
 }
 
 public class WebSocketHandlerFactory(IServiceProvider serviceProvider)

@@ -200,9 +200,6 @@ public class MyBuffer
 
     public MyBuffer SetData(object obj, int fixedLength = 0)
     {
-        if (obj == null)
-            return this;
-
         if (obj is ISelfSerializable ss)
         {
             ss.WriteToBuffer(this);

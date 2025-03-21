@@ -10,7 +10,7 @@ public class MessageSerializer(IServerLogicProvider serverLogicProvider) : IMess
 {
     public MyBuffer Serialize(IServerEvent message)
     {
-        var messageType = 0;// messageTypeAttr.ServerMessageType;
+        var messageType = serverLogicProvider.ServerEvents.FindIdByType(message.GetType());
 
         var buff = MyBuffer.Create()
             .SetUint8((byte)messageType)

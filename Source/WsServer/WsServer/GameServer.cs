@@ -1,7 +1,9 @@
 ﻿using Game.Core;
 using Game.ServerLogic.GameState.Events;
 using Game.ServerLogic.Player.Events;
+using Microsoft.Extensions.Logging;
 using WsServer.Abstract;
+using WsServer.Abstract.Messages;
 using WsServer.Common;
 
 namespace WsServer;
@@ -10,13 +12,14 @@ public class GameServer(
     GameModel gameModel,
     IGameMessenger messenger,
     IClientConnectionManager connectionManager,
-    IServerLogicProvider serverLogicProvider)
-    : GameServerBase<GameModel>(gameModel, messenger, connectionManager, serverLogicProvider)
+    IServerLogicProvider serverLogicProvider,
+    ILogger<GameServer> logger)
+    : GameServerBase<GameModel>(gameModel, messenger, connectionManager, serverLogicProvider, logger)
 {
     private GameTickUpdateEvent _tickUpdateEvent;
     private readonly MyBuffer _tickStateBuffer = new(1024 * 100);
 
-    public override MyBuffer BuildTickState(GameModel game)
+    public override void BuildTickState(GameModel game)
     {
         _tickStateBuffer.Clear();
         _tickStateBuffer.SetUint8(GameTickUpdateEvent.TypeId);
@@ -27,8 +30,8 @@ public class GameServer(
     public override uint AddNewPlayer()
     {
         var id = base.AddNewPlayer();
-        //notifying other players that new player joined
         var player = GameModel.GetPlayer(id);
+        //notifying other players that new player joined
         Messenger.Broadcast(new PlayerJoinedEvent(player));
         return id;
     }
