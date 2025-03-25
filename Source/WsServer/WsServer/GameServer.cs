@@ -19,7 +19,7 @@ public class GameServer(
     private GameTickUpdateEvent _tickUpdateEvent;
     private readonly MyBuffer _tickStateBuffer = new(1024 * 100);
 
-    public override void BuildTickState(GameModel game)
+    public override IServerEvent BuildTickState(GameModel game)
     {
         _tickStateBuffer.Clear();
         _tickStateBuffer.SetUint8(GameTickUpdateEvent.TypeId);
