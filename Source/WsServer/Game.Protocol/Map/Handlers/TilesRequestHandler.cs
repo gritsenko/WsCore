@@ -6,7 +6,7 @@ using WsServer.Common;
 
 namespace Game.ServerLogic.Map.Handlers;
 
-public class TilesRequestRequestHandler(IGameMessenger messenger, GameModel gameModel) : RequestHandlerBase<GetTilesRequest>
+public class TilesRequestHandler(IGameMessenger messenger, GameModel gameModel) : RequestHandlerBase<GetTilesRequest>
 {
     protected override void Handle(uint clientId, GetTilesRequest request)
     {
