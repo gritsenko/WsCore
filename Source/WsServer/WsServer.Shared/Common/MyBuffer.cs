@@ -1,12 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Net.WebSockets;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
 using WsServer.Abstract;
 
 namespace WsServer.Common;
@@ -37,11 +33,11 @@ public class MyBuffer
     {
         if (index + 64 > curLen)
         {
-            ExapndBuffer(index + 64);
+            ExpandBuffer(index + 64);
         }
     }
 
-    private void ExapndBuffer(int newSize)
+    private void ExpandBuffer(int newSize)
     {
         //Logger.Log("Expanding buffer to " + newSize);
         Array.Resize(ref buffer, newSize);
@@ -110,24 +106,12 @@ public class MyBuffer
 
     public unsafe MyBuffer SetFloat(float value)
     {
-        //var floatArray1 = new[] { value };
-        // create a byte array and copy the floats into it...
-        //var byteArray = new byte[floatArray1.Length * 4];
-        //Buffer.BlockCopy(floatArray1, 0, byteArray, 0, 4);
-        //Buffer.BlockCopy(byteArray, 0, buffer, Index, 4);
-
-        //var arr = BitConverter.GetBytes(value);
-
         var val = *((uint*)&value);
 
         SetUint8((byte)(val & 0xFF));
         SetUint8((byte)((val >> 8) & 0xFF));
         SetUint8((byte)((val >> 16) & 0xFF));
         SetUint8((byte)((val >> 24) & 0xFF));
-
-        //fixed (byte* p = &buffer[Index])
-        //    *((float*)p) = value;
-        //Index += 4;
         return this;
     }
 
@@ -225,7 +209,7 @@ public class MyBuffer
                 continue;
             }
 
-            SetData(val, val is string ? GetFieldLenght(info) : 0);
+            SetData(val, val is string ? GetFieldLength(info) : 0);
         }
 
         return this;
@@ -248,7 +232,7 @@ public class MyBuffer
             *((UInt32*)p) = len;
     }
 
-    public int GetFieldLenght(FieldInfo info)
+    public int GetFieldLength(FieldInfo info)
     {
         try
         {
@@ -263,7 +247,6 @@ public class MyBuffer
 
         return 0;
     }
-
 
     public void SetPrimitive(object val, int fixedLenght = 0)
     {

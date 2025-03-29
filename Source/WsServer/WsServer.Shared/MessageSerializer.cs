@@ -13,8 +13,12 @@ public class MessageSerializer(IServerLogicProvider serverLogicProvider) : IMess
         var messageType = serverLogicProvider.ServerEvents.FindIdByType(message.GetType());
 
         var buff = MyBuffer.Create()
-            .SetUint8((byte)messageType)
-            .SetData(message);
+            .SetUint8(messageType);
+
+        if (message is not ISelfSerializable messageSerializable)
+            buff.SetData(message);
+        else
+            messageSerializable.WriteToBuffer(buff);
 
         return buff;
     }

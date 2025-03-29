@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using WsServer.Abstract;
 using WsServer.Abstract.Messages;
-using WsServer.Common;
 
 namespace WsServer;
 
@@ -14,6 +13,8 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
     public TGameModel GameModel { get; }
     protected readonly IGameMessenger Messenger;
 
+    public event Action<uint> OnPlayerAdded;
+    public event Action<uint> OnPlayerRemoved;
 
     private readonly IClientConnectionManager _connectionManager;
     private readonly IServerLogicProvider _serverLogicProvider;
@@ -25,7 +26,6 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
     private int _ticksToClean = CleanPeriod;
     private readonly long _cleanTimeout = TimeSpan.FromSeconds(600).Ticks;
     public abstract IServerEvent BuildTickState(TGameModel game);
-    public abstract void SendGameState(uint clientId);
 
     protected GameServerBase(
         IGameModel gameModel,
@@ -67,7 +67,8 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
         _lastTickTime = time;
         GameModel.OnTick((float)dt.TotalSeconds);
 
-        Messenger.Broadcast(BuildTickState(GameModel));
+        var stateEvent = BuildTickState(GameModel);
+        Messenger.Broadcast(stateEvent);
 
         //if (GameModel.TopChanged)
         //    BroadCastTop();
@@ -103,20 +104,19 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
     //{
     //    Messenger.Broadcast(new PlayersTopServerMessage(GameModel));
     //}
+    public void OnClientDisconnected(uint connectionId)
+    {
+        RemovePlayer(connectionId);
+        Debug.WriteLine($"Disconnected {connectionId}!");
+    }
 
-    public virtual void RemovePlayer(uint clientId)
+    private void RemovePlayer(uint clientId)
     {
         GameModel.RemovePlayer(clientId);
         var cnt = GameModel.PlayersCount;
         _logger.LogInformation("Player left. Total count:" + cnt);
-    }
-
-    public virtual uint AddNewPlayer()
-    {
-        var id = GameModel.AddNewPlayer();
-        var cnt = GameModel.PlayersCount;
-        _logger.LogInformation("Player joined. Total count:" + cnt);
-        return id;
+        _connectionManager.Remove(clientId);
+        OnPlayerRemoved?.Invoke(clientId);
     }
 
     public void ProcessClientMessage(uint clientId, byte typeId, IClientRequest request)
@@ -130,12 +130,14 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
         var playerId = AddNewPlayer();
         onIdCreated(playerId);
         _connectionManager.Register(connection);
-        SendGameState(playerId);
+        OnPlayerAdded?.Invoke(playerId);
     }
 
-    public void OnClientDisconnected(uint connectionId)
+    private uint AddNewPlayer()
     {
-        Debug.WriteLine("Disconnected!");
-        //throw new NotImplementedException();
+        var id = GameModel.AddNewPlayer();
+        var cnt = GameModel.PlayersCount;
+        _logger.LogInformation("Player joined. Total count:" + cnt);
+        return id;
     }
 }

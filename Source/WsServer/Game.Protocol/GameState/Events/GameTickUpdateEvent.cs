@@ -6,7 +6,7 @@ using WsServer.Common;
 
 namespace Game.ServerLogic.GameState.Events;
 
-public class GameTickUpdateEvent : IServerEvent
+public class GameTickUpdateEvent(GameModel game) : IServerEvent, ISelfSerializable
 {
     public static byte TypeId => 1;
 
@@ -17,9 +17,8 @@ public class GameTickUpdateEvent : IServerEvent
     public HitPlayerStateData[] HitPlayersState;
 
     //write directly to buffer to reduce allocations
-    public void WriteToBuffer(MyBuffer buffer, IGameModel gameModel)
+    public void WriteToBuffer(MyBuffer buffer)
     {
-        var game = (GameModel)gameModel;
         //MovementStates
         buffer.SetCollection(game.ForEachPlayers(x => new MovementStateData(x)));
         //DestroyedBulletsIds
