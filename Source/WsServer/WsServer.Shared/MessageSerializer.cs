@@ -8,17 +8,18 @@ namespace WsServer;
 
 public class MessageSerializer(IServerLogicProvider serverLogicProvider) : IMessageSerializer
 {
-    public MyBuffer Serialize(IServerEvent message)
+    public MyBuffer Serialize<TEventMessage>(TEventMessage message) where TEventMessage : IServerEvent
     {
-        var messageType = serverLogicProvider.ServerEvents.FindIdByType(message.GetType());
+        var messageType = serverLogicProvider.ServerEvents.FindIdByType(typeof(TEventMessage));
+        var writer = serverLogicProvider.GetWriter<TEventMessage>();
 
         var buff = MyBuffer.Create()
             .SetUint8(messageType);
 
-        if (message is not ISelfSerializable messageSerializable)
-            buff.SetData(message);
+        if (writer != null)
+            writer.Write(buff, message);
         else
-            messageSerializable.WriteToBuffer(buff);
+            buff.SetData(message);
 
         return buff;
     }

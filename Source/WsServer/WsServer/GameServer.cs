@@ -3,13 +3,12 @@ using Game.ServerLogic.GameState.Events;
 using Game.ServerLogic.Player.Events;
 using Microsoft.Extensions.Logging;
 using WsServer.Abstract;
-using WsServer.Abstract.Messages;
 
 namespace WsServer;
 
 public class GameServer : GameServerBase<GameModel>
 {
-    private IServerEvent _gameStateEvent;
+    private readonly GameTickUpdateEvent _gameStateEvent;
 
     public GameServer(
         GameModel gameModel,
@@ -20,8 +19,17 @@ public class GameServer : GameServerBase<GameModel>
     {
         OnPlayerAdded += GameServer_OnPlayerAdded;
         OnPlayerRemoved += GameServer_OnPlayerRemoved;
+        OnTick += GameServer_OnTick;
 
         _gameStateEvent = new GameTickUpdateEvent(gameModel);
+    }
+
+    private void GameServer_OnTick()
+    {
+        Messenger.Broadcast(_gameStateEvent);
+
+        //if (GameModel.TopChanged)
+        //    BroadCastTop();
     }
 
     private void GameServer_OnPlayerRemoved(uint clientId) => 
@@ -35,7 +43,4 @@ public class GameServer : GameServerBase<GameModel>
         //send game state to new client
         Messenger.Send(clientId, new GameStateUpdateEvent(GameModel));
     }
-
-    public override IServerEvent BuildTickState(GameModel game) =>
-        _gameStateEvent;
 }

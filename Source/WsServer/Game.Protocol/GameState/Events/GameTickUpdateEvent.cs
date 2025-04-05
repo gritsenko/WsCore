@@ -1,12 +1,10 @@
 ﻿using Game.Core;
 using Game.ServerLogic.GameState.Events.GameTickStateUpdateEventData;
-using WsServer.Abstract;
 using WsServer.Abstract.Messages;
-using WsServer.Common;
 
 namespace Game.ServerLogic.GameState.Events;
 
-public class GameTickUpdateEvent(GameModel game) : IServerEvent, ISelfSerializable
+public class GameTickUpdateEvent(GameModel game) : IServerEvent
 {
     public static byte TypeId => 1;
 
@@ -15,17 +13,7 @@ public class GameTickUpdateEvent(GameModel game) : IServerEvent, ISelfSerializab
     public uint[] DestroyedBulletsIds;
     public uint[] RespawnedPlayerIds;
     public HitPlayerStateData[] HitPlayersState;
+    
+    public GameModel Game => game;
 
-    //write directly to buffer to reduce allocations
-    public void WriteToBuffer(MyBuffer buffer)
-    {
-        //MovementStates
-        buffer.SetCollection(game.ForEachPlayers(x => new MovementStateData(x)));
-        //DestroyedBulletsIds
-        buffer.SetCollection(game.GetDestroyedBulletIds());
-        //RespawnedPlayerIds
-        buffer.SetCollection(game.GetRespawnedPlayerIds());
-        //HitPlayersState
-        buffer.SetCollection(game.GetHits());
-    }
 }

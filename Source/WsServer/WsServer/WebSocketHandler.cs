@@ -90,7 +90,7 @@ public class WebSocketHandler(
         _cts.Cancel();
     }
 
-    public async Task Send(IServerEvent @event)
+    public async Task Send<TEventMessage>(TEventMessage @event) where TEventMessage : IServerEvent
     {
         try
         {

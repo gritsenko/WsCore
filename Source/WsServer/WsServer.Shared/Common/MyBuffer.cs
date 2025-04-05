@@ -184,12 +184,6 @@ public class MyBuffer
 
     public MyBuffer SetData(object obj, int fixedLength = 0)
     {
-        if (obj is ISelfSerializable ss)
-        {
-            ss.WriteToBuffer(this);
-            return this;
-        }
-
         var typeInfo = obj.GetType();
         if (!typeInfo.IsValueType || typeInfo.IsPrimitive || obj is string)
             SetPrimitive(obj, fixedLength);

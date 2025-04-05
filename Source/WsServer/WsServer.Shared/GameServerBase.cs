@@ -13,28 +13,25 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
     public TGameModel GameModel { get; }
     protected readonly IGameMessenger Messenger;
 
-    public event Action<uint> OnPlayerAdded;
-    public event Action<uint> OnPlayerRemoved;
+    public event Action<uint>? OnPlayerAdded;
+    public event Action<uint>? OnPlayerRemoved;
+    public event Action? OnTick;
 
     private readonly IClientConnectionManager _connectionManager;
     private readonly IServerLogicProvider _serverLogicProvider;
     private readonly ILogger<GameServerBase<TGameModel>> _logger;
 
-    private DateTime _lastTickTime = DateTime.Now;
     private readonly TimeSpan _updatePeriod = TimeSpan.FromMilliseconds(33);
-    private const int CleanPeriod = 10000 / 33;
-    private int _ticksToClean = CleanPeriod;
-    private readonly long _cleanTimeout = TimeSpan.FromSeconds(600).Ticks;
-    public abstract IServerEvent BuildTickState(TGameModel game);
+    private DateTime _lastTickTime;
 
     protected GameServerBase(
-        IGameModel gameModel,
+        TGameModel gameModel,
         IGameMessenger messenger,
         IClientConnectionManager connectionManager,
         IServerLogicProvider serverLogicProvider,
         ILogger<GameServerBase<TGameModel>> logger)
     {
-        GameModel = gameModel as TGameModel;
+        GameModel = gameModel;
         Messenger = messenger;
         _connectionManager = connectionManager;
         _serverLogicProvider = serverLogicProvider;
@@ -63,47 +60,15 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
     private void Tick()
     {
         var time = DateTime.Now;
-        var dt = time - _lastTickTime;
+        var dt = (float)(time - _lastTickTime).Milliseconds;
         _lastTickTime = time;
-        GameModel.OnTick((float)dt.TotalSeconds);
 
-        var stateEvent = BuildTickState(GameModel);
-        Messenger.Broadcast(stateEvent);
-
-        //if (GameModel.TopChanged)
-        //    BroadCastTop();
-
-        //clean state
-        GameModel.FlushTickData();
-
-        _ticksToClean--;
-
-        if (_ticksToClean <= 0)
+        GameModel.UpdateGameState(dt,() =>
         {
-            _ticksToClean = CleanPeriod;
-            //CleanZombieClinets(GameState);
-        }
+            OnTick?.Invoke();
+        });
     }
 
-
-    private void CleanZombieClinets(IGameModel state)
-    {
-        //var now = DateTime.Now.Ticks;
-
-        //foreach (var player in state.GetPlayers())
-        //{
-        //    if (now - player.LastActivity > _cleanTimeout)
-        //    {
-        //        Logger.Log("Killing zombie player: " + player.Name + " " + player.Id);
-        //        _messenger.TerminateConnection(player.Id);
-        //    }
-        //}
-    }
-
-    //public void BroadCastTop()
-    //{
-    //    Messenger.Broadcast(new PlayersTopServerMessage(GameModel));
-    //}
     public void OnClientDisconnected(uint connectionId)
     {
         RemovePlayer(connectionId);

@@ -6,6 +6,6 @@ namespace WsServer.Abstract;
 public interface IClientConnection
 {
     uint Id { get; }
-    Task Send(IServerEvent @event);
+    Task Send<TEventMessage>(TEventMessage @event) where TEventMessage : IServerEvent;
     void Terminate();
 }

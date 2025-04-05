@@ -4,6 +4,7 @@ namespace WsServer.Abstract;
 
 public interface IGameMessenger
 {
-    void Broadcast(IServerEvent @event);
-    void Send(uint clientId, IServerEvent @event);
+    void Broadcast<TEventMessage>(TEventMessage @event) where TEventMessage : IServerEvent;
+
+    void Send<TEventMessage>(uint clientId, TEventMessage @event) where TEventMessage : IServerEvent;
 }

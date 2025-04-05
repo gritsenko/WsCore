@@ -85,7 +85,7 @@ public class GameModel : IGameModel
 
     public uint GetNewPlayerId() => ++_lastPlayerId;
 
-    public void OnTick(float dt)
+    public void UpdateGameState(float dt, Action onUpdatedAction)
     {
         foreach (var player in _players)
         {
@@ -100,6 +100,7 @@ public class GameModel : IGameModel
 
         }
 
+        var bulletsToDestroy = new List<uint>();
         foreach (var (_, bullet) in _bullets)
         {
             bullet.Update(dt);
@@ -107,18 +108,21 @@ public class GameModel : IGameModel
             {
                 var hitInfo = HitPlayer(hitPlayer.Id, bullet.HitPoints, bullet.SpawnerId);
                 _tickHits.Add(hitInfo);
+                bulletsToDestroy.Add(bullet.Id);
                 bullet.IsDestroyed = true;
             }
         }
-    }
-    public void FlushTickData()
-    {
-        RemoveDestroyedBullets();
+
+        //call action before clear collections
+        onUpdatedAction.Invoke();
+
+        //RemoveDestroyedBullets
+        foreach (var bulletId in bulletsToDestroy) _bullets.TryRemove(bulletId, out _);
+
         _tickHits.Clear();
         _respawnedPlayerIds.Clear();
         TopChanged = false;
     }
-
 
     private bool CheckBulletForCollisions(Bullet bullet, out Player collidedPlayer)
     {
@@ -195,9 +199,7 @@ public class GameModel : IGameModel
     {
         player.AddFrag(value);
 
-        if (!_playersTop.ContainsKey(player.Name))
-            _playersTop[player.Name] = 0;
-
+        _playersTop.TryAdd(player.Name, 0);
         _playersTop[player.Name] += value;
 
         UpdateTopString();
@@ -300,14 +302,6 @@ public class GameModel : IGameModel
         {
             if (bullet.Value.IsDestroyed)
                 yield return bullet.Key;
-        }
-    }
-
-    public void RemoveDestroyedBullets()
-    {
-        foreach (var bullet in _bullets.Values.Where(x => x.IsDestroyed).ToArray())
-        {
-            _bullets.TryRemove(bullet.Id, out _);
         }
     }
 

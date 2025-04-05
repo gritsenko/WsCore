@@ -1,4 +1,5 @@
-﻿using System.Numerics;
+﻿using System;
+using System.Numerics;
 
 namespace WsServer.Abstract;
 
@@ -6,8 +7,7 @@ public interface IGameModel
 {
     bool TopChanged { get; }
     int PlayersCount { get; }
-    void OnTick(float dt);
-    void FlushTickData();
+    void UpdateGameState(float dt, Action onUpdatedAction);
     void RemovePlayer(uint id);
     uint AddNewPlayer();
 }

@@ -17,6 +17,7 @@ public class ReflectionServerLogicProvider : IServerLogicProvider
     public MessageTypeRegistry ClientRequests => _requestRegistry;
     public MessageTypeRegistry ServerEvents => _eventRegistry;
     public Dictionary<byte, IRequestHandler> RequestHandlers { get; } = new();
+    public Dictionary<Type, IMessageDataWriter> MessageDataWriters { get; } = new();
 
     public ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFactory requestHandlerFactory)
     {
@@ -24,7 +25,9 @@ public class ReflectionServerLogicProvider : IServerLogicProvider
         RegisterMessages(_requestRegistry, GetRequestTypes());
         RegisterMessages(_eventRegistry, GetEventTypes());
         RegisterMessageHandlers(GetRequestHandlers(), requestHandlerFactory);
+        RegisterMessageDataWriters(GetMessageDataWriters());
     }
+
     private void RegisterMessages(MessageTypeRegistry registry, IEnumerable<Type> messageTypes)
     {
         foreach (var type in messageTypes)
@@ -52,7 +55,7 @@ public class ReflectionServerLogicProvider : IServerLogicProvider
     {
         foreach (var handlerType in requestHandlerTypes)
         {
-            var handlerBaseType = GetMessageHandlerBaseType(handlerType);
+            var handlerBaseType = GetBaseType(handlerType, typeof(RequestHandlerBase<>));
             var messageType = handlerBaseType.GetGenericArguments()[0];
             var handler = requestHandlerFactory.CreateHandler(handlerType);
 
@@ -61,14 +64,25 @@ public class ReflectionServerLogicProvider : IServerLogicProvider
             RequestHandlers[typeId] = handler;
         }
     }
+    private void RegisterMessageDataWriters(IEnumerable<Type> messageDataWriters)
+    {
+        foreach (var messageDataWriter in messageDataWriters)
+        {
+            var handlerBaseType = GetBaseType(messageDataWriter, typeof(IMessageDataWriter<>));
+            var messageType = handlerBaseType.GetGenericArguments()[0];
+            var writerInstance = Activator.CreateInstance(messageDataWriter) as IMessageDataWriter;
+            
+            MessageDataWriters[messageType] = writerInstance!;
+        }
+    }
 
-    private Type GetMessageHandlerBaseType(Type handlerType)
+    private Type GetBaseType(Type handlerType, Type desiredBaseType)
     {
         var baseType = handlerType.BaseType;
         while (baseType != null)
         {
             if (baseType.IsGenericType &&
-                baseType.GetGenericTypeDefinition() == typeof(RequestHandlerBase<>))
+                baseType.GetGenericTypeDefinition() == desiredBaseType)
                 return baseType;
 
             baseType = baseType.BaseType;
@@ -77,14 +91,17 @@ public class ReflectionServerLogicProvider : IServerLogicProvider
     }
 
 
-    public IEnumerable<Type> GetRequestTypes() => 
+    private IEnumerable<Type> GetRequestTypes() => 
         GetTypesImplementing(typeof(IClientRequest));
 
-    public IEnumerable<Type> GetEventTypes() =>
+    private IEnumerable<Type> GetEventTypes() =>
         GetTypesImplementing(typeof(IServerEvent));
 
-    public IEnumerable<Type> GetRequestHandlers() => 
+    private IEnumerable<Type> GetRequestHandlers() => 
         GetTypesImplementing(typeof(IRequestHandler));
+
+    private IEnumerable<Type> GetMessageDataWriters() => 
+        GetTypesImplementing(typeof(IMessageDataWriter<>));
 
 
     private IEnumerable<Type> GetTypesImplementing(Type tInterface)
@@ -95,5 +112,13 @@ public class ReflectionServerLogicProvider : IServerLogicProvider
                 tInterface.IsAssignableFrom(t)
             );
         return types;
+    }
+
+    public IMessageDataWriter<TMessageData>? GetWriter<TMessageData>() where TMessageData : IMessageData
+    {
+        if (!MessageDataWriters.TryGetValue(typeof(TMessageData), out var messageDataWriter))
+            return null;
+
+        return (IMessageDataWriter<TMessageData>)messageDataWriter;
     }
 }
