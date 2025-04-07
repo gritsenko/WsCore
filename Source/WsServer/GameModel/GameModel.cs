@@ -16,6 +16,8 @@ public class GameModel : IGameModel
     private readonly ConcurrentDictionary<uint, Player> _players = new();
     private readonly ConcurrentDictionary<string, int> _playersTop = new();
 
+    private DateTime _lastTickTime;
+    private readonly List<uint> _bulletsToDestroyCache = new(32);
     private readonly ConcurrentBag<HitInfo> _tickHits = new();
     private readonly ConcurrentBag<uint> _respawnedPlayerIds = new();
 
@@ -85,39 +87,40 @@ public class GameModel : IGameModel
 
     public uint GetNewPlayerId() => ++_lastPlayerId;
 
-    public void UpdateGameState(float dt, Action onUpdatedAction)
+    public void UpdateGameState(DateTime time, Action onUpdatedAction)
     {
+        var dt = (time - _lastTickTime).Milliseconds * 0.001f;
+        _lastTickTime = time;
+
+        _bulletsToDestroyCache.Clear();
+
         foreach (var player in _players)
         {
             player.Value.Update(dt);
-
-            //respawn players
             if (player.Value.IsDead && player.Value.RespawnTime <= 0)
             {
                 _respawnedPlayerIds.Add(player.Key);
                 RespawnPlayer(player.Key);
             }
-
         }
 
-        var bulletsToDestroy = new List<uint>();
-        foreach (var (_, bullet) in _bullets)
+        using var bulletEnumerator = _bullets.GetEnumerator();
+        while (bulletEnumerator.MoveNext())
         {
+            var bullet = bulletEnumerator.Current.Value;
             bullet.Update(dt);
             if (CheckBulletForCollisions(bullet, out var hitPlayer))
             {
-                var hitInfo = HitPlayer(hitPlayer.Id, bullet.HitPoints, bullet.SpawnerId);
-                _tickHits.Add(hitInfo);
-                bulletsToDestroy.Add(bullet.Id);
+                _tickHits.Add(new HitInfo(hitPlayer.Id, (byte)bullet.HitPoints, bullet.SpawnerId));
+                _bulletsToDestroyCache.Add(bullet.Id);
                 bullet.IsDestroyed = true;
             }
         }
 
-        //call action before clear collections
         onUpdatedAction.Invoke();
 
-        //RemoveDestroyedBullets
-        foreach (var bulletId in bulletsToDestroy) _bullets.TryRemove(bulletId, out _);
+        foreach (var bulletId in _bulletsToDestroyCache)
+            _bullets.TryRemove(bulletId, out _);
 
         _tickHits.Clear();
         _respawnedPlayerIds.Clear();
@@ -286,7 +289,7 @@ public class GameModel : IGameModel
             Id = GetNewBulletId(),
             Pos = pos,
             Type = 0,
-            Velocity = (aimPos-pos).Normalize() * 500f,
+            Velocity = (aimPos - pos).Normalize() * 500f,
             SpawnerId = spawnerId
         };
 

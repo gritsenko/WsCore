@@ -5,18 +5,18 @@ using WsServer.Common;
 
 namespace Game.ServerLogic.GameState.Writers;
 
-public class GameTickUpdateEventDataWriter : IMessageDataWriter<GameTickUpdateEvent>
+public class GameTickUpdateEventDataWriter : MessageDataWriterBase<GameTickUpdateEvent>
 {
-    public void Write(MyBuffer dest, GameTickUpdateEvent data)
+    public override void Write(MyBuffer dest, GameTickUpdateEvent data)
     {
         var game = data.Game;
         //MovementStates
-        dest.SetCollection(game.ForEachPlayers(x => new MovementStateData(x)));
+        SetCollection(dest, game.ForEachPlayers(x => new MovementStateData(x)));
         //DestroyedBulletsIds
-        dest.SetCollection(game.GetDestroyedBulletIds());
+        SetCollection(dest, game.GetDestroyedBulletIds());
         //RespawnedPlayerIds
-        dest.SetCollection(game.GetRespawnedPlayerIds());
+        SetCollection(dest, game.GetRespawnedPlayerIds());
         //HitPlayersState
-        dest.SetCollection(game.GetHits());
+        SetCollection(dest, game.GetHits());
     }
 }

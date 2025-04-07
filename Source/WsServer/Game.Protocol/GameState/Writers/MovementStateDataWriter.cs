@@ -4,9 +4,9 @@ using WsServer.Common;
 
 namespace Game.ServerLogic.GameState.Writers;
 
-public class MovementStateDataWriter : IMessageDataWriter<MovementStateData>
+public class MovementStateDataWriter : MessageDataWriterBase<MovementStateData>
 {
-    public void Write(MyBuffer dest, MovementStateData data)
+    public override void Write(MyBuffer dest, MovementStateData data)
     {
         dest.SetUint32(data.PlayerId);
         dest.SetFloat(data.X);

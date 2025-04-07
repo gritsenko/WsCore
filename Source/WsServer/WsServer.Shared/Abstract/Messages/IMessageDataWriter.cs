@@ -1,9 +1,10 @@
-﻿using WsServer.Common;
+﻿using System;
+using WsServer.Common;
 
 namespace WsServer.Abstract.Messages;
 
-public interface IMessageDataWriter<in TData>: IMessageDataWriter where TData : IMessageData
+public interface IMessageDataWriter
 {
-    void Write(MyBuffer destBuffer, TData data);
+    public void SetMessageDataWriterProvider(Func<Type, IMessageDataWriter> messageDataProvider);
+    void Write(MyBuffer buff, object data);
 }
-public interface IMessageDataWriter;

@@ -1,11 +1,11 @@
-﻿using System.Threading.Tasks;
-using WsServer.Abstract.Messages;
+﻿using System;
+using System.Threading.Tasks;
 
 namespace WsServer.Abstract;
 
 public interface IClientConnection
 {
     uint Id { get; }
-    Task Send<TEventMessage>(TEventMessage @event) where TEventMessage : IServerEvent;
+    Task Send(ArraySegment<byte> messageData);
     void Terminate();
 }

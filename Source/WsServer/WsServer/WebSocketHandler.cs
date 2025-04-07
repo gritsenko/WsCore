@@ -6,13 +6,11 @@ using System.Net.WebSockets;
 using System.Threading;
 using System.Threading.Tasks;
 using WsServer.Abstract;
-using WsServer.Abstract.Messages;
 
 namespace WsServer;
 
 public class WebSocketHandler(
     WebSocket socket,
-    IMessageSerializer messageSerializer,
     IGameServer gameServer,
     ILogger<WebSocketHandler> logger)
     : IClientConnection
@@ -59,8 +57,7 @@ public class WebSocketHandler(
 
                 if (result.MessageType == WebSocketMessageType.Binary)
                 {
-                    var message = messageSerializer.Deserialize(ref buffer, out var typeId);
-                    gameServer.ProcessClientMessage(Id, typeId, message);
+                    gameServer.ProcessClientMessageData(Id, buffer);
                 }
             }
         }
@@ -90,12 +87,11 @@ public class WebSocketHandler(
         _cts.Cancel();
     }
 
-    public async Task Send<TEventMessage>(TEventMessage @event) where TEventMessage : IServerEvent
+    public async Task Send(ArraySegment<byte> messageData)
     {
         try
         {
-            var data = messageSerializer.Serialize(@event);
-            await socket.SendAsync(data.AsArraySegment(), WebSocketMessageType.Binary, true, _cts.Token);
+            await socket.SendAsync(messageData, WebSocketMessageType.Binary, true, _cts.Token);
         }
         catch (Exception ex)
         {

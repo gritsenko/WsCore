@@ -5,6 +5,6 @@ namespace WsServer.Abstract;
 
 public interface IMessageSerializer
 {
-    MyBuffer Serialize<TEventMessage>(TEventMessage message) where TEventMessage : IServerEvent; 
+    void Serialize<TEventMessage>(MyBuffer buff, TEventMessage message) where TEventMessage : IServerEvent; 
     IClientRequest Deserialize(ref byte[] data, out byte messageTypeId);
 }

@@ -22,7 +22,6 @@ builder.Services.AddSingleton<IServerLogicProvider, ReflectionServerLogicProvide
     //pass our Game.ServerLogic assembly for parsing messages and handlers from it
     new ReflectionServerLogicProvider(typeof(ChatMessageEvent).Assembly, new ClientRequestHandlerFactory(sc)));
 
-builder.Services.AddSingleton<IMessageSerializer, MessageSerializer>();
 //init game server
 builder.Services.AddSingleton<IClientConnectionManager, ConnectionManager>();
 builder.Services.AddSingleton<IGameMessenger, GameMessenger>();

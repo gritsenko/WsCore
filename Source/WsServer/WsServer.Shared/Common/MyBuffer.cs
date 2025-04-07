@@ -1,15 +1,13 @@
 using System;
-using System.Collections.Generic;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
-using WsServer.Abstract;
 
 namespace WsServer.Common;
 
 public class MyBuffer
 {
-    private int Index
+    internal int Index
     {
         get => _index;
         set
@@ -179,52 +177,36 @@ public class MyBuffer
 
     public static MyBuffer Create(int size = 1024)
     {
-        return new MyBuffer(size);
+        throw new NotImplementedException();
+        //return new MyBuffer(size);
     }
 
-    public MyBuffer SetData(object obj, int fixedLength = 0)
-    {
-        var typeInfo = obj.GetType();
-        if (!typeInfo.IsValueType || typeInfo.IsPrimitive || obj is string)
-            SetPrimitive(obj, fixedLength);
+    //public MyBuffer SetData(object obj, int fixedLength = 0)
+    //{
+    //    var typeInfo = obj.GetType();
+    //    if (!typeInfo.IsValueType || typeInfo.IsPrimitive || obj is string)
+    //        SetPrimitive(obj, fixedLength);
 
-        //if structure
-        var infos = typeInfo.GetFields(BindingFlags.Public | BindingFlags.Instance);
-        foreach (var info in infos)
-        {
-            var val = info.GetValue(obj);
+    //    //if structure
+    //    var infos = typeInfo.GetFields(BindingFlags.Public | BindingFlags.Instance);
+    //    foreach (var info in infos)
+    //    {
+    //        var val = info.GetValue(obj);
 
-            if (info.FieldType.IsArray)
-            {
-                SetUint32((uint) ((Array) val).Length);
+    //        if (info.FieldType.IsArray)
+    //        {
+    //            SetUint32((uint) ((Array) val).Length);
 
-                foreach (var item in (Array) val)
-                    SetData(item);
-                continue;
-            }
+    //            foreach (var item in (Array) val)
+    //                SetData(item);
+    //            continue;
+    //        }
 
-            SetData(val, val is string ? GetFieldLength(info) : 0);
-        }
+    //        SetData(val, val is string ? GetFieldLength(info) : 0);
+    //    }
 
-        return this;
-    }
-
-    public unsafe void SetCollection<TItem>(IEnumerable<TItem> items)
-    {
-        var lenIndex = Index;
-        Index += 4;
-
-        uint len = 0;
-        foreach (var item in items)
-        {
-            SetData(item);
-            len++;
-        }
-
-        //write length of collection
-        fixed (byte* p = &buffer[lenIndex])
-            *((UInt32*)p) = len;
-    }
+    //    return this;
+    //}
 
     public int GetFieldLength(FieldInfo info)
     {
@@ -282,5 +264,11 @@ public class MyBuffer
     public ArraySegment<byte> AsArraySegment()
     {
         return new ArraySegment<byte>(buffer, 0, Index);
+    }
+
+    internal unsafe void SetUint32AtIndex(uint len, int index)
+    {
+        fixed (byte* p = &buffer[index])
+            *(uint*)p = len;
     }
 }

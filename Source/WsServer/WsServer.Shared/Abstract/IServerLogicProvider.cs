@@ -7,9 +7,10 @@ namespace WsServer.Abstract;
 
 public interface IServerLogicProvider
 {
+    void Initialize();
     MessageTypeRegistry ClientRequests { get; }
     MessageTypeRegistry ServerEvents { get; }
     Dictionary<byte, IRequestHandler> RequestHandlers { get; }
     Dictionary<Type, IMessageDataWriter> MessageDataWriters { get; }
-    IMessageDataWriter<TMessageData>? GetWriter<TMessageData>() where TMessageData : IMessageData;
+    MessageDataWriterBase<TMessageData> GetWriter<TMessageData>() where TMessageData : IMessageData;
 }

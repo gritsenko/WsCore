@@ -1,9 +1,8 @@
 ﻿using System;
 using System.Diagnostics;
-using System.Threading.Tasks;
+using System.Threading;
 using Microsoft.Extensions.Logging;
 using WsServer.Abstract;
-using WsServer.Abstract.Messages;
 
 namespace WsServer;
 
@@ -21,8 +20,8 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
     private readonly IServerLogicProvider _serverLogicProvider;
     private readonly ILogger<GameServerBase<TGameModel>> _logger;
 
-    private readonly TimeSpan _updatePeriod = TimeSpan.FromMilliseconds(33);
-    private DateTime _lastTickTime;
+    private readonly SemaphoreSlim _tickSemaphore = new SemaphoreSlim(1, 1);
+    private readonly Timer _timer;
 
     protected GameServerBase(
         TGameModel gameModel,
@@ -31,42 +30,37 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
         IServerLogicProvider serverLogicProvider,
         ILogger<GameServerBase<TGameModel>> logger)
     {
+        serverLogicProvider.Initialize();
         GameModel = gameModel;
         Messenger = messenger;
         _connectionManager = connectionManager;
         _serverLogicProvider = serverLogicProvider;
         _logger = logger;
 
-        StartGameLoop();
+        _timer = new Timer(Tick, this, 33, 33);
     }
 
-    private async void StartGameLoop()
+    private async void Tick(object? state)
     {
         try
         {
-            while (true)
+            var time = DateTime.Now;
+            if (!await _tickSemaphore.WaitAsync(0))
+                return;
+
+            GameModel.UpdateGameState(time, () =>
             {
-                Tick();
-                await Task.Delay(_updatePeriod);
-            }
+                OnTick?.Invoke();
+            });
         }
         catch (Exception e)
         {
-            _logger.LogError(e, $"Can't start game loop! {e.Message}");
+            _logger.LogError(e, "Error while updating game state");
         }
-    }
-
-
-    private void Tick()
-    {
-        var time = DateTime.Now;
-        var dt = (float)(time - _lastTickTime).Milliseconds;
-        _lastTickTime = time;
-
-        GameModel.UpdateGameState(dt,() =>
+        finally
         {
-            OnTick?.Invoke();
-        });
+            _tickSemaphore.Release();
+        }
     }
 
     public void OnClientDisconnected(uint connectionId)
@@ -84,10 +78,11 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
         OnPlayerRemoved?.Invoke(clientId);
     }
 
-    public void ProcessClientMessage(uint clientId, byte typeId, IClientRequest request)
+    public void ProcessClientMessageData(uint clientId, byte[] data)
     {
+        var message = Messenger.Deserialize(ref data, out var typeId);
         if (_serverLogicProvider.RequestHandlers.TryGetValue(typeId, out var handler))
-            handler?.Handle(clientId, request);
+            handler?.Handle(clientId, message);
     }
 
     public void OnClientConnected(IClientConnection connection, Action<uint> onIdCreated)

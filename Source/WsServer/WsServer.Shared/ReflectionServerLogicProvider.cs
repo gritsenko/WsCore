@@ -8,20 +8,21 @@ using WsServer.Common;
 
 namespace WsServer;
 
-public class ReflectionServerLogicProvider : IServerLogicProvider
+public class ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFactory requestHandlerFactory) : IServerLogicProvider
 {
     private readonly MessageTypeRegistry _requestRegistry = new();
     private readonly MessageTypeRegistry _eventRegistry = new();
-    private readonly Assembly _assembly;
+    private DefaultMessageDataWriterBase _reflectionWriter;
 
     public MessageTypeRegistry ClientRequests => _requestRegistry;
     public MessageTypeRegistry ServerEvents => _eventRegistry;
     public Dictionary<byte, IRequestHandler> RequestHandlers { get; } = new();
     public Dictionary<Type, IMessageDataWriter> MessageDataWriters { get; } = new();
 
-    public ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFactory requestHandlerFactory)
+    public void Initialize()
     {
-        _assembly = assembly;
+        _reflectionWriter = new DefaultMessageDataWriterBase(GetWriter);
+
         RegisterMessages(_requestRegistry, GetRequestTypes());
         RegisterMessages(_eventRegistry, GetEventTypes());
         RegisterMessageHandlers(GetRequestHandlers(), requestHandlerFactory);
@@ -68,10 +69,10 @@ public class ReflectionServerLogicProvider : IServerLogicProvider
     {
         foreach (var messageDataWriter in messageDataWriters)
         {
-            var handlerBaseType = GetBaseType(messageDataWriter, typeof(IMessageDataWriter<>));
-            var messageType = handlerBaseType.GetGenericArguments()[0];
+            var baseType = GetBaseType(messageDataWriter, typeof(MessageDataWriterBase<>));
+            var messageType = baseType.GetGenericArguments()[0];
             var writerInstance = Activator.CreateInstance(messageDataWriter) as IMessageDataWriter;
-            
+            writerInstance?.SetMessageDataWriterProvider(GetWriter);
             MessageDataWriters[messageType] = writerInstance!;
         }
     }
@@ -91,22 +92,22 @@ public class ReflectionServerLogicProvider : IServerLogicProvider
     }
 
 
-    private IEnumerable<Type> GetRequestTypes() => 
+    private IEnumerable<Type> GetRequestTypes() =>
         GetTypesImplementing(typeof(IClientRequest));
 
     private IEnumerable<Type> GetEventTypes() =>
         GetTypesImplementing(typeof(IServerEvent));
 
-    private IEnumerable<Type> GetRequestHandlers() => 
+    private IEnumerable<Type> GetRequestHandlers() =>
         GetTypesImplementing(typeof(IRequestHandler));
 
-    private IEnumerable<Type> GetMessageDataWriters() => 
-        GetTypesImplementing(typeof(IMessageDataWriter<>));
+    private IEnumerable<Type> GetMessageDataWriters() =>
+        GetTypesImplementing(typeof(IMessageDataWriter));
 
 
     private IEnumerable<Type> GetTypesImplementing(Type tInterface)
     {
-        var types = _assembly.GetTypes()
+        var types = assembly.GetTypes()
             .Where(t =>
                 t is { IsAbstract: false } &&
                 tInterface.IsAssignableFrom(t)
@@ -114,11 +115,18 @@ public class ReflectionServerLogicProvider : IServerLogicProvider
         return types;
     }
 
-    public IMessageDataWriter<TMessageData>? GetWriter<TMessageData>() where TMessageData : IMessageData
+    private IMessageDataWriter GetWriter(Type messageType) => MessageDataWriters.GetValueOrDefault(messageType, _reflectionWriter);
+
+    public MessageDataWriterBase<TMessageData> GetWriter<TMessageData>() where TMessageData : IMessageData
     {
         if (!MessageDataWriters.TryGetValue(typeof(TMessageData), out var messageDataWriter))
-            return null;
+        {
+            var reflectionWriter = new MessageDataWriterBase<TMessageData>();
+            MessageDataWriters[typeof(TMessageData)] = reflectionWriter;
+            reflectionWriter.SetMessageDataWriterProvider(GetWriter);
+            messageDataWriter = reflectionWriter;
+        }
 
-        return (IMessageDataWriter<TMessageData>)messageDataWriter;
+        return (MessageDataWriterBase<TMessageData>)messageDataWriter;
     }
 }
