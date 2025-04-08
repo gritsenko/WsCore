@@ -1,12 +1,13 @@
-﻿using System;
+﻿using Microsoft.Extensions.Logging;
+using System;
 using System.Diagnostics;
 using System.Threading;
-using Microsoft.Extensions.Logging;
+using System.Threading.Tasks;
 using WsServer.Abstract;
 
 namespace WsServer;
 
-public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
+public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>, IDisposable
     where TGameModel : class, IGameModel, new()
 {
     public TGameModel GameModel { get; }
@@ -20,8 +21,8 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
     private readonly IServerLogicProvider _serverLogicProvider;
     private readonly ILogger<GameServerBase<TGameModel>> _logger;
 
-    private readonly SemaphoreSlim _tickSemaphore = new SemaphoreSlim(1, 1);
-    private readonly Timer _timer;
+    private readonly PeriodicTimer _timer;
+    private CancellationTokenSource _cts = new();
 
     protected GameServerBase(
         TGameModel gameModel,
@@ -37,29 +38,27 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
         _serverLogicProvider = serverLogicProvider;
         _logger = logger;
 
-        _timer = new Timer(Tick, this, 33, 33);
+        _timer = new PeriodicTimer(TimeSpan.FromMilliseconds(33));
+        _ = RunGameLoopAsync(); // Start the game loop
     }
 
-    private async void Tick(object? state)
+    private async Task RunGameLoopAsync()
     {
         try
         {
-            var time = DateTime.Now;
-            if (!await _tickSemaphore.WaitAsync(0))
-                return;
-
-            GameModel.UpdateGameState(time, () =>
+            while (await _timer.WaitForNextTickAsync(_cts.Token))
             {
-                OnTick?.Invoke();
-            });
+                var time = DateTime.Now;
+                GameModel.UpdateGameState(time, () => OnTick?.Invoke());
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Normal shutdown
         }
         catch (Exception e)
         {
-            _logger.LogError(e, "Error while updating game state");
-        }
-        finally
-        {
-            _tickSemaphore.Release();
+            _logger.LogError(e, "Game loop crashed");
         }
     }
 
@@ -99,5 +98,10 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>
         var cnt = GameModel.PlayersCount;
         _logger.LogInformation("Player joined. Total count:" + cnt);
         return id;
+    }
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _timer.Dispose();
     }
 }

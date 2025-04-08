@@ -1,6 +1,4 @@
 using System;
-using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Text;
 
 namespace WsServer.Common;
@@ -175,96 +173,7 @@ public class MyBuffer
         Index += len;
     }
 
-    public static MyBuffer Create(int size = 1024)
-    {
-        throw new NotImplementedException();
-        //return new MyBuffer(size);
-    }
-
-    //public MyBuffer SetData(object obj, int fixedLength = 0)
-    //{
-    //    var typeInfo = obj.GetType();
-    //    if (!typeInfo.IsValueType || typeInfo.IsPrimitive || obj is string)
-    //        SetPrimitive(obj, fixedLength);
-
-    //    //if structure
-    //    var infos = typeInfo.GetFields(BindingFlags.Public | BindingFlags.Instance);
-    //    foreach (var info in infos)
-    //    {
-    //        var val = info.GetValue(obj);
-
-    //        if (info.FieldType.IsArray)
-    //        {
-    //            SetUint32((uint) ((Array) val).Length);
-
-    //            foreach (var item in (Array) val)
-    //                SetData(item);
-    //            continue;
-    //        }
-
-    //        SetData(val, val is string ? GetFieldLength(info) : 0);
-    //    }
-
-    //    return this;
-    //}
-
-    public int GetFieldLength(FieldInfo info)
-    {
-        try
-        {
-            var marshalAsAttribute = info.GetCustomAttribute<MarshalAsAttribute>();
-            if (marshalAsAttribute != null)
-                return marshalAsAttribute.SizeConst;
-        }
-        catch (Exception e)
-        {
-            Console.WriteLine(e);
-        }
-
-        return 0;
-    }
-
-    public void SetPrimitive(object val, int fixedLenght = 0)
-    {
-        switch (val)
-        {
-            case sbyte i8:
-                SetInt8(i8);
-                break;
-            case Int16 i16:
-                SetInt16(i16);
-                break;
-            case Int32 i32:
-                SetInt32(i32);
-                break;
-            case Int64 i64:
-                SetInt64(i64);
-                break;
-            case byte ui8:
-                SetUint8(ui8);
-                break;
-            case UInt16 ui16:
-                SetUint16(ui16);
-                break;
-            case UInt32 ui32:
-                SetUint32(ui32);
-                break;
-            case float fl:
-                SetFloat(fl);
-                break;
-            case string str:
-                if (fixedLenght > 0)
-                    SetFixedLengthString(str,fixedLenght);
-                else
-                    SetString(str);
-                break;
-        }
-    }
-
-    public ArraySegment<byte> AsArraySegment()
-    {
-        return new ArraySegment<byte>(buffer, 0, Index);
-    }
+    public ArraySegment<byte> AsArraySegment() => new(buffer, 0, Index);
 
     internal unsafe void SetUint32AtIndex(uint len, int index)
     {

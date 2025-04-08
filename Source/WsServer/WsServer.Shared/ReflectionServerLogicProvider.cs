@@ -12,7 +12,6 @@ public class ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFac
 {
     private readonly MessageTypeRegistry _requestRegistry = new();
     private readonly MessageTypeRegistry _eventRegistry = new();
-    private DefaultMessageDataWriterBase _reflectionWriter;
 
     public MessageTypeRegistry ClientRequests => _requestRegistry;
     public MessageTypeRegistry ServerEvents => _eventRegistry;
@@ -21,8 +20,6 @@ public class ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFac
 
     public void Initialize()
     {
-        _reflectionWriter = new DefaultMessageDataWriterBase(GetWriter);
-
         RegisterMessages(_requestRegistry, GetRequestTypes());
         RegisterMessages(_eventRegistry, GetEventTypes());
         RegisterMessageHandlers(GetRequestHandlers(), requestHandlerFactory);
@@ -72,7 +69,6 @@ public class ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFac
             var baseType = GetBaseType(messageDataWriter, typeof(MessageDataWriterBase<>));
             var messageType = baseType.GetGenericArguments()[0];
             var writerInstance = Activator.CreateInstance(messageDataWriter) as IMessageDataWriter;
-            writerInstance?.SetMessageDataWriterProvider(GetWriter);
             MessageDataWriters[messageType] = writerInstance!;
         }
     }
@@ -115,18 +111,5 @@ public class ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFac
         return types;
     }
 
-    private IMessageDataWriter GetWriter(Type messageType) => MessageDataWriters.GetValueOrDefault(messageType, _reflectionWriter);
-
-    public MessageDataWriterBase<TMessageData> GetWriter<TMessageData>() where TMessageData : IMessageData
-    {
-        if (!MessageDataWriters.TryGetValue(typeof(TMessageData), out var messageDataWriter))
-        {
-            var reflectionWriter = new MessageDataWriterBase<TMessageData>();
-            MessageDataWriters[typeof(TMessageData)] = reflectionWriter;
-            reflectionWriter.SetMessageDataWriterProvider(GetWriter);
-            messageDataWriter = reflectionWriter;
-        }
-
-        return (MessageDataWriterBase<TMessageData>)messageDataWriter;
-    }
+    public IMessageDataWriter? GetWriter(Type messageType) => MessageDataWriters!.GetValueOrDefault(messageType, null);
 }

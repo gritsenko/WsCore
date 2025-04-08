@@ -12,5 +12,5 @@ public interface IServerLogicProvider
     MessageTypeRegistry ServerEvents { get; }
     Dictionary<byte, IRequestHandler> RequestHandlers { get; }
     Dictionary<Type, IMessageDataWriter> MessageDataWriters { get; }
-    MessageDataWriterBase<TMessageData> GetWriter<TMessageData>() where TMessageData : IMessageData;
+    IMessageDataWriter? GetWriter(Type messageDataType);
 }
