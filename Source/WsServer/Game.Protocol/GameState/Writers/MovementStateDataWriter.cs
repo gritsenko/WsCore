@@ -8,17 +8,17 @@ public class MovementStateDataWriter : MessageDataWriterBase<MovementStateData>
 {
     public override void Write(IWriteDestination dest, MovementStateData data)
     {
-        dest.SetUint32(data.PlayerId);
-        dest.SetFloat(data.X);
-        dest.SetFloat(data.Y);
-        dest.SetFloat(data.AimX);
-        dest.SetFloat(data.AimY);
-        dest.SetFloat(data.TargetX);
-        dest.SetFloat(data.TargetY);
-        dest.SetInt32(data.BodyAngle);
-        dest.SetInt32(data.ControlsState);
-        dest.SetFloat(data.VelocityX);
-        dest.SetFloat(data.VelocityY);
-        dest.SetInt32(data.AnimationState);
+        dest.SetUint32(data.PlayerId)
+            .SetFloat(data.X)
+            .SetFloat(data.Y)
+            .SetFloat(data.AimX)
+            .SetFloat(data.AimY)
+            .SetFloat(data.TargetX)
+            .SetFloat(data.TargetY)
+            .SetInt32(data.BodyAngle)
+            .SetInt32(data.ControlsState)
+            .SetFloat(data.VelocityX)
+            .SetFloat(data.VelocityY)
+            .SetInt32(data.AnimationState);
     }
 }

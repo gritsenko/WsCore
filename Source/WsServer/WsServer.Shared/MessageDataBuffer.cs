@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
+using WsServer.Abstract;
 
-namespace WsServer.Common;
+namespace WsServer;
 
-public class MyBuffer
+public class MessageDataBuffer : IWriteDestination
 {
     internal int Index
     {
@@ -18,101 +20,102 @@ public class MyBuffer
     public byte[] buffer;
     int curLen = 0;
     private int _index = 0;
+    private readonly Action<IWriteDestination, object> _writeItemAction; //must be set before write any collection
 
-    public MyBuffer(int size = 1024)
+    public MessageDataBuffer(Action<IWriteDestination, object> writeItemAction, int size = 1024)
     {
+        _writeItemAction = writeItemAction;
         buffer = new byte[size];
         curLen = buffer.Length;
     }
 
     private void CheckBoundaries(int index)
     {
-        if (index + 64 > curLen)
-        {
-            ExpandBuffer(index + 64);
-        }
+        if (index + 64 > curLen) ExpandBuffer(index + 64);
     }
 
     private void ExpandBuffer(int newSize)
     {
-        //Logger.Log("Expanding buffer to " + newSize);
         Array.Resize(ref buffer, newSize);
     }
 
-    public MyBuffer Clear()
+    public IWriteDestination Clear()
     {
         Array.Clear(buffer, 0, buffer.Length);
         Index = 0;
         return this;
     }
 
-    public unsafe MyBuffer SetUint8(byte value)
+    public unsafe IWriteDestination SetUint8(byte value)
     {
         fixed (byte* p = &buffer[Index])
-            *((byte*)p) = value;
+            *p = value;
         Index++;
         return this;
     }
 
-    public unsafe MyBuffer SetUint16(UInt16 value)
+    public unsafe IWriteDestination SetUint16(ushort value)
     {
         fixed (byte* p = &buffer[Index])
-            *((UInt16*)p) = value;
+            *(ushort*)p = value;
         Index++;
         return this;
     }
 
-    public unsafe MyBuffer SetUint32(UInt32 value)
+    public unsafe IWriteDestination SetUint32(uint value)
     {
         fixed (byte* p = &buffer[Index])
-            *((UInt32*)p) = value;
+            *(uint*)p = value;
         Index += 4;
         return this;
     }
-    public unsafe MyBuffer SetInt8(sbyte value)
+    public unsafe IWriteDestination SetInt8(sbyte value)
     {
         fixed (byte* p = &buffer[Index])
-            *((sbyte*)p) = value;
+            *(sbyte*)p = value;
         Index++;
         return this;
     }
-    public unsafe MyBuffer SetInt16(Int16 value)
+    public unsafe IWriteDestination SetInt16(short value)
     {
         fixed (byte* p = &buffer[Index])
-            *((Int16*)p) = value;
+            *(short*)p = value;
         Index++;
         return this;
     }
 
-    public unsafe MyBuffer SetInt32(Int32 value)
+    public unsafe IWriteDestination SetInt32(int value)
     {
         fixed (byte* p = &buffer[Index])
-            *((Int32*)p) = value;
+            *(int*)p = value;
         Index += 4;
         return this;
     }
-    public unsafe MyBuffer SetInt64(Int64 value)
+    public unsafe IWriteDestination SetInt64(long value)
     {
         fixed (byte* p = &buffer[Index])
-            *((Int64*)p) = value;
+            *(long*)p = value;
         Index += 8;
         return this;
     }
 
 
-    public unsafe MyBuffer SetFloat(float value)
+    public unsafe IWriteDestination SetFloat(float value)
     {
-        var val = *((uint*)&value);
+        var val = *(uint*)&value;
 
         SetUint8((byte)(val & 0xFF));
-        SetUint8((byte)((val >> 8) & 0xFF));
-        SetUint8((byte)((val >> 16) & 0xFF));
-        SetUint8((byte)((val >> 24) & 0xFF));
+        SetUint8((byte)(val >> 8 & 0xFF));
+        SetUint8((byte)(val >> 16 & 0xFF));
+        SetUint8((byte)(val >> 24 & 0xFF));
         return this;
     }
 
-    public MyBuffer SetString(string str)
+    public IWriteDestination SetString(string str, int fixedLength = 0)
     {
+        if (fixedLength > 0)
+            return SetFixedLengthString(str, fixedLength);
+
         if (string.IsNullOrEmpty(str))
         {
             SetInt32(0);
@@ -128,7 +131,7 @@ public class MyBuffer
         SetBytes(bytes);
         return this;
     }
-    public MyBuffer SetFixedLengthString(string str, int fixedLength)
+    private IWriteDestination SetFixedLengthString(string str, int fixedLength)
     {
         if (string.IsNullOrEmpty(str) && fixedLength == 0)
         {
@@ -175,9 +178,38 @@ public class MyBuffer
 
     public ArraySegment<byte> AsArraySegment() => new(buffer, 0, Index);
 
-    internal unsafe void SetUint32AtIndex(uint len, int index)
+    public virtual IWriteDestination SetCollection<TItem>(IEnumerable<TItem> items)
     {
-        fixed (byte* p = &buffer[index])
-            *(uint*)p = len;
+        var lenIndex = Index;
+        Index += 4;
+
+        uint len = 0;
+        foreach (var item in items)
+        {
+            _writeItemAction.Invoke(this, item);
+            len++;
+        }
+
+        //write size of the collection at the beginning of collection definition
+        unsafe
+        {
+            fixed (byte* p = &buffer[lenIndex])
+                *(uint*)p = len;
+        }
+        return this;
     }
+    public IWriteDestination SetNumber(object val) =>
+        val switch
+        {
+            sbyte i8 => SetInt8(i8),
+            short i16 => SetInt16(i16),
+            int i32 => SetInt32(i32),
+            long i64 => SetInt64(i64),
+            byte ui8 => SetUint8(ui8),
+            ushort ui16 => SetUint16(ui16),
+            uint ui32 => SetUint32(ui32),
+            float fl => SetFloat(fl),
+            _ => throw new ArgumentException("Number of unsupported type!")
+        };
+
 }

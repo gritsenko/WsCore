@@ -314,10 +314,4 @@ public class GameModel : IGameModel
     }
 
     public IEnumerable<uint> GetRespawnedPlayerIds() => _respawnedPlayerIds;
-
-    public IEnumerable<PlayerMovementState> GetPlayersMovementStates()
-    {
-        foreach (var player in _players)
-            yield return player.Value.MovementState;
-    }
 }

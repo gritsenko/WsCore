@@ -10,13 +10,9 @@ public class GameTickUpdateEventDataWriter : MessageDataWriterBase<GameTickUpdat
     public override void Write(IWriteDestination dest, GameTickUpdateEvent data)
     {
         var game = data.Game;
-        //MovementStates
-        dest.SetCollection(game.ForEachPlayers(x => new MovementStateData(x)));
-        //DestroyedBulletsIds
-        dest.SetCollection(game.GetDestroyedBulletIds());
-        //RespawnedPlayerIds
-        dest.SetCollection(game.GetRespawnedPlayerIds());
-        //HitPlayersState
-        dest.SetCollection(game.GetHits());
+        dest.SetCollection(game.ForEachPlayers(x => new MovementStateData(x))) //MovementStates
+            .SetCollection(game.GetDestroyedBulletIds()) //DestroyedBulletsIds
+            .SetCollection(game.GetRespawnedPlayerIds()) //RespawnedPlayerIds
+            .SetCollection(game.GetHits()); //HitPlayersState
     }
 }

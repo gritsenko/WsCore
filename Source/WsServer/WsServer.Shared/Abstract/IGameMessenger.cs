@@ -1,4 +1,5 @@
-﻿using WsServer.Abstract.Messages;
+﻿using System;
+using WsServer.Abstract.Messages;
 
 namespace WsServer.Abstract;
 
@@ -8,5 +9,5 @@ public interface IGameMessenger
 
     void Send<TEventMessage>(uint clientId, TEventMessage @event) where TEventMessage : IServerEvent;
 
-    IClientRequest Deserialize(ref byte[] data, out byte messageTypeId);
+    IClientRequest Deserialize(ref byte[] data, out Type messageType);
 }

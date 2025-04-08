@@ -79,9 +79,9 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>, IDis
 
     public void ProcessClientMessageData(uint clientId, byte[] data)
     {
-        var message = Messenger.Deserialize(ref data, out var typeId);
-        if (_serverLogicProvider.RequestHandlers.TryGetValue(typeId, out var handler))
-            handler?.Handle(clientId, message);
+        var message = Messenger.Deserialize(ref data, out var type);
+        if (_serverLogicProvider.TryGetRequestHandler(type, out var handler))
+            handler!.Handle(clientId, message);
     }
 
     public void OnClientConnected(IClientConnection connection, Action<uint> onIdCreated)

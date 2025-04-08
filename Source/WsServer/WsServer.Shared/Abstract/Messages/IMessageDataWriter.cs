@@ -1,6 +1,4 @@
-﻿using WsServer.Common;
-
-namespace WsServer.Abstract.Messages;
+﻿namespace WsServer.Abstract.Messages;
 
 public interface IMessageDataWriter
 {
