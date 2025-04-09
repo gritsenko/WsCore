@@ -1,14 +1,16 @@
-﻿using System;
+﻿using Game.Core.Common.Math;
+using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
-using Game.Core.Common.Math;
+using System.Threading;
 using WsServer.Abstract;
 
 namespace Game.Core;
 
 public class GameModel : IGameModel
 {
+    private DateTime _lastTickTime;
     private uint _lastPlayerId;
     private uint _lastBulletId;
 
@@ -16,10 +18,12 @@ public class GameModel : IGameModel
     private readonly ConcurrentDictionary<uint, Player> _players = new();
     private readonly ConcurrentDictionary<string, int> _playersTop = new();
 
-    private DateTime _lastTickTime;
-    private readonly List<uint> _bulletsToDestroyCache = new(32);
-    private readonly ConcurrentBag<HitInfo> _tickHits = new();
-    private readonly ConcurrentBag<uint> _respawnedPlayerIds = new();
+    private readonly List<HitInfo> _tickHits = [];
+    private readonly Lock _tickHitsLock = new Lock();
+    private readonly List<uint> _destroyedBulletIds = [];
+    private readonly Lock _destroyedBulletIdsLock = new Lock();
+    private readonly List<uint> _respawnedPlayerIds = [];
+    private readonly Lock _respawnedPlayerIdsLock = new Lock();
 
     public World World;
     public int PlayersCount => _players.Count;
@@ -57,8 +61,18 @@ public class GameModel : IGameModel
     public void ForEachPlayers<TItem>(Func<Player, TItem> processFunc, List<TItem> buffer)
     {
         buffer.Clear();
-        foreach (var player in _players)
-            buffer.Add(processFunc(player.Value));
+        var enumerator = _players.GetEnumerator();
+        try
+        {
+            while (enumerator.MoveNext())
+            {
+                buffer.Add(processFunc(enumerator.Current.Value));
+            }
+        }
+        finally
+        {
+            enumerator.Dispose();
+        }
     }
 
     public Player CreateNewPlayer(bool isBot = false)
@@ -93,7 +107,7 @@ public class GameModel : IGameModel
         var dt = (time - _lastTickTime).Milliseconds * 0.001f;
         _lastTickTime = time;
 
-        _bulletsToDestroyCache.Clear();
+        _destroyedBulletIds.Clear();
 
         foreach (var player in _players)
         {
@@ -113,14 +127,14 @@ public class GameModel : IGameModel
             if (CheckBulletForCollisions(bullet, out var hitPlayer))
             {
                 _tickHits.Add(new HitInfo(hitPlayer.Id, (byte)bullet.HitPoints, bullet.SpawnerId));
-                _bulletsToDestroyCache.Add(bullet.Id);
+                _destroyedBulletIds.Add(bullet.Id);
                 bullet.IsDestroyed = true;
             }
         }
 
         onUpdatedAction.Invoke();
 
-        foreach (var bulletId in _bulletsToDestroyCache)
+        foreach (var bulletId in _destroyedBulletIds)
             _bullets.TryRemove(bulletId, out _);
 
         _tickHits.Clear();
@@ -303,22 +317,27 @@ public class GameModel : IGameModel
     public void GetDestroyedBulletIds(List<uint> buffer)
     {
         buffer.Clear();
-        foreach (var bullet in _bullets)
+        lock (_destroyedBulletIdsLock)
         {
-            if (bullet.Value.IsDestroyed)
-                buffer.Add(bullet.Key);
+            buffer.AddRange(_destroyedBulletIds);
         }
     }
 
     public void GetHits(List<HitInfo> buffer)
     {
-        foreach (var tickHit in _tickHits) 
-            buffer.Add(tickHit);
+        buffer.Clear();
+        lock (_tickHitsLock)
+        {
+            buffer.AddRange(_tickHits);
+        }
     }
 
     public void GetRespawnedPlayerIds(List<uint> buffer)
     {
-        foreach (var respawnedPlayerId in _respawnedPlayerIds) 
-            buffer.Add(respawnedPlayerId);
+        buffer.Clear();
+        lock (_respawnedPlayerIdsLock)
+        {
+            buffer.AddRange(_respawnedPlayerIds);
+        }
     }
 }
