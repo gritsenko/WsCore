@@ -180,6 +180,46 @@ public class MessageDataBuffer : IWriteDestination
 
     public virtual IWriteDestination SetCollection<TItem>(IEnumerable<TItem> items)
     {
+        if (items is IList<TItem> list)
+            WriteList(list);
+        else
+            WriteGenericCollection(items);
+
+        return this;
+    }
+
+    private void WriteList<T>(IList<T> items)
+    {
+        SetInt32(items.Count);
+
+
+        // avoid allocations by using for loop instead of foreach
+        if (items is List<T> list)
+        {
+            for (int i = 0; i < list.Count; i++)
+            {
+                _writeItemAction.Invoke(this, list[i]);
+            }
+        }
+        else if (items is T[] array)
+        {
+            for (int i = 0; i < array.Length; i++)
+            {
+                _writeItemAction.Invoke(this, array[i]);
+            }
+        }
+        else
+        {
+            // Fallback для других реализаций IList<T>
+            for (int i = 0; i < items.Count; i++)
+            {
+                _writeItemAction.Invoke(this, items[i]);
+            }
+        }
+    }
+
+    private void WriteGenericCollection<TItem>(IEnumerable<TItem> items)
+    {
         var lenIndex = Index;
         Index += 4;
 
@@ -196,8 +236,8 @@ public class MessageDataBuffer : IWriteDestination
             fixed (byte* p = &buffer[lenIndex])
                 *(uint*)p = len;
         }
-        return this;
     }
+
     public IWriteDestination SetNumber(object val) =>
         val switch
         {
