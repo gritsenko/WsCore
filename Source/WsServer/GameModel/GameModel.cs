@@ -54,10 +54,11 @@ public class GameModel : IGameModel
         }
     }
 
-    public IEnumerable<TItem> ForEachPlayers<TItem>(Func<Player, TItem> processFunc)
+    public void ForEachPlayers<TItem>(Func<Player, TItem> processFunc, List<TItem> buffer)
     {
+        buffer.Clear();
         foreach (var player in _players)
-            yield return processFunc(player.Value);
+            buffer.Add(processFunc(player.Value));
     }
 
     public Player CreateNewPlayer(bool isBot = false)
@@ -299,25 +300,25 @@ public class GameModel : IGameModel
 
     public uint GetNewBulletId() => ++_lastBulletId;
 
-    public IEnumerable<uint> GetDestroyedBulletIds()
+    public void GetDestroyedBulletIds(List<uint> buffer)
     {
+        buffer.Clear();
         foreach (var bullet in _bullets)
         {
             if (bullet.Value.IsDestroyed)
-                yield return bullet.Key;
+                buffer.Add(bullet.Key);
         }
     }
 
-    public IEnumerable<HitInfo> GetHits()
+    public void GetHits(List<HitInfo> buffer)
     {
-        return _tickHits;
+        foreach (var tickHit in _tickHits) 
+            buffer.Add(tickHit);
     }
 
-    public IEnumerable<uint> GetRespawnedPlayerIds() => _respawnedPlayerIds;
-
-    public IEnumerable<PlayerMovementState> GetPlayersMovementStates()
+    public void GetRespawnedPlayerIds(List<uint> buffer)
     {
-        foreach (var player in _players)
-            yield return player.Value.MovementState;
+        foreach (var respawnedPlayerId in _respawnedPlayerIds) 
+            buffer.Add(respawnedPlayerId);
     }
 }
