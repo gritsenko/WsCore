@@ -86,7 +86,7 @@ var Player = /** @class */ (function () {
             currentScene.cameras.main.startFollow(sprite);
         this.nickText = nickText;
         if (this.name.substr(0, 1) === "@") {
-            sprite.alpha = 0.2;
+            sprite.alpha = 0.8;
         }
         this.sprite = sprite;
         sprite.setScale(this.scaleFactor);

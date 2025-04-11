@@ -36,14 +36,13 @@ public class GameModel : IGameModel
     {
         World = new World();
         //_npcProcessor = new NpcProcessor();
-        //_players = new Players();
 
         InitTestState();
     }
 
     private void InitTestState()
     {
-        for (int i = 0; i < 0; i++)
+        for (int i = 0; i < 50; i++)
         {
             var p = CreateNewPlayer(true);
             _players[p.Id] = p;

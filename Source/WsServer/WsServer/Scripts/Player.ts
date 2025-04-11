@@ -127,7 +127,7 @@ export default class Player {
 
 
         if (this.name.substr(0, 1) === "@") {
-            sprite.alpha = 0.2;
+            sprite.alpha = 0.8;
         }
 
         this.sprite = sprite;

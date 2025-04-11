@@ -31,11 +31,12 @@ public class MessageDataBuffer : IWriteDestination
 
     private void CheckBoundaries(int index)
     {
-        if (index + 64 > curLen) ExpandBuffer(index + 64);
+        if (index + 64 >= curLen) ExpandBuffer(curLen + 64);
     }
 
     private void ExpandBuffer(int newSize)
     {
+        curLen = newSize;
         Array.Resize(ref buffer, newSize);
     }
 

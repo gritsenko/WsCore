@@ -35,6 +35,7 @@ public class GameMessenger : IGameMessenger
         try
         {
             _messageSerializer.Serialize(buffer, @event);
+            
             var segment = buffer.AsArraySegment();
 
             foreach (var connection in _connectionManager.Connections)
