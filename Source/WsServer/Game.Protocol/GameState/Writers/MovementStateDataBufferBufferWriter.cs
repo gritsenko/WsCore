@@ -1,12 +1,13 @@
 ﻿using Game.ServerLogic.GameState.Events.GameTickStateUpdateEventData;
 using WsServer.Abstract;
 using WsServer.Abstract.Messages;
+using WsServer.DataBuffer.Abstract;
 
 namespace Game.ServerLogic.GameState.Writers;
 
-public class MovementStateDataWriter : MessageDataWriterBase<MovementStateData>
+public class MovementStateDataBufferBufferWriter : DataBufferBufferWriterBase<MovementStateData>
 {
-    public override void Write(IWriteDestination dest, MovementStateData data)
+    public override void Write(IDataBuffer dest, MovementStateData data)
     {
         dest.SetUint32(data.PlayerId)
             .SetFloat(data.X)

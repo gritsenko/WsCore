@@ -4,21 +4,30 @@ using System.Linq;
 using System.Reflection;
 using WsServer.Abstract;
 using WsServer.Abstract.Messages;
+using WsServer.DataBuffer.Abstract;
 
 namespace WsServer;
 
-public class ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFactory requestHandlerFactory) : IServerLogicProvider
+public class ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFactory? requestHandlerFactory) : IServerLogicProvider
 {
     private readonly MessageTypeRegistry _requestRegistry = new();
     private readonly MessageTypeRegistry _eventRegistry = new();
     private readonly Dictionary<Type, IRequestHandler> _requestHandlers = new();
-    private readonly Dictionary<Type, IMessageDataWriter> _messageDataWriters = new();
+    private readonly Dictionary<Type, IDataBufferWriter> _messageDataWriters = new();
+
+    public MessageTypeRegistry RequestTypes => _requestRegistry;
+    public MessageTypeRegistry ServerEventTypes => _eventRegistry;
+    public List<Type> MessageDataTypes { get; } = [];
 
     public void Initialize()
     {
         RegisterMessages(_requestRegistry, GetRequestTypes());
         RegisterMessages(_eventRegistry, GetEventTypes());
-        RegisterMessageHandlers(GetRequestHandlers(), requestHandlerFactory);
+        MessageDataTypes.AddRange(GetMessageDataTypes());
+        
+        //if we use it on client builder - we don't need handlers
+        if(requestHandlerFactory != null)
+            RegisterMessageHandlers(GetRequestHandlers(), requestHandlerFactory);
         RegisterMessageDataWriters(GetMessageDataWriters());
     }
 
@@ -60,9 +69,9 @@ public class ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFac
     {
         foreach (var messageDataWriter in messageDataWriters)
         {
-            var baseType = GetBaseType(messageDataWriter, typeof(MessageDataWriterBase<>));
+            var baseType = GetBaseType(messageDataWriter, typeof(DataBufferBufferWriterBase<>));
             var messageType = baseType.GetGenericArguments()[0];
-            var writerInstance = Activator.CreateInstance(messageDataWriter) as IMessageDataWriter;
+            var writerInstance = Activator.CreateInstance(messageDataWriter) as IDataBufferWriter;
             _messageDataWriters[messageType] = writerInstance!;
         }
     }
@@ -85,10 +94,21 @@ public class ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFac
     private IEnumerable<Type> GetRequestTypes() => GetTypesImplementing(typeof(IClientRequest));
 
     private IEnumerable<Type> GetEventTypes() => GetTypesImplementing(typeof(IServerEvent));
+    private IEnumerable<Type> GetMessageDataTypes()
+    {
+        var types = assembly.GetTypes()
+            .Where(t =>
+                t is { IsAbstract: false } &&
+                typeof(IBufferSerializableData).IsAssignableFrom(t)
+                && !typeof(IServerEvent).IsAssignableFrom(t)
+                && !typeof(IClientRequest).IsAssignableFrom(t)
+            );
+        return types;
+    }
 
     private IEnumerable<Type> GetRequestHandlers() => GetTypesImplementing(typeof(IRequestHandler));
 
-    private IEnumerable<Type> GetMessageDataWriters() => GetTypesImplementing(typeof(IMessageDataWriter));
+    private IEnumerable<Type> GetMessageDataWriters() => GetTypesImplementing(typeof(IDataBufferWriter));
 
 
     private IEnumerable<Type> GetTypesImplementing(Type tInterface)
@@ -101,7 +121,7 @@ public class ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFac
         return types;
     }
 
-    public IMessageDataWriter? GetWriter(Type messageType) => _messageDataWriters!.GetValueOrDefault(messageType, null);
+    public IDataBufferWriter? GetWriter(Type messageType) => _messageDataWriters!.GetValueOrDefault(messageType, null);
 
     public Type FindClientRequestTypeById(byte messageTypeId) => _requestRegistry.FindTypeById(messageTypeId);
 
@@ -109,9 +129,11 @@ public class ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFac
 
     public bool TryGetRequestHandler(Type type, out IRequestHandler? handler) => _requestHandlers.TryGetValue(type, out handler);
 
-    private sealed class MessageTypeRegistry
+    public sealed class MessageTypeRegistry
     {
         private readonly Dictionary<byte, Type> _registeredTypes = [];
+
+        public IEnumerable<Type> GetTypes() => _registeredTypes.Values;
 
         public void Register<T>() where T : IMessageType
         {
@@ -119,9 +141,9 @@ public class ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFac
             if (!_registeredTypes.TryAdd(typeId, typeof(T)))
                 throw new DuplicateMessageIdException(typeId);
         }
-
         public byte FindIdByType(Type type) => _registeredTypes.First(x => x.Value == type).Key;
         public Type FindTypeById(byte typeId) => _registeredTypes[typeId];
+
 
         private class DuplicateMessageIdException(byte id) : Exception
         {

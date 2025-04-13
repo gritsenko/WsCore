@@ -1,11 +1,9 @@
-using System;
-using System.Collections.Generic;
 using System.Text;
-using WsServer.Abstract;
+using WsServer.DataBuffer.Abstract;
 
-namespace WsServer;
+namespace WsServer.DataBuffer;
 
-public class MessageDataBuffer : IWriteDestination
+public class UnsafeDataBuffer : IDataBuffer
 {
     internal int Index
     {
@@ -20,9 +18,9 @@ public class MessageDataBuffer : IWriteDestination
     public byte[] buffer;
     int curLen = 0;
     private int _index = 0;
-    private readonly Action<IWriteDestination, object> _writeItemAction; //must be set before write any collection
+    private readonly Action<IDataBuffer, object> _writeItemAction; //must be set before write any collection
 
-    public MessageDataBuffer(Action<IWriteDestination, object> writeItemAction, int size = 1024)
+    public UnsafeDataBuffer(Action<IDataBuffer, object> writeItemAction, int size = 1024)
     {
         _writeItemAction = writeItemAction;
         buffer = new byte[size];
@@ -40,14 +38,14 @@ public class MessageDataBuffer : IWriteDestination
         Array.Resize(ref buffer, newSize);
     }
 
-    public IWriteDestination Clear()
+    public IDataBuffer Clear()
     {
         Array.Clear(buffer, 0, buffer.Length);
         Index = 0;
         return this;
     }
 
-    public unsafe IWriteDestination SetUint8(byte value)
+    public unsafe IDataBuffer SetUint8(byte value)
     {
         fixed (byte* p = &buffer[Index])
             *p = value;
@@ -55,7 +53,7 @@ public class MessageDataBuffer : IWriteDestination
         return this;
     }
 
-    public unsafe IWriteDestination SetUint16(ushort value)
+    public unsafe IDataBuffer SetUint16(ushort value)
     {
         fixed (byte* p = &buffer[Index])
             *(ushort*)p = value;
@@ -63,21 +61,21 @@ public class MessageDataBuffer : IWriteDestination
         return this;
     }
 
-    public unsafe IWriteDestination SetUint32(uint value)
+    public unsafe IDataBuffer SetUint32(uint value)
     {
         fixed (byte* p = &buffer[Index])
             *(uint*)p = value;
         Index += 4;
         return this;
     }
-    public unsafe IWriteDestination SetInt8(sbyte value)
+    public unsafe IDataBuffer SetInt8(sbyte value)
     {
         fixed (byte* p = &buffer[Index])
             *(sbyte*)p = value;
         Index++;
         return this;
     }
-    public unsafe IWriteDestination SetInt16(short value)
+    public unsafe IDataBuffer SetInt16(short value)
     {
         fixed (byte* p = &buffer[Index])
             *(short*)p = value;
@@ -85,14 +83,15 @@ public class MessageDataBuffer : IWriteDestination
         return this;
     }
 
-    public unsafe IWriteDestination SetInt32(int value)
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.AggressiveOptimization)]
+    public unsafe IDataBuffer SetInt32(int value)
     {
         fixed (byte* p = &buffer[Index])
             *(int*)p = value;
         Index += 4;
         return this;
     }
-    public unsafe IWriteDestination SetInt64(long value)
+    public unsafe IDataBuffer SetInt64(long value)
     {
         fixed (byte* p = &buffer[Index])
             *(long*)p = value;
@@ -101,7 +100,7 @@ public class MessageDataBuffer : IWriteDestination
     }
 
 
-    public unsafe IWriteDestination SetFloat(float value)
+    public unsafe IDataBuffer SetFloat(float value)
     {
         var val = *(uint*)&value;
 
@@ -112,7 +111,7 @@ public class MessageDataBuffer : IWriteDestination
         return this;
     }
 
-    public IWriteDestination SetString(string str, int fixedLength = 0)
+    public IDataBuffer SetString(string str, int fixedLength = 0)
     {
         if (fixedLength > 0)
             return SetFixedLengthString(str, fixedLength);
@@ -132,7 +131,7 @@ public class MessageDataBuffer : IWriteDestination
         SetBytes(bytes);
         return this;
     }
-    private IWriteDestination SetFixedLengthString(string str, int fixedLength)
+    private IDataBuffer SetFixedLengthString(string str, int fixedLength)
     {
         if (string.IsNullOrEmpty(str) && fixedLength == 0)
         {
@@ -179,7 +178,7 @@ public class MessageDataBuffer : IWriteDestination
 
     public ArraySegment<byte> AsArraySegment() => new(buffer, 0, Index);
 
-    public virtual IWriteDestination SetCollection<TItem>(IEnumerable<TItem> items)
+    public virtual IDataBuffer SetCollection<TItem>(IEnumerable<TItem> items)
     {
         if (items is IList<TItem> list)
             WriteList(list);
@@ -239,7 +238,7 @@ public class MessageDataBuffer : IWriteDestination
         }
     }
 
-    public IWriteDestination SetNumber(object val) =>
+    public IDataBuffer SetNumber(object val) =>
         val switch
         {
             sbyte i8 => SetInt8(i8),

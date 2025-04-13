@@ -1,11 +1,12 @@
 ﻿using System.Runtime.InteropServices;
 using Game.ServerLogic.GameState.Events.GameTickStateUpdateEventData;
 using WsServer.Abstract.Messages;
+using WsServer.DataBuffer.Abstract;
 
 namespace Game.ServerLogic.Player.Events.PlayerData;
 
 [StructLayout(LayoutKind.Sequential)]
-public struct PlayerStateData(Core.Player p) : IMessageData
+public struct PlayerStateData(Core.Player p) : IBufferSerializableData
 {
     public uint Id = p.Id;
 

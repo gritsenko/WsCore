@@ -1,31 +1,39 @@
-﻿using System;
+﻿using Game.ServerLogic.Chat.Events;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Text;
+using WsServer;
 using WsServer.Abstract.Messages;
+using WsServer.DataBuffer.Abstract;
 
 namespace WsClientBuilder;
 
 public class TypeScriptClientBuilder(string outputPath)
 {
+    readonly ReflectionServerLogicProvider _serverLogicProvider = new(typeof(ChatMessageEvent).Assembly, null);
     public string Build()
     {
+        _serverLogicProvider.Initialize();
+
         var sb = new StringBuilder();
 
         sb.AppendLine("import WriteBuffer from \"./WriteBuffer.js\"");
         sb.AppendLine("import ReadBuffer from \"./ReadBuffer.js\"");
 
         sb.AppendLine("//MessageType enum builder");
-        BuildEnumDef(sb, typeof(ServerMessageType));
-        BuildEnumDef(sb, typeof(ClientMessageType));
+        BuildEnumDef(sb, "ServerEventType", _serverLogicProvider.ServerEventTypes);
+        BuildEnumDef(sb, "ClientMessageType", _serverLogicProvider.RequestTypes);
 
         sb.AppendLine("//Data definitions");
-        BuildTypeDefinitions<IMessageData>(sb);
-        BuildTypeDefinitions<IServerEvent>(sb);
-        BuildTypeDefinitions<IClientRequest>(sb);
+        BuildTypeDefinitions(sb, _serverLogicProvider.MessageDataTypes);
+        sb.AppendLine("//Server events definitions");
+        BuildTypeDefinitions(sb, _serverLogicProvider.ServerEventTypes.GetTypes());
+        sb.AppendLine("//Client requests");
+        BuildTypeDefinitions(sb, _serverLogicProvider.RequestTypes.GetTypes());
 
 
         sb.AppendLine("export default class Wsc {");
@@ -51,32 +59,28 @@ public class TypeScriptClientBuilder(string outputPath)
         return result;
     }
 
-    private void BuildTypeDefinitions<TData>(StringBuilder sb)
+    private void BuildEnumDef(StringBuilder sb, string name, ReflectionServerLogicProvider.MessageTypeRegistry typeRegistry)
     {
-        var type = typeof(TData);
-        var types = AppDomain.CurrentDomain.GetAssemblies()
-            .SelectMany(s => s.GetTypes())
-            .Where(p => type.IsAssignableFrom(p) && !p.IsInterface);
-
-        foreach (var t in types)
-        {
-            BuildTypeDefinition(sb, t);
-        }
-
+        sb.AppendLine("enum " + name + " {");
+        sb.AppendLine(string.Join(",\r\n", typeRegistry
+            .GetTypes()
+            .OrderBy(typeRegistry.FindIdByType)
+            .Select(t => $"{t.Name} = {typeRegistry.FindIdByType(t)}")));
+        sb.AppendLine("};");
     }
 
-    private void BuildTypeDefinition(StringBuilder sb, Type typeInfo)
-    {
-        var infos = typeInfo.GetFields(BindingFlags.Public | BindingFlags.Instance);
-
-        sb.AppendLine("export class " + typeInfo.Name + "{");
-
-        foreach (var info in infos)
+    private void BuildTypeDefinitions(StringBuilder sb, IEnumerable<Type> types)
+    { 
+        foreach (var t in types)
         {
-            sb.AppendLine($"{info.Name.FormatIdtoJs()} : {GetFieldTsType(info.FieldType)};");
-        }
+            var infos = t.GetFields(BindingFlags.Public | BindingFlags.Instance);
+            sb.AppendLine("export class " + t.Name + "{");
 
-        sb.AppendLine("}");
+            foreach (var info in infos) 
+                sb.AppendLine($"{info.Name.FormatIdtoJs()} : {GetFieldTsType(info.FieldType)};");
+
+            sb.AppendLine("}");
+        }
 
     }
 
@@ -111,19 +115,6 @@ public class TypeScriptClientBuilder(string outputPath)
         sb.Append(str);
     }
 
-    private void BuildEnumDef(StringBuilder sb, Type enumType)
-    {
-        sb.AppendLine("enum " + enumType.Name + " {");
-        var pairs = new List<string>();
-        foreach (var value in Enum.GetValues(enumType))
-        {
-            pairs.Add(Enum.GetName(enumType, value) + " = " + (int)value);
-        }
-
-        sb.AppendLine(string.Join(",\r\n", pairs));
-        sb.AppendLine("};");
-    }
-
     private void BuildArrayReader(StringBuilder sb)
     {
         sb.AppendLine("readArray(buff, itemReader){");
@@ -138,7 +129,7 @@ public class TypeScriptClientBuilder(string outputPath)
 
     private void BuildDataReaders(StringBuilder sb)
     {
-        var type = typeof(IMessageData);
+        var type = typeof(IBufferSerializableData);
         var types = AppDomain.CurrentDomain.GetAssemblies()
             .SelectMany(s => s.GetTypes())
             .Where(p => type.IsAssignableFrom(p) && !p.IsInterface);
@@ -194,28 +185,23 @@ public class TypeScriptClientBuilder(string outputPath)
     private void BuildMessageHandlers(Type typeInfo, StringBuilder sb)
     {
         var infos = typeInfo.GetFields(BindingFlags.Public | BindingFlags.Instance);
-        var msgType = typeInfo.GetCustomAttribute<ServerMessageTypeAttribute>().ServerMessageType;
-        var varId = msgType.ToString().FormatIdtoJs() + "Message";
-        sb.AppendLine("on" + msgType + "(msg : "+ typeInfo.Name +"){");
-        //sb.AppendLine("\tconsole.log(\"message handler for " + msgType + " is not implemented \");");
+        sb.AppendLine("on" + typeInfo.Name + "(msg : "+ typeInfo.Name +"){");
         sb.AppendLine("}");
     }
 
     private void BuildMessageReader(Type typeInfo, StringBuilder sb)
     {
         var infos = typeInfo.GetFields(BindingFlags.Public | BindingFlags.Instance);
-        var msgType = typeInfo.GetCustomAttribute<ServerMessageTypeAttribute>().ServerMessageType;
 
-        sb.AppendLine("case ServerMessageType." + msgType + ":");
-        var varId = msgType.ToString().FormatIdtoJs() + "Message";
-        sb.AppendLine("var " + varId + " = new " + typeInfo.Name + "();");
+        sb.AppendLine("case ServerEventType." + typeInfo.Name + ":");
+        sb.AppendLine("var " + typeInfo.Name + " = new " + typeInfo.Name + "();");
 
         foreach (var info in infos)
         {
-            sb.AppendLine($"{varId}.{info.Name.FormatIdtoJs()} = {GetFieldReader(info.FieldType, GetFieldLenght(info))}");
+            sb.AppendLine($"{typeInfo.Name}.{info.Name.FormatIdtoJs()} = {GetFieldReader(info.FieldType, GetFieldLenght(info))}");
         }
 
-        sb.AppendLine("this.on" + msgType + "(" + varId + ");");
+        sb.AppendLine("this.on" + typeInfo.Name + "(" + typeInfo.Name + ");");
         sb.AppendLine("break;");
     }
 
@@ -264,14 +250,13 @@ public class TypeScriptClientBuilder(string outputPath)
     private void BuildMessageSender(Type typeInfo, StringBuilder sb)
     {
         var infos = typeInfo.GetFields(BindingFlags.Public | BindingFlags.Instance);
-        var msgType = typeInfo.GetCustomAttribute<ClientMessageTypeAttribute>().ClientMessageType;
 
         var args = string.Join(",", infos.Select(x => x.Name.FormatIdtoJs() + " : " + GetFieldTsType(x.FieldType)));
 
-        sb.AppendLine("send" + msgType + "(" + args + "){");
+        sb.AppendLine("send" + typeInfo.Name + "(" + args + "){");
         sb.AppendLine("this.writeBuff.newMessage()");
 
-        sb.AppendLine($".pushUInt8(ClientMessageType.{msgType})");
+        sb.AppendLine($".pushUInt8(ClientMessageType.{typeInfo.Name})");
 
         foreach (var info in infos)
         {
@@ -342,7 +327,7 @@ public class TypeScriptClientBuilder(string outputPath)
             typeSuffix = "String";
         else if (typeof(Array).IsAssignableFrom(fieldType))
             typeSuffix = "Array";
-        else if (typeof(IMessageData).IsAssignableFrom(fieldType))
+        else if (typeof(IBufferSerializableData).IsAssignableFrom(fieldType))
             typeSuffix = "Data";
 
         return typeSuffix;
@@ -374,7 +359,7 @@ public class TypeScriptClientBuilder(string outputPath)
             var name = GetFieldTsType(elementType);
             typeSuffix = name + "[]";
         }
-        else if (typeof(IMessageData).IsAssignableFrom(fieldType))
+        else if (typeof(IBufferSerializableData).IsAssignableFrom(fieldType))
             typeSuffix = fieldType.Name;
 
         return typeSuffix;

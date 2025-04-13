@@ -1,14 +1,12 @@
-﻿using System;
-using System.Reflection;
+﻿using System.Reflection;
 using System.Runtime.InteropServices;
-using WsServer.Abstract;
-using WsServer.Abstract.Messages;
+using WsServer.DataBuffer.Abstract;
 
-namespace WsServer;
+namespace WsServer.DataBuffer.Writers;
 
-internal sealed class DefaultMessageDataWriter(Action<IWriteDestination, object> writeAction) : MessageDataWriterBase
+public sealed class SimpleDataBufferBufferWriter(Action<IDataBuffer, object> writeAction) : DataBufferBufferWriterBase
 {
-    public override void Write(IWriteDestination dest, object obj)
+    public override void Write(IDataBuffer dest, object obj)
     {
         var typeInfo = obj.GetType();
 

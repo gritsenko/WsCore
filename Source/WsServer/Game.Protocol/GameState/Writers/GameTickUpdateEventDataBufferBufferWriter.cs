@@ -3,10 +3,11 @@ using Game.ServerLogic.GameState.Events;
 using Game.ServerLogic.GameState.Events.GameTickStateUpdateEventData;
 using WsServer.Abstract;
 using WsServer.Abstract.Messages;
+using WsServer.DataBuffer.Abstract;
 
 namespace Game.ServerLogic.GameState.Writers;
 
-public class GameTickUpdateEventDataWriter : MessageDataWriterBase<GameTickUpdateEvent>
+public class GameTickUpdateEventDataBufferBufferWriter : DataBufferBufferWriterBase<GameTickUpdateEvent>
 {
     private static MovementStateData ProcessPlayerMovement(Core.Player player) => new(player);
     
@@ -15,7 +16,7 @@ public class GameTickUpdateEventDataWriter : MessageDataWriterBase<GameTickUpdat
     private readonly List<uint> _respawnedPlayersBuffer = [];
     private readonly List<HitInfo> _hitsBuffer = [];
     
-    public override void Write(IWriteDestination dest, GameTickUpdateEvent data)
+    public override void Write(IDataBuffer dest, GameTickUpdateEvent data)
     {
         var game = data.Game; 
         game.ForEachPlayers(ProcessPlayerMovement, _movementBuffer);

@@ -2,31 +2,33 @@
 using System.Runtime.InteropServices;
 using WsServer.Abstract;
 using WsServer.Abstract.Messages;
+using WsServer.DataBuffer.Abstract;
+using WsServer.DataBuffer.Writers;
 
 namespace WsServer;
 
 public class MessageSerializer : IMessageSerializer
 {
-    private readonly DefaultMessageDataWriter _defaultMessageWriter;
+    private readonly IDataBufferWriter _defaultBufferBufferWriter;
     private readonly IServerLogicProvider _serverLogicProvider;
 
     public MessageSerializer(IServerLogicProvider serverLogicProvider)
     {
         _serverLogicProvider = serverLogicProvider;
-        _defaultMessageWriter = new DefaultMessageDataWriter(WriteItem);
+        _defaultBufferBufferWriter = new CachingDataBufferBufferWriter(WriteItem);
     }
 
-    public void Serialize<TEventMessage>(IWriteDestination dest, TEventMessage message) where TEventMessage : IServerEvent
+    public void Serialize<TEventMessage>(IDataBuffer dest, TEventMessage message) where TEventMessage : IServerEvent
     {
         var messageType = _serverLogicProvider.FindServerEventIdByType(typeof(TEventMessage));
         dest.SetUint8(messageType);
         WriteItem(dest, message);
     }
 
-    public void WriteItem(IWriteDestination dest, object item)
+    public void WriteItem(IDataBuffer dest, object item)
     {
         var itemType = item.GetType();
-        var writer = _serverLogicProvider.GetWriter(itemType) ?? _defaultMessageWriter;
+        var writer = _serverLogicProvider.GetWriter(itemType) ?? _defaultBufferBufferWriter;
         writer.Write(dest, item);
     }
 

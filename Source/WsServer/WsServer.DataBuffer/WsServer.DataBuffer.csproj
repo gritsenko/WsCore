@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+	<PropertyGroup>
+		<TargetFramework>net9.0</TargetFramework>
+		<ImplicitUsings>enable</ImplicitUsings>
+		<Nullable>enable</Nullable>
+
+		<PublishAot>true</PublishAot>
+		<OptimizationPreference>Speed</OptimizationPreference>
+		<IlcInvariantGlobalization>true</IlcInvariantGlobalization>
+		<IlcGenerateStackTraceData>false</IlcGenerateStackTraceData>
+		<EnableTrimAnalyzer>true</EnableTrimAnalyzer>
+		<IsTrimmable>true</IsTrimmable>
+
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+
+	</PropertyGroup>
+
+
+</Project>
