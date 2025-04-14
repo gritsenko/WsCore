@@ -1,4 +1,4 @@
-﻿using Game.Core;
+﻿using Game.Core.World;
 using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.Map.Events;

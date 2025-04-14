@@ -1,12 +1,13 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 using Game.Core.Abstract;
+using Game.Core.World;
 
 namespace Game.Core.Common;
 
 internal class WorldStorage : IWorldStorage
 {
-    public static Dictionary<long, ObjectType> ObjectTypes = new Dictionary<long, ObjectType>()
+    public static Dictionary<long, ObjectType> ObjectTypes = new()
     {
         { 0, new ObjectType { Id = 0, ObjectClass = ObjectClass.Tree }},
         { 1, new ObjectType { Id = 1, ObjectClass = ObjectClass.Rock }}
@@ -29,8 +30,8 @@ internal class WorldStorage : IWorldStorage
 
     public void StoreObject(GameObject obj)
     {
-        var xAdj = (int)obj.X - (int)obj.X % World.BlockSize;
-        var yAdj = (int)obj.Y - (int)obj.Y % World.BlockSize;
+        var xAdj = (int)obj.X - (int)obj.X % GameWorld.BlockSize;
+        var yAdj = (int)obj.Y - (int)obj.Y % GameWorld.BlockSize;
 
         var blockId = (((long)xAdj) << 32) + yAdj;
         if (!_objects.ContainsKey(blockId)) _objects[blockId] = new List<GameObject>();

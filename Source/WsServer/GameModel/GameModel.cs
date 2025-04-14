@@ -4,6 +4,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using Game.Core.World;
 using WsServer.Abstract;
 
 namespace Game.Core;
@@ -25,7 +26,7 @@ public class GameModel : IGameModel
     private readonly List<uint> _respawnedPlayerIds = [];
     private readonly Lock _respawnedPlayerIdsLock = new Lock();
 
-    public World World;
+    public GameWorld World;
     public int PlayersCount => _players.Count;
     public int HitsCount => _tickHits.Count;
 
@@ -34,7 +35,7 @@ public class GameModel : IGameModel
 
     public GameModel()
     {
-        World = new World();
+        World = new GameWorld();
         //_npcProcessor = new NpcProcessor();
 
         InitTestState();
