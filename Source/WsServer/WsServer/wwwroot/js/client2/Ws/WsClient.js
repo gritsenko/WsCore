@@ -24,34 +24,34 @@ var WsClient = /** @class */ (function (_super) {
         _this.players = [];
         return _this;
     }
-    WsClient.prototype.onInitPlayer = function (msg) {
+    WsClient.prototype.onInitPlayerEvent = function (msg) {
         var _a;
         this.clientId = msg.ClientId;
-        this.sendSetPlayerName(this.myPlayerName);
-        this.sendUpdatePlayerSlots(0, 0, 0);
+        this.sendSetPlayerNameRequest(this.myPlayerName);
+        this.sendUpdatePlayerSlotsRequest(0, 0, 0);
         (_a = this.onGameInitCallback) === null || _a === void 0 ? void 0 : _a.call(this);
     };
-    WsClient.prototype.onSetPlayerName = function (msg) {
+    WsClient.prototype.onSetPlayerNameEvent = function (msg) {
         if (this.players[msg.ClientId] != null) {
             this.players[msg.ClientId].updateName(msg.Name);
         }
     };
-    WsClient.prototype.onChatMessage = function (msg) {
+    WsClient.prototype.onChatMessageEvent = function (msg) {
         this.writeToChat(msg.ClientId, msg.Message);
     };
-    WsClient.prototype.onPlayerJoined = function (msg) {
+    WsClient.prototype.onPlayerJoinedEvent = function (msg) {
         this.updatePlayer(msg.PlayerStateData);
     };
-    WsClient.prototype.onPlayerLeft = function (msg) {
+    WsClient.prototype.onPlayerLeftEvent = function (msg) {
         this.removePlayer(msg.ClientId);
     };
-    WsClient.prototype.onGameState = function (msg) {
+    WsClient.prototype.onGameStateEvent = function (msg) {
         var playersCount = msg.PlayerStateData.length;
         for (var i = 0; i < playersCount; i++) {
             this.updatePlayer(msg.PlayerStateData[i]);
         }
     };
-    WsClient.prototype.onGameTickState = function (msg) {
+    WsClient.prototype.onGameTickUpdateEvent = function (msg) {
         var playersCount = msg.MovementStates.length;
         for (var i = 0; i < playersCount; i++) {
             var state = msg.MovementStates[i];
@@ -73,7 +73,7 @@ var WsClient = /** @class */ (function (_super) {
             }
         }
     };
-    WsClient.prototype.onMapObjects = function (msg) {
+    WsClient.prototype.onMapObjectsEvent = function (msg) {
         var _a;
         (_a = this.onMapObjectsCallback) === null || _a === void 0 ? void 0 : _a.call(this, msg.MapObjects);
     };

@@ -14,40 +14,40 @@ export default class WsClient extends Wsc {
     onMapObjectsCallback: Function;
     onPlayerRemovedCallback: Function;
     
-    onInitPlayer(msg) {
+    onInitPlayerEvent(msg) {
         this.clientId = msg.ClientId;
-        this.sendSetPlayerName(this.myPlayerName);
-        this.sendUpdatePlayerSlots(0, 0, 0);
+        this.sendSetPlayerNameRequest(this.myPlayerName);
+        this.sendUpdatePlayerSlotsRequest(0, 0, 0);
 
         this.onGameInitCallback?.();
     }
 
-    onSetPlayerName(msg) {
+    onSetPlayerNameEvent(msg) {
         if (this.players[msg.ClientId] != null) {
             this.players[msg.ClientId].updateName(msg.Name);
         }
     }
 
-    onChatMessage(msg) {
+    onChatMessageEvent(msg) {
         this.writeToChat(msg.ClientId, msg.Message);
     }
 
-    onPlayerJoined(msg: WsConnection.PlayerJoinedServerMessage) {
+    onPlayerJoinedEvent(msg: WsConnection.PlayerJoinedEvent) {
         this.updatePlayer(msg.PlayerStateData);
     }
 
-    onPlayerLeft(msg: WsConnection.PlayerLeftServerMessage) {
+    onPlayerLeftEvent(msg: WsConnection.PlayerLeftEvent) {
         this.removePlayer(msg.ClientId);
     }
     
-    onGameState(msg: WsConnection.GameStateServerMessage) {
+    onGameStateEvent(msg: WsConnection.GameStateUpdateEvent) {
         const playersCount = msg.PlayerStateData.length;
         for (let i = 0; i < playersCount; i++) {
             this.updatePlayer(msg.PlayerStateData[i]);
         }
     }
 
-    onGameTickState(msg: WsConnection.GameTickStateServerMessage) {
+    onGameTickUpdateEvent(msg: WsConnection.GameTickUpdateEvent) {
         const playersCount = msg.MovementStates.length;
 
         for (let i = 0; i < playersCount; i++) {
@@ -73,7 +73,7 @@ export default class WsClient extends Wsc {
         }
     }
 
-    onMapObjects(msg) {
+    onMapObjectsEvent(msg) {
         this.onMapObjectsCallback?.(msg.MapObjects);
     }
 

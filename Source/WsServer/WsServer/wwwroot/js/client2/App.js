@@ -28,7 +28,7 @@ var MyApp = /** @class */ (function () {
         this.gameClient.connect("ws://127.0.0.1:5000/ws");
     };
     MyApp.prototype.onGameInit = function () {
-        this.gameClient.sendGetMapObjects(0, 0);
+        this.gameClient.sendGetMapObjectsRequest(0, 0);
     };
     MyApp.prototype.initKeyHadler = function (keyCode, maskBit) {
         var self = this;
@@ -36,12 +36,12 @@ var MyApp = /** @class */ (function () {
         keyObj.press = function () {
             var p = self.gameClient.myPlayer;
             p.controls = Common.setBit(p.controls, maskBit);
-            self.gameClient.sendUpdatePlayerState(p.ax, p.ay, p.controls);
+            self.gameClient.sendUpdatePlayerStateRequest(p.ax, p.ay, p.controls);
         };
         keyObj.release = function () {
             var p = self.gameClient.myPlayer;
             p.controls = Common.clearBit(p.controls, maskBit);
-            self.gameClient.sendUpdatePlayerState(p.ax, p.ay, p.controls);
+            self.gameClient.sendUpdatePlayerStateRequest(p.ax, p.ay, p.controls);
         };
     };
     MyApp.prototype.addPlayerCreateCallback = function (player) {
@@ -96,7 +96,7 @@ var MyApp = /** @class */ (function () {
         p.cameras.main.setBounds(0, 0, 1920 * 2, 1080 * 2);
         p.physics.world.setBounds(0, 0, 1920 * 2, 1080 * 2);
         p.input.on('pointerdown', function (pointer) {
-            _this.gameClient.sendUpdatePlayerTarget(pointer.x + pointer.camera.scrollX, pointer.y + pointer.camera.scrollY);
+            _this.gameClient.sendUpdatePlayerTargetRequest(pointer.x + pointer.camera.scrollX, pointer.y + pointer.camera.scrollY);
         }, this);
         p.input.keyboard.on('keydown-E', function (event) {
             console.log('Hello from the E Key!');
@@ -106,13 +106,13 @@ var MyApp = /** @class */ (function () {
             data.Y = Math.floor(_this.worldMap.mapCursor.y / WorldMap.cellSize);
             data.ObjectType = Phaser.Math.Between(0, 1);
             mp.create(p, data);
-            _this.gameClient.sendSetMapObject(data.X, data.Y, data.ObjectType);
+            _this.gameClient.sendSetMapObjectRequest(data.X, data.Y, data.ObjectType);
         });
         p.input.keyboard.on('keydown-Q', function (event) {
             console.log('Hello from the Q Key!');
             var x = Math.floor(_this.worldMap.mapCursor.x / WorldMap.cellSize);
             var y = Math.floor(_this.worldMap.mapCursor.y / WorldMap.cellSize);
-            _this.gameClient.sendDestroyMapObject(x, y);
+            _this.gameClient.sendDestroyMapObjectRequest(x, y);
         });
         //this.createUI(p);
     };

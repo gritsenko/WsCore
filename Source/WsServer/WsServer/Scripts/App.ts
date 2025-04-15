@@ -39,7 +39,7 @@ export default class MyApp {
     }
 
     onGameInit() {
-        this.gameClient.sendGetMapObjects(0, 0);
+        this.gameClient.sendGetMapObjectsRequest(0, 0);
     }
 
     initKeyHadler(keyCode, maskBit) {
@@ -48,12 +48,12 @@ export default class MyApp {
         keyObj.press = () => {
             const p = self.gameClient.myPlayer;
             p.controls = Common.setBit(p.controls, maskBit);
-            self.gameClient.sendUpdatePlayerState(p.ax, p.ay, p.controls);
+            self.gameClient.sendUpdatePlayerStateRequest(p.ax, p.ay, p.controls);
         };
         keyObj.release = () => {
             const p = self.gameClient.myPlayer;
             p.controls = Common.clearBit(p.controls, maskBit);
-            self.gameClient.sendUpdatePlayerState(p.ax, p.ay, p.controls);
+            self.gameClient.sendUpdatePlayerStateRequest(p.ax, p.ay, p.controls);
         };
     }
 
@@ -118,7 +118,7 @@ export default class MyApp {
         p.physics.world.setBounds(0, 0, 1920 * 2, 1080 * 2);
 
         p.input.on('pointerdown', (pointer) => {
-            this.gameClient.sendUpdatePlayerTarget(pointer.x + pointer.camera.scrollX, pointer.y + pointer.camera.scrollY);
+            this.gameClient.sendUpdatePlayerTargetRequest(pointer.x + pointer.camera.scrollX, pointer.y + pointer.camera.scrollY);
 
         }, this);
 
@@ -133,7 +133,7 @@ export default class MyApp {
             data.ObjectType = Phaser.Math.Between(0, 1);
             mp.create(p, data);
 
-            this.gameClient.sendSetMapObject(data.X, data.Y, data.ObjectType);
+            this.gameClient.sendSetMapObjectRequest(data.X, data.Y, data.ObjectType);
         });
 
         p.input.keyboard.on('keydown-Q', event => {
@@ -141,7 +141,7 @@ export default class MyApp {
             console.log('Hello from the Q Key!');
             const x = Math.floor(this.worldMap.mapCursor.x / WorldMap.cellSize);
             const y = Math.floor(this.worldMap.mapCursor.y / WorldMap.cellSize);
-            this.gameClient.sendDestroyMapObject(x, y);
+            this.gameClient.sendDestroyMapObjectRequest(x, y);
         });
 
         //this.createUI(p);

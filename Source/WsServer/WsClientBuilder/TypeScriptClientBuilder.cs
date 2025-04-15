@@ -194,15 +194,26 @@ public class TypeScriptClientBuilder(string outputPath)
         var infos = typeInfo.GetFields(BindingFlags.Public | BindingFlags.Instance);
 
         sb.AppendLine("case ServerEventType." + typeInfo.Name + ":");
-        sb.AppendLine("var " + typeInfo.Name + " = new " + typeInfo.Name + "();");
+
+        var varName = FirstCharToLowerCase(typeInfo.Name);
+
+        sb.AppendLine($"const {varName} = new {typeInfo.Name}();");
 
         foreach (var info in infos)
         {
-            sb.AppendLine($"{typeInfo.Name}.{info.Name.FormatIdtoJs()} = {GetFieldReader(info.FieldType, GetFieldLenght(info))}");
+            sb.AppendLine($"  {varName}.{info.Name.FormatIdtoJs()} = {GetFieldReader(info.FieldType, GetFieldLenght(info))}");
         }
 
-        sb.AppendLine("this.on" + typeInfo.Name + "(" + typeInfo.Name + ");");
+        sb.AppendLine($"this.on{typeInfo.Name}({varName});");
         sb.AppendLine("break;");
+    }
+
+    private static string FirstCharToLowerCase(string str)
+    {
+        if (!string.IsNullOrEmpty(str) && char.IsUpper(str[0]))
+            return str.Length == 1 ? char.ToLower(str[0]).ToString() : char.ToLower(str[0]) + str[1..];
+
+        return str;
     }
 
     private string GetFieldReader(Type fieldType, int lenght = 0, string bufferVarName = "buff")
