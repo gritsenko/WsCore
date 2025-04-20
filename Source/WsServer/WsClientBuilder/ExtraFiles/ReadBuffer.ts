@@ -1,4 +1,4 @@
-﻿export default class ReadBuffer {
+﻿class ReadBuffer {
     static LittleEndian = true;
 
     inputBufferView: DataView;

@@ -1,4 +1,4 @@
-export default class WriteBuffer {
+class WriteBuffer {
     static littleEndian = true;
 
     outputBuffer: any[];
@@ -96,7 +96,7 @@ export default class WriteBuffer {
     }
 
     toUtf8Array(str) {
-        var utf8 = [];
+        var utf8: number[] = [];
         for (var i = 0; i < str.length; i++) {
             var charcode = str.charCodeAt(i);
             if (charcode < 0x80) utf8.push(charcode);

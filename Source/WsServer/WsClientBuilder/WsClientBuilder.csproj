@@ -11,4 +11,17 @@
     <ProjectReference Include="..\WsServer.Shared\WsServer.Shared.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="ExtraFiles\ReadBuffer.ts">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+    <None Update="ExtraFiles\WriteBuffer.ts">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="RazorEngineCore" Version="2024.4.1" />
+  </ItemGroup>
+
 </Project>

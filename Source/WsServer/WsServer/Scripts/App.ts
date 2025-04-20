@@ -127,7 +127,7 @@ export default class MyApp {
 
             console.log('Hello from the E Key!');
             var mp = new MapObject();
-            var data = new WsConnection.MapObjectData();
+            var data = new WsClient.MapObjectData();
             data.X = Math.floor(this.worldMap.mapCursor.x / WorldMap.cellSize);
             data.Y = Math.floor(this.worldMap.mapCursor.y / WorldMap.cellSize);
             data.ObjectType = Phaser.Math.Between(0, 1);

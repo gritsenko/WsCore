@@ -13,8 +13,8 @@ var __extends = (this && this.__extends) || (function () {
         d.prototype = b === null ? Object.create(b) : (__.prototype = b.prototype, new __());
     };
 })();
-import Wsc from "./WsConnection.js";
 import Player from "../Player.js";
+import * as WsConnection from "./WsConnection.js";
 var WsClient = /** @class */ (function (_super) {
     __extends(WsClient, _super);
     function WsClient() {
@@ -125,7 +125,8 @@ var WsClient = /** @class */ (function (_super) {
         p.speed.x = ms.VelocityX;
         p.speed.y = ms.VelocityY;
     };
+    WsClient.MapObjectData = WsConnection.MapObjectData;
     return WsClient;
-}(Wsc));
+}(WsConnection["default"]));
 export default WsClient;
 //# sourceMappingURL=WsClient.js.map

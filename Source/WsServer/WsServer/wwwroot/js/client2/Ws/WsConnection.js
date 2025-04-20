@@ -1,5 +1,249 @@
-import WriteBuffer from "./WriteBuffer.js";
-import ReadBuffer from "./ReadBuffer.js";
+var WriteBuffer = /** @class */ (function () {
+    function WriteBuffer() {
+        this.outputBufferLen = 0;
+        this.newMessage();
+    }
+    WriteBuffer.prototype.newMessage = function () {
+        this.outputBuffer = [];
+        this.outputBufferLen = 0;
+        return this;
+    };
+    WriteBuffer.prototype.pushToBuffer = function (value, size, callback) {
+        this.outputBuffer.push({
+            "size": size,
+            "value": value,
+            "callback": callback
+        });
+        this.outputBufferLen += size;
+    };
+    WriteBuffer.prototype.pushString = function (value, length) {
+        var utf8 = this.toUtf8Array(value);
+        console.log("setting buffer string: " + value);
+        this.pushToBuffer(utf8, length, this.setFixedByteArray);
+        return this;
+    };
+    WriteBuffer.prototype.pushInt8 = function (value) {
+        this.pushToBuffer(value, 1, this.setInt);
+        return this;
+    };
+    WriteBuffer.prototype.pushInt16 = function (value) {
+        this.pushToBuffer(value, 2, this.setInt);
+        return this;
+    };
+    WriteBuffer.prototype.pushInt32 = function (value) {
+        this.pushToBuffer(value, 4, this.setInt);
+        return this;
+    };
+    WriteBuffer.prototype.pushUInt8 = function (value) {
+        this.pushToBuffer(value, 1, this.setUint);
+        return this;
+    };
+    WriteBuffer.prototype.pushUInt16 = function (value) {
+        this.pushToBuffer(value, 2, this.setUint);
+        return this;
+    };
+    WriteBuffer.prototype.pushUInt32 = function (value) {
+        this.pushToBuffer(value, 4, this.setUint);
+        return this;
+    };
+    WriteBuffer.prototype.pushFloat = function (value) {
+        this.pushToBuffer(value, 4, this.setFloat);
+        return this;
+    };
+    WriteBuffer.prototype.setInt = function (buffView, value, size, offset) {
+        if (size === 1) {
+            buffView.setInt8(offset, value, WriteBuffer.littleEndian);
+        }
+        if (size === 2) {
+            buffView.setInt16(offset, value, WriteBuffer.littleEndian);
+        }
+        if (size === 4) {
+            buffView.setInt32(offset, value, WriteBuffer.littleEndian);
+        }
+    };
+    WriteBuffer.prototype.setFloat = function (buffView, value, size, offset) {
+        if (size === 4) {
+            buffView.setFloat32(offset, value, WriteBuffer.littleEndian);
+        }
+    };
+    WriteBuffer.prototype.setUint = function (buffView, value, size, offset) {
+        if (size === 1) {
+            buffView.setUint8(offset, value, WriteBuffer.littleEndian);
+        }
+        if (size === 2) {
+            buffView.setUint16(offset, value, WriteBuffer.littleEndian);
+        }
+        if (size === 4) {
+            buffView.setUint32(offset, value, WriteBuffer.littleEndian);
+        }
+    };
+    WriteBuffer.prototype.toHexString = function (byteArray) {
+        return byteArray.map(function (byte) { return ("0" + (byte & 0xFF).toString(16)).slice(-2); }).join("-");
+    };
+    WriteBuffer.prototype.toUtf8Array = function (str) {
+        var utf8 = [];
+        for (var i = 0; i < str.length; i++) {
+            var charcode = str.charCodeAt(i);
+            if (charcode < 0x80)
+                utf8.push(charcode);
+            else if (charcode < 0x800) {
+                utf8.push(0xc0 | (charcode >> 6), 0x80 | (charcode & 0x3f));
+            }
+            else if (charcode < 0xd800 || charcode >= 0xe000) {
+                utf8.push(0xe0 | (charcode >> 12), 0x80 | ((charcode >> 6) & 0x3f), 0x80 | (charcode & 0x3f));
+            }
+            // surrogate pair
+            else {
+                i++;
+                // UTF-16 encodes 0x10000-0x10FFFF by
+                // subtracting 0x10000 and splitting the
+                // 20 bits of 0x0-0xFFFFF into two halves
+                charcode = 0x10000 + (((charcode & 0x3ff) << 10)
+                    | (str.charCodeAt(i) & 0x3ff));
+                utf8.push(0xf0 | (charcode >> 18), 0x80 | ((charcode >> 12) & 0x3f), 0x80 | ((charcode >> 6) & 0x3f), 0x80 | (charcode & 0x3f));
+            }
+        }
+        return utf8;
+    };
+    WriteBuffer.prototype.setByteArray = function (buffView, value, size, offset) {
+        //set length of following array
+        buffView.setInt16(offset, value.length);
+        for (var i = 0; i < value.length; i++) {
+            buffView.setUint8(offset + i, value[i]);
+        }
+    };
+    WriteBuffer.prototype.setFixedByteArray = function (buffView, value, size, offset) {
+        var len = value.length;
+        for (var i = 0; i < size; i++) {
+            if (i < len)
+                buffView.setUint8(offset + i, value[i]);
+            else
+                buffView.setUint8(offset + i, 0);
+        }
+    };
+    WriteBuffer.prototype.send = function (ws) {
+        if (!ws || ws.readyState !== 1 /* OPEN */)
+            return;
+        var outputBufferArray = new ArrayBuffer(this.outputBufferLen);
+        var dataView = new DataView(outputBufferArray);
+        var curOffset = 0;
+        for (var i = 0, maxIndex = this.outputBuffer.length; i < maxIndex; i++) {
+            var item = this.outputBuffer[i];
+            item.callback(dataView, item.value, item.size, curOffset);
+            curOffset += item.size;
+        }
+        ws.send(outputBufferArray);
+        this.outputBuffer = [];
+        this.outputBufferLen = 0;
+    };
+    WriteBuffer.littleEndian = true;
+    return WriteBuffer;
+}());
+var ReadBuffer = /** @class */ (function () {
+    function ReadBuffer() {
+    }
+    ReadBuffer.prototype.setInput = function (data) {
+        this.inputBufferView = new DataView(data);
+        this.inputBufferOffset = 0;
+        return this;
+    };
+    ReadBuffer.prototype.popString = function () {
+        var size = this.inputBufferView.getInt32(this.inputBufferOffset, ReadBuffer.LittleEndian);
+        this.inputBufferOffset += 4;
+        var arr = new Uint8Array(size);
+        for (var i = 0; i < size; i++) {
+            arr[i] = this.inputBufferView.getUint8(this.inputBufferOffset + i);
+        }
+        var str = this.utf8ArrayToStr(arr);
+        this.inputBufferOffset += size;
+        return str;
+    };
+    ReadBuffer.prototype.popStringFixedLength = function (length) {
+        var arr = new Uint8Array(length);
+        for (var i = 0; i < length; i++) {
+            arr[i] = this.inputBufferView.getUint8(this.inputBufferOffset + i);
+        }
+        var str = this.utf8ArrayToStr(arr);
+        this.inputBufferOffset += length;
+        return str;
+    };
+    ReadBuffer.prototype.utf8ArrayToStr = function (array) {
+        var out, i, len, c;
+        var char2, char3;
+        out = "";
+        len = array.length;
+        i = 0;
+        while (i < len) {
+            c = array[i++];
+            switch (c >> 4) {
+                case 0:
+                    break;
+                case 1:
+                case 2:
+                case 3:
+                case 4:
+                case 5:
+                case 6:
+                case 7:
+                    // 0xxxxxxx
+                    out += String.fromCharCode(c);
+                    break;
+                case 12:
+                case 13:
+                    // 110x xxxx   10xx xxxx
+                    char2 = array[i++];
+                    out += String.fromCharCode(((c & 0x1F) << 6) | (char2 & 0x3F));
+                    break;
+                case 14:
+                    // 1110 xxxx  10xx xxxx  10xx xxxx
+                    char2 = array[i++];
+                    char3 = array[i++];
+                    out += String.fromCharCode(((c & 0x0F) << 12) |
+                        ((char2 & 0x3F) << 6) |
+                        ((char3 & 0x3F) << 0));
+                    break;
+            }
+        }
+        return out;
+    };
+    ReadBuffer.prototype.popInt8 = function () {
+        var result = this.inputBufferView.getInt8(this.inputBufferOffset);
+        this.inputBufferOffset += 1;
+        return result;
+    };
+    ReadBuffer.prototype.popInt16 = function () {
+        var result = (this.inputBufferView.getInt16(this.inputBufferOffset, ReadBuffer.LittleEndian));
+        this.inputBufferOffset += 2;
+        return result;
+    };
+    ReadBuffer.prototype.popInt32 = function () {
+        var result = (this.inputBufferView.getInt32(this.inputBufferOffset, ReadBuffer.LittleEndian));
+        this.inputBufferOffset += 4;
+        return result;
+    };
+    ReadBuffer.prototype.popUInt8 = function () {
+        var result = (this.inputBufferView.getUint8(this.inputBufferOffset));
+        this.inputBufferOffset += 1;
+        return result;
+    };
+    ReadBuffer.prototype.popUInt16 = function () {
+        var result = (this.inputBufferView.getUint16(this.inputBufferOffset, ReadBuffer.LittleEndian));
+        this.inputBufferOffset += 2;
+        return result;
+    };
+    ReadBuffer.prototype.popUInt32 = function () {
+        var result = (this.inputBufferView.getUint32(this.inputBufferOffset, ReadBuffer.LittleEndian));
+        this.inputBufferOffset += 4;
+        return result;
+    };
+    ReadBuffer.prototype.popFloat = function () {
+        var result = (this.inputBufferView.getFloat32(this.inputBufferOffset, ReadBuffer.LittleEndian));
+        this.inputBufferOffset += 4;
+        return result;
+    };
+    ReadBuffer.LittleEndian = true;
+    return ReadBuffer;
+}());
 //MessageType enum builder
 var ServerEventType;
 (function (ServerEventType) {
@@ -238,8 +482,7 @@ var Wsc = /** @class */ (function () {
             items.push(itemReader(buff));
         }
         return items;
-    };
-    //Data readers
+    }; //Data readers
     Wsc.prototype.readInitPlayerEvent = function (buff) {
         var obj = new InitPlayerEvent();
         return obj;

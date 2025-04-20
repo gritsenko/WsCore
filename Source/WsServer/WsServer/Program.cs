@@ -14,7 +14,7 @@ builder.Services.AddLogging(b =>
 {
     b.AddConsole()
         .AddDebug()
-        .AddFilter<ConsoleLoggerProvider>(category: null, level: LogLevel.Debug)
+        .AddFilter<ConsoleLoggerProvider>(category: null, level: LogLevel.Information)
         .AddFilter<DebugLoggerProvider>(category: null, level: LogLevel.Debug);
 });
 

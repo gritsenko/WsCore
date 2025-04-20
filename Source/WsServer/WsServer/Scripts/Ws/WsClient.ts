@@ -1,8 +1,8 @@
-﻿import Wsc from "./WsConnection.js";
-import Player from "../Player.js";
+﻿import Player from "../Player.js";
 import * as WsConnection from "./WsConnection.js";
+export default class WsClient extends WsConnection.default {
 
-export default class WsClient extends Wsc {
+    static MapObjectData = WsConnection.MapObjectData;
 
     myPlayer: Player;
     myPlayerName = "John Smith";
@@ -13,7 +13,7 @@ export default class WsClient extends Wsc {
     onGameInitCallback: Function;
     onMapObjectsCallback: Function;
     onPlayerRemovedCallback: Function;
-    
+
     onInitPlayerEvent(msg) {
         this.clientId = msg.ClientId;
         this.sendSetPlayerNameRequest(this.myPlayerName);
@@ -39,7 +39,7 @@ export default class WsClient extends Wsc {
     onPlayerLeftEvent(msg: WsConnection.PlayerLeftEvent) {
         this.removePlayer(msg.ClientId);
     }
-    
+
     onGameStateUpdateEvent(msg: WsConnection.GameStateUpdateEvent) {
         const playersCount = msg.PlayerStateData.length;
         for (let i = 0; i < playersCount; i++) {

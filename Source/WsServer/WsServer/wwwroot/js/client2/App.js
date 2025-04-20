@@ -4,7 +4,6 @@ import MapObject from './MapObject.js';
 import WsClient from "./Ws/WsClient.js";
 import WorldMap from "./World.js";
 import Player from './Player.js';
-import * as WsConnection from "./Ws/WsConnection.js";
 var MyApp = /** @class */ (function () {
     function MyApp() {
         this.serverUrl = "";
@@ -101,7 +100,7 @@ var MyApp = /** @class */ (function () {
         p.input.keyboard.on('keydown-E', function (event) {
             console.log('Hello from the E Key!');
             var mp = new MapObject();
-            var data = new WsConnection.MapObjectData();
+            var data = new WsClient.MapObjectData();
             data.X = Math.floor(_this.worldMap.mapCursor.x / WorldMap.cellSize);
             data.Y = Math.floor(_this.worldMap.mapCursor.y / WorldMap.cellSize);
             data.ObjectType = Phaser.Math.Between(0, 1);

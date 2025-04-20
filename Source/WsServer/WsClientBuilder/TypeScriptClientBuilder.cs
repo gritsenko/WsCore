@@ -21,8 +21,13 @@ public class TypeScriptClientBuilder(string outputPath)
 
         var sb = new StringBuilder();
 
-        sb.AppendLine("import WriteBuffer from \"./WriteBuffer.js\"");
-        sb.AppendLine("import ReadBuffer from \"./ReadBuffer.js\"");
+        var writeBufferContent = File.ReadAllText("./ExtraFiles/WriteBuffer.ts");
+        var readBufferContent = File.ReadAllText("./ExtraFiles/ReadBuffer.ts");
+
+        sb.AppendLine(writeBufferContent);
+        sb.AppendLine(readBufferContent);
+        //sb.AppendLine("import WriteBuffer from \"./WriteBuffer.js\"");
+        //sb.AppendLine("import ReadBuffer from \"./ReadBuffer.js\"");
 
         sb.AppendLine("//MessageType enum builder");
         BuildEnumDef(sb, "ServerEventType", _serverLogicProvider.ServerEventTypes);
@@ -70,13 +75,13 @@ public class TypeScriptClientBuilder(string outputPath)
     }
 
     private void BuildTypeDefinitions(StringBuilder sb, IEnumerable<Type> types)
-    { 
+    {
         foreach (var t in types)
         {
             var infos = t.GetFields(BindingFlags.Public | BindingFlags.Instance);
             sb.AppendLine("export class " + t.Name + "{");
 
-            foreach (var info in infos) 
+            foreach (var info in infos)
                 sb.AppendLine($"{info.Name.FormatIdtoJs()} : {GetFieldTsType(info.FieldType)};");
 
             sb.AppendLine("}");
@@ -84,47 +89,54 @@ public class TypeScriptClientBuilder(string outputPath)
 
     }
 
-    private void WriteConstructor(StringBuilder sb)
+    private static void WriteConstructor(StringBuilder sb)
     {
-        const string str = "      " +
-                           "\r\n     clientId = -1;" +
-                           "\r\n     writeBuff = new WriteBuffer();" +
-                           "\r\n     readBuff = new ReadBuffer();" +
-                           "\r\n     ws : WebSocket;" +
-                           "\r\n     overrideUrl : string;" +
-                           "\r\n     serverUrl : string;" +
-                           "" +
-                           "\r\n    constructor() {" +
-                           "\r\n    }" +
-                           "\r\n" +
-                           "\r\n    connect(overrideUrl) {" +
-                           "\r\n        this.overrideUrl = overrideUrl;" +
-                           "\r\n        this.ws = this.createSocket();" +
-                           "\r\n        this.ws.onmessage = e => this.processServerMessage(new ReadBuffer().setInput(e.data));" +
-                           "\r\n    }" +
-                           "\r\n    createSocket() {" +
-                           "\r\n        const scheme = document.location.protocol == \"https:\" ? \"wss\" : \"ws\";" +
-                           "\r\n        const port = document.location.port ? (\":\" + document.location.port) : \"\";" +
-                           "\r\n        this.serverUrl = scheme + \"://\" + document.location.hostname + port + \"/ws\";" +
-                           "\r\n" +
-                           "\r\n        this.ws = new WebSocket(this.overrideUrl == undefined ? this.serverUrl : this.overrideUrl);" +
-                           "\r\n        this.ws.binaryType = \"arraybuffer\";" +
-                           "\r\n        return this.ws;" +
-                           "\r\n    }" +
-                           "\r\n";
-        sb.Append(str);
+        sb.Append(
+            """
+                 clientId = -1;
+                 writeBuff = new WriteBuffer();
+                 readBuff = new ReadBuffer();
+                 ws : WebSocket;
+                 overrideUrl : string;
+                 serverUrl : string;
+            
+                constructor() {
+                }
+            
+                connect(overrideUrl) {
+                    this.overrideUrl = overrideUrl;
+                    this.ws = this.createSocket();
+                    this.ws.onmessage = e => this.processServerMessage(new ReadBuffer().setInput(e.data));
+                }
+                createSocket() {
+                    const scheme = document.location.protocol == "https:" ? "wss" : "ws";
+                    const port = document.location.port ? (":" + document.location.port) : "";
+                    this.serverUrl = `${scheme}://${document.location.hostname}${port}/ws`;
+            
+                    this.ws = new WebSocket(this.overrideUrl == undefined ? this.serverUrl : this.overrideUrl);
+                    this.ws.binaryType = "arraybuffer";
+                    return this.ws;
+                }
+
+            """
+            );
     }
 
     private void BuildArrayReader(StringBuilder sb)
     {
-        sb.AppendLine("readArray(buff, itemReader){");
-        sb.AppendLine("var itemsCount = buff.popUInt32();");
-        sb.AppendLine("var items = [];");
-        sb.AppendLine("for (let i = 0; i < itemsCount; i++) {");
-        sb.AppendLine(" items.push(itemReader(buff));");
-        sb.AppendLine(" }");
-        sb.AppendLine(" return items;");
-        sb.AppendLine("}");
+        sb.Append(
+            """
+            
+                readArray<T>(buff: ReadBuffer, itemReader: (buff: ReadBuffer) => T): T[] {
+                    const itemsCount = buff.popUInt32();
+                    const items: T[] = [];
+                    for (let i = 0; i < itemsCount; i++) {
+                        items.push(itemReader(buff));
+                    }
+                    return items;
+                }
+            """
+        );
     }
 
     private void BuildDataReaders(StringBuilder sb)
@@ -185,7 +197,7 @@ public class TypeScriptClientBuilder(string outputPath)
     private void BuildMessageHandlers(Type typeInfo, StringBuilder sb)
     {
         var infos = typeInfo.GetFields(BindingFlags.Public | BindingFlags.Instance);
-        sb.AppendLine("on" + typeInfo.Name + "(msg : "+ typeInfo.Name +"){");
+        sb.AppendLine("on" + typeInfo.Name + "(msg : " + typeInfo.Name + "){");
         sb.AppendLine("}");
     }
 
