@@ -27,6 +27,7 @@ var WsClient = /** @class */ (function (_super) {
     WsClient.prototype.onInitPlayerEvent = function (msg) {
         var _a;
         this.clientId = msg.ClientId;
+        console.log("Player initialized", this.clientId);
         this.sendSetPlayerNameRequest(this.myPlayerName);
         this.sendUpdatePlayerSlotsRequest(0, 0, 0);
         (_a = this.onGameInitCallback) === null || _a === void 0 ? void 0 : _a.call(this);
@@ -101,7 +102,8 @@ var WsClient = /** @class */ (function (_super) {
             this.playersCount++;
         }
         this.setPlayerData(player, playerData);
-        if ((this.myPlayer == null || this.myPlayer == undefined) && player.id === this.clientId) {
+        if (!this.myPlayer && player.id === this.clientId) {
+            console.log("my player:", player);
             this.myPlayer = player;
         }
         if (isNewPlayer && this.onPlayerCreateCallback != null) {

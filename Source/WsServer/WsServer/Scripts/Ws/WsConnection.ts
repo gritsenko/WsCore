@@ -347,6 +347,7 @@ export class DestroyedBulletsStateData {
 }
 //Server events definitions
 export class InitPlayerEvent {
+    ClientId: number;
 }
 export class PlayerJoinedEvent {
     PlayerStateData: PlayerStateData;
@@ -476,6 +477,7 @@ export default class Wsc {
     }//Data readers
     readInitPlayerEvent(buff) {
         const obj = new InitPlayerEvent();
+        obj.ClientId = buff.popUInt32();
         return obj;
     }
     readPlayerJoinedEvent(buff) {
@@ -630,6 +632,7 @@ export default class Wsc {
         switch (serverMessageType) {
             case ServerEventType.InitPlayerEvent:
                 const initPlayerEvent = new InitPlayerEvent();
+                initPlayerEvent.ClientId = buff.popUInt32();
                 this.onInitPlayerEvent(initPlayerEvent);
                 break;
             case ServerEventType.PlayerJoinedEvent:

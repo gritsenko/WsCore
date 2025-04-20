@@ -38,6 +38,9 @@ public class GameServer : GameServerBase<GameModel>
     private void GameServer_OnPlayerAdded(uint clientId)
     {
         var player = GameModel.GetPlayer(clientId);
+        //notifying new player client that it can be initialized
+        Messenger.Send(clientId, new InitPlayerEvent(clientId));
+
         //notifying other players that new player joined
         Messenger.Broadcast(new PlayerJoinedEvent(player));
         //send game state to new client

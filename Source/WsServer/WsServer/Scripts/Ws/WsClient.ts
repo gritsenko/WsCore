@@ -14,8 +14,9 @@ export default class WsClient extends WsConnection.default {
     onMapObjectsCallback: Function;
     onPlayerRemovedCallback: Function;
 
-    onInitPlayerEvent(msg) {
+    onInitPlayerEvent(msg: WsConnection.InitPlayerEvent) {
         this.clientId = msg.ClientId;
+        console.log("Player initialized", this.clientId);
         this.sendSetPlayerNameRequest(this.myPlayerName);
         this.sendUpdatePlayerSlotsRequest(0, 0, 0);
 
@@ -105,7 +106,8 @@ export default class WsClient extends WsConnection.default {
 
         this.setPlayerData(player, playerData);
 
-        if ((this.myPlayer == null || this.myPlayer == undefined) && player.id === this.clientId) {
+        if (!this.myPlayer && player.id === this.clientId) {
+            console.log("my player:", player);
             this.myPlayer = player;
         }
 

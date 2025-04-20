@@ -485,6 +485,7 @@ var Wsc = /** @class */ (function () {
     }; //Data readers
     Wsc.prototype.readInitPlayerEvent = function (buff) {
         var obj = new InitPlayerEvent();
+        obj.ClientId = buff.popUInt32();
         return obj;
     };
     Wsc.prototype.readPlayerJoinedEvent = function (buff) {
@@ -643,6 +644,7 @@ var Wsc = /** @class */ (function () {
         switch (serverMessageType) {
             case ServerEventType.InitPlayerEvent:
                 var initPlayerEvent = new InitPlayerEvent();
+                initPlayerEvent.ClientId = buff.popUInt32();
                 this.onInitPlayerEvent(initPlayerEvent);
                 break;
             case ServerEventType.PlayerJoinedEvent:
