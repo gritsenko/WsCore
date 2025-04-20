@@ -45,7 +45,7 @@ var WsClient = /** @class */ (function (_super) {
     WsClient.prototype.onPlayerLeftEvent = function (msg) {
         this.removePlayer(msg.ClientId);
     };
-    WsClient.prototype.onGameStateEvent = function (msg) {
+    WsClient.prototype.onGameStateUpdateEvent = function (msg) {
         var playersCount = msg.PlayerStateData.length;
         for (var i = 0; i < playersCount; i++) {
             this.updatePlayer(msg.PlayerStateData[i]);

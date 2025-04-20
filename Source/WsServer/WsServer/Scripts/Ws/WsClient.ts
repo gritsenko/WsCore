@@ -40,7 +40,7 @@ export default class WsClient extends Wsc {
         this.removePlayer(msg.ClientId);
     }
     
-    onGameStateEvent(msg: WsConnection.GameStateUpdateEvent) {
+    onGameStateUpdateEvent(msg: WsConnection.GameStateUpdateEvent) {
         const playersCount = msg.PlayerStateData.length;
         for (let i = 0; i < playersCount; i++) {
             this.updatePlayer(msg.PlayerStateData[i]);
