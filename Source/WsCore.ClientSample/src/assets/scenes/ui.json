@@ -1,0 +1,591 @@
+{
+    "baseWidth": 700,
+    "baseHeight": 700,
+    "elements": [
+        {
+            "type": "Sprite",
+            "name": "blackBack",
+            "textureName": "black_png",
+            "group": "tip",
+            "stretchToScreen": true,
+            "opacity": 0.2
+        },
+        {
+            "name": "levelText",
+            "type": "Text",
+            "fontSize": 60,
+            "text": "LVL 1",
+            "group": "expbar",
+            "visible": false,
+            "margin": {
+                "x": 0,
+                "y": -200
+            },
+            "align": "center",
+            "behaviors": [
+                {
+                    "type": "Sine",
+                    "params": {
+                        "isEnabled": false,
+                        "period": 0.1,
+                        "amplitude": 3,
+                        "offset": 0,
+                        "type": "SCALE"
+                    }
+                }
+            ]
+        },
+        {
+            "type": "Sprite",
+            "name": "expbar",
+            "textureName": "expbar_png",
+            "group": "expbar",
+            "visible": false,
+            "margin": {
+                "x": 0,
+                "y": -350
+            },
+            "behaviors": [
+                {
+                    "type": "Sine",
+                    "params": {
+                        "isEnabled": false,
+                        "period": 0.1,
+                        "amplitude": 3,
+                        "offset": 0,
+                        "type": "SCALE"
+                    }
+                }
+            ]
+        },
+        {
+            "type": "Sprite",
+            "name": "expline",
+            "textureName": "black_png",
+            "group": "expbar",
+            "visible": false,
+            "margin": {
+                "x": 0,
+                "y": -350
+            },
+            "behaviors": [
+                {
+                    "type": "Sine",
+                    "params": {
+                        "isEnabled": false,
+                        "period": 0.1,
+                        "amplitude": 3,
+                        "offset": 0,
+                        "type": "SCALE"
+                    }
+                }
+            ]
+        },
+        {
+            "type": "Sprite",
+            "name": "tutor1",
+            "textureName": "tutor1_png",
+            "visible": false,
+            "margin": {
+                "x": 0,
+                "y": -500
+            }
+        },
+        {
+            "type": "Sprite",
+            "name": "tutor2",
+            "textureName": "tutor2_png",
+            "visible": false,
+            "margin": {
+                "x": 0,
+                "y": -500
+            }
+        },
+        {
+            "type": "Sprite",
+            "name": "tutor3",
+            "textureName": "tutor3_png",
+            "visible": false,
+            "margin": {
+                "x": 0,
+                "y": -500
+            }
+        },
+        {
+            "type": "Sprite",
+            "name": "tutor4",
+            "textureName": "tutor4_png",
+            "visible": false,
+            "margin": {
+                "x": 0,
+                "y": -500
+            }
+        },
+        {
+            "type": "Sprite",
+            "name": "cursor1",
+            "textureName": "cursor_png",
+            "group": "tip",
+            "visible": false,
+            "angle": 45,
+            "margin": {
+                "x": 200,
+                "y": -100
+            },
+            "behaviors": [
+                {
+                    "type": "Sine",
+                    "params": {
+                        "period": 0.3,
+                        "amplitude": 50,
+                        "offset": 0,
+                        "type": "VERTICAL"
+                    }
+                }
+            ]
+        },
+        {
+            "type": "Sprite",
+            "name": "arrow1",
+            "textureName": "arrow_png",
+            "group": "tip",
+            "visible": false,
+            "margin": {
+                "x": 0,
+                "y": -100
+            },
+            "behaviors": [
+                {
+                    "type": "Sine",
+                    "params": {
+                        "period": 0.2,
+                        "amplitude": 1,
+                        "offset": 0,
+                        "type": "OPACITY"
+                    }
+                }
+            ]
+        },
+        {
+            "type": "Sprite",
+            "name": "arrow2",
+            "textureName": "arrow_png",
+            "group": "tip",
+            "visible": false,
+            "margin": {
+                "x": 0,
+                "y": 0
+            },
+            "behaviors": [
+                {
+                    "type": "Sine",
+                    "params": {
+                        "period": 0.2,
+                        "amplitude": 1,
+                        "offset": 0.1,
+                        "type": "OPACITY"
+                    }
+                }
+            ]
+        },
+        {
+            "type": "Sprite",
+            "name": "arrow3",
+            "textureName": "arrow_png",
+            "group": "tip",
+            "visible": false,
+            "margin": {
+                "x": 0,
+                "y": 100
+            },
+            "behaviors": [
+                {
+                    "type": "Sine",
+                    "params": {
+                        "period": 0.2,
+                        "amplitude": 1,
+                        "offset": 0.2,
+                        "type": "OPACITY"
+                    }
+                }
+            ]
+        },
+        {
+            "type": "Sprite",
+            "name": "module1",
+            "textureName": "module1_png",
+            "group": "upgrade",
+            "visible": false,
+            "margin": {
+                "x": 0,
+                "y": 450
+            },
+            "scale": 2,
+            "behaviors": [
+                {
+                    "type": "Sine",
+                    "params": {
+                        "period": 0.2,
+                        "amplitude": 10,
+                        "offset": 0,
+                        "type": "SCALE"
+                    }
+                },
+                {
+                    "type": "FadeOut",
+                    "params": {
+                        "duration": 0.5,
+                        "isEnabled": false
+                    }
+                }
+            ]
+        },
+        {
+            "type": "Sprite",
+            "name": "module2",
+            "textureName": "module2_png",
+            "group": "upgrade",
+            "visible": false,
+            "margin": {
+                "x": 0,
+                "y": 450
+            },
+            "scale": 1.3,
+            "behaviors": [
+                {
+                    "type": "Sine",
+                    "params": {
+                        "period": 0.2,
+                        "amplitude": 10,
+                        "offset": 0,
+                        "type": "SCALE"
+                    }
+                },
+                {
+                    "type": "FadeOut",
+                    "params": {
+                        "duration": 0.5,
+                        "isEnabled": false
+                    }
+                }
+            ]
+        },
+        {
+            "type": "Sprite",
+            "name": "module3",
+            "textureName": "module3_png",
+            "group": "upgrade",
+            "visible": false,
+            "margin": {
+                "x": 0,
+                "y": 450
+            },
+            "scale": 1.3,
+            "behaviors": [
+                {
+                    "type": "Sine",
+                    "params": {
+                        "period": 0.2,
+                        "amplitude": 10,
+                        "offset": 0,
+                        "type": "SCALE"
+                    }
+                },
+                {
+                    "type": "FadeOut",
+                    "params": {
+                        "duration": 0.5,
+                        "isEnabled": false
+                    }
+                }
+            ]
+        },
+        {
+            "type": "Sprite",
+            "name": "module4",
+            "textureName": "module4_png",
+            "group": "upgrade",
+            "visible": false,
+            "margin": {
+                "x": 0,
+                "y": 400
+            },
+            "scale": 2,
+            "behaviors": [
+                {
+                    "type": "Sine",
+                    "params": {
+                        "period": 0.2,
+                        "amplitude": 10,
+                        "offset": 0,
+                        "type": "SCALE"
+                    }
+                },
+                {
+                    "type": "FadeOut",
+                    "params": {
+                        "duration": 0.5,
+                        "isEnabled": false
+                    }
+                }
+            ]
+        },
+        {
+            "name": "installButton",
+            "type": "Sprite",
+            "textureName": "install_button_png",
+            "anchor": {
+                "horizontal": "left",
+                "vertical": "top"
+            },
+            "margin": {
+                "x": 60,
+                "y": 60
+            },
+            "scale": 1.5
+        },
+        {
+            "type": "Sprite",
+            "name": "stickback",
+            "textureName": "stickback_png",
+            "scale": 2,
+            "visible": false,
+            "group": "ui",
+            "anchor": {
+                "horizontal": "left",
+                "vertical": "bottom"
+            },
+            "margin": {
+                "x": 150,
+                "y": 150
+            }
+        },
+        {
+            "type": "Sprite",
+            "name": "stick",
+            "textureName": "stick_png",
+            "visible": false,
+            "scale": 2,
+            "group": "ui",
+            "anchor": {
+                "horizontal": "left",
+                "vertical": "bottom"
+            },
+            "margin": {
+                "x": 350,
+                "y": 350
+            },
+            "behaviors": [
+                {
+                    "type": "Sine",
+                    "params": {
+                        "period": 0.3,
+                        "amplitude": 20,
+                        "offset": 0,
+                        "type": "VERTICAL",
+                        "isEnabled": false
+                    }
+                }
+            ]
+        },
+        {
+            "type": "Sprite",
+            "name": "shotback",
+            "textureName": "shot_png",
+            "scale": 1.5,
+            "visible": false,
+            "group": "ui",
+            "anchor": {
+                "horizontal": "right",
+                "vertical": "bottom"
+            },
+            "margin": {
+                "x": 50,
+                "y": 700
+            }
+        },
+        {
+            "type": "Sprite",
+            "name": "shot",
+            "visible": false,
+            "textureName": "shotbullet_png",
+            "group": "ui",
+            "scale": 1.5,
+            "anchor": {
+                "horizontal": "right",
+                "vertical": "bottom"
+            },
+            "margin": {
+                "x": 150,
+                "y": 750
+            }
+        },
+        {
+            "type": "Sprite",
+            "name": "letsbattle",
+            "textureName": "tutor5_png",
+            "group": "endcard",
+            "visible": false,
+            "scale": 1.5,
+            "anchor": {
+                "horizontal": "center",
+                "vertical": "top"
+            },
+            "margin": {
+                "x": 0,
+                "y": 300
+            },
+            "behaviors": [
+                {
+                    "type": "Sine",
+                    "params": {
+                        "period": 1,
+                        "amplitude": 10,
+                        "offset": 0,
+                        "type": "VERTICAL"
+                    }
+                }
+            ]
+        },
+        {
+            "type": "Sprite",
+            "name": "arrow1_end",
+            "textureName": "arrow_png",
+            "group": "endcard",
+            "visible": false,
+            "scale": 1.5,
+            "angle": 180,
+            "margin": {
+                "x": 0,
+                "y": 100
+            },
+            "behaviors": [
+                {
+                    "type": "Sine",
+                    "params": {
+                        "period": 0.2,
+                        "amplitude": 1,
+                        "offset": 0,
+                        "type": "OPACITY"
+                    }
+                }
+            ]
+        },
+        {
+            "type": "Sprite",
+            "name": "arrow2_end",
+            "textureName": "arrow_png",
+            "group": "endcard",
+            "visible": false,
+            "scale": 1.5,
+            "angle": 180,
+            "margin": {
+                "x": 0,
+                "y": 0
+            },
+            "behaviors": [
+                {
+                    "type": "Sine",
+                    "params": {
+                        "period": 0.2,
+                        "amplitude": 1,
+                        "offset": 0.1,
+                        "type": "OPACITY"
+                    }
+                }
+            ]
+        },
+        {
+            "type": "Sprite",
+            "name": "arrow3_end",
+            "textureName": "arrow_png",
+            "group": "endcard",
+            "visible": false,
+            "scale": 1.5,
+            "angle": 180,
+            "margin": {
+                "x": 0,
+                "y": -100
+            },
+            "behaviors": [
+                {
+                    "type": "Sine",
+                    "params": {
+                        "period": 0.2,
+                        "amplitude": 1,
+                        "offset": 0.2,
+                        "type": "OPACITY"
+                    }
+                }
+            ]
+        },
+        {
+            "type": "Sprite",
+            "name": "cursor2",
+            "textureName": "cursor_png",
+            "group": "endcard",
+            "visible": false,
+            "angle": 45,
+            "margin": {
+                "x": 300,
+                "y": -100
+            },
+            "behaviors": [
+                {
+                    "type": "Sine",
+                    "params": {
+                        "period": 0.3,
+                        "amplitude": 50,
+                        "offset": 0,
+                        "type": "VERTICAL"
+                    }
+                }
+            ]
+        },
+        {
+            "type": "Sprite",
+            "name": "hpicon",
+            "textureName": "hpicon_png",
+            "group": "ui",
+            "visible": true,
+            "anchor": {
+                "horizontal": "right",
+                "vertical": "top"
+            },
+            "margin": {
+                "x": 500,
+                "y": 50
+            }
+        },
+        {
+            "type": "Sprite",
+            "name": "hpbar",
+            "textureName": "hpbar_png",
+            "group": "ui",
+            "visible": true,
+            "anchor": {
+                "horizontal": "right",
+                "vertical": "top"
+            },
+            "margin": {
+                "x": 50,
+                "y": 50
+            }
+        },
+        {
+            "type": "Sprite",
+            "name": "hpstick",
+            "textureName": "hpstick_png",
+            "group": "ui",
+            "visible": true,
+            "anchor": {
+                "horizontal": "right",
+                "vertical": "top"
+            },
+            "margin": {
+                "x": 50,
+                "y": 50
+            }
+        }
+    ]
+}

@@ -4,7 +4,6 @@ import MapObject from './MapObject.js';
 import WsClient from "./Ws/WsClient.js";
 import WorldMap from "./World.js";
 import Player from './Player.js';
-import * as WsConnection from "./Ws/WsConnection.js";
 
 export default class MyApp {
 

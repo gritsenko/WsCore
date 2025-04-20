@@ -1,0 +1,44 @@
+[
+    {
+        "name": "robot",
+        "modelName": "robot_glb",
+        "type": "Object3D",
+        "noCollider": true,
+        "animation": "Idle",
+        "position": {
+            "x": 0,
+            "y": 0,
+            "z": 0
+        },
+        "rotation": {
+            "x": 0,
+            "y": 3.1415,
+            "z": 0
+        },
+        "scale": {
+            "x": 0.1,
+            "y": 0.1,
+            "z": 0.1
+        },
+        "behaviors": [
+            {
+                "type": "MoveByCheckpoints",
+                "speed": 25,
+                "checkpoints": [
+                    {
+                        "position": {
+                            "x": 0,
+                            "y": 0,
+                            "z": -36
+                        },
+                        "rotation": {
+                            "x": 0,
+                            "y": 3.1415,
+                            "z": 0
+                        }
+                    }
+                ]
+            }
+        ]
+    }
+]
