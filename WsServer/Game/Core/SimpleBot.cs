@@ -1,5 +1,5 @@
 ﻿using System;
-using Game.Core.Common.Math;
+using System.Numerics;
 
 namespace Game.Core;
 
@@ -17,7 +17,7 @@ public class SimpleBot : Player
     {
         if (IsTargetReached())
         {
-            TargetPos = new Vector2D(_rnd.Next(-1000, 2000), _rnd.Next(-1000, 2000));
+            TargetPos = new Vector2(_rnd.Next(-1000, 2000), _rnd.Next(-1000, 2000));
         }
 
         base.Update(dt);

@@ -1,4 +1,4 @@
-﻿using Game.Core.Common.Math;
+﻿using System.Numerics;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -83,9 +83,9 @@ public class GameModel : IGameModel
         p.Id = GetNewPlayerId();
         p.MovementState = new PlayerMovementState()
         {
-            Pos = new Vector2D((float)(r.NextDouble() * 800), (float)(r.NextDouble() * 600)),
+            Pos = new Vector2((float)(r.NextDouble() * 800), (float)(r.NextDouble() * 600)),
             BodyAngle = (int)(r.NextDouble() * 360),
-            AimPos = new Vector2D((float)(r.NextDouble() * 800), (float)(r.NextDouble() * 600)),
+            AimPos = new Vector2((float)(r.NextDouble() * 800), (float)(r.NextDouble() * 600)),
             ControlsState = 0
         };
 
@@ -152,7 +152,7 @@ public class GameModel : IGameModel
             if (id == bullet.SpawnerId || player.IsDead)
                 continue;
 
-            var dist = (player.MovementState.Pos - bullet.Pos).Length;
+            var dist = Vector2.Distance(player.MovementState.Pos, bullet.Pos);
             if (dist <= Player.Radius)
             {
                 collidedPlayer = player;
@@ -285,7 +285,7 @@ public class GameModel : IGameModel
         p.UpdateActivity();
     }
 
-    public Player SetPlayerControls(uint id, Vector2D aim, int contols)
+    public Player SetPlayerControls(uint id, Vector2 aim, int contols)
     {
         var p = GetPlayer(id);
         if (p != null)
@@ -297,14 +297,14 @@ public class GameModel : IGameModel
         return p;
     }
 
-    public uint[] SpawnBullet(Vector2D pos, Vector2D aimPos, uint spawnerId)
+    public uint[] SpawnBullet(Vector2 pos, Vector2 aimPos, uint spawnerId)
     {
         var bullet = new Bullet()
         {
             Id = GetNewBulletId(),
             Pos = pos,
             Type = 0,
-            Velocity = (aimPos - pos).Normalize() * 500f,
+            Velocity = Vector2.Normalize(aimPos - pos) * 500f,
             SpawnerId = spawnerId
         };
 

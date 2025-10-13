@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
-using Game.Core.Common.Math;
+using System.Numerics;
 
 namespace Game.Core;
 
@@ -10,7 +10,7 @@ public class Player
 
     public static double Radius { get; set; } = 48;
 
-    public Vector2D TargetPos = Vector2D.Zero;
+    public Vector2 TargetPos = Vector2.Zero;
 
     private static readonly Dictionary<int, int> ClassHp = new()
     {
@@ -69,23 +69,23 @@ public class Player
         Frags += i;
     }
 
-    public void Move(Vector2D speed)
+    public void Move(Vector2 speed)
     {
         MovementState.Pos += speed;
     }
     public void Move(float dx, float dy)
     {
-        MovementState.Pos = MovementState.Pos.Translate(dx,dy);
+        MovementState.Pos += new Vector2(dx, dy);
     }
 
     public virtual void MoveTarget(float dx, float dy)
     {
-        TargetPos = TargetPos.Translate(dx, dy);
+        TargetPos += new Vector2(dx, dy);
     }
 
     public void SetPos(float x, float y)
     {
-        MovementState.Pos = new Vector2D(x, y);
+        MovementState.Pos = new Vector2(x, y);
     }
 
     public void UpdateActivity()
@@ -115,7 +115,7 @@ public class Player
         else
         {
             AnimationState = 0; // idle
-            MovementState.Velocity = Vector2D.Zero;
+            MovementState.Velocity = Vector2.Zero;
         }
     }
 
@@ -148,9 +148,9 @@ public class Player
     {
         var dir = (TargetPos - MovementState.Pos);
         var ds = Speed * 1.3f;
-        MovementState.Velocity = dir.Normalize() * ds;
+        MovementState.Velocity = Vector2.Normalize(dir) * ds;
 
-        if (dir.Length > (MovementState.Velocity * dt).Length)
+        if (dir.Length() > (MovementState.Velocity * dt).Length())
         {
             Move(MovementState.Velocity * dt);
         }
@@ -160,12 +160,12 @@ public class Player
         }
     }
 
-    public bool IsTargetReached() =>  (TargetPos - MovementState.Pos).Length < 3;
+    public bool IsTargetReached() =>  (TargetPos - MovementState.Pos).Length() < 3;
 
 
     public void SetTarget(float x, float y)
     {
-        TargetPos = new Vector2D(x, y);
+        TargetPos = new Vector2(x, y);
     }
 
 }

@@ -1,4 +1,4 @@
-﻿using Game.Core.Common.Math;
+﻿using System.Numerics;
 
 namespace Game.Core;
 
@@ -6,8 +6,8 @@ public class Bullet
 {
     public uint Id { get; set; }
     public uint Type { get; set; }
-    public Vector2D Pos { get; set; }
-    public Vector2D Velocity { get; set; }
+    public Vector2 Pos { get; set; }
+    public Vector2 Velocity { get; set; }
 
     public static double MaxLifetime = 2;
     public double LifeTime = 0;

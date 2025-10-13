@@ -1,9 +1,8 @@
 ﻿using System.Collections.Generic;
 using System.Linq;
 using Game.Core.Abstract;
-using Game.Core.World;
 
-namespace Game.Core.Common;
+namespace Game.Core.World;
 
 internal class WorldStorage : IWorldStorage
 {

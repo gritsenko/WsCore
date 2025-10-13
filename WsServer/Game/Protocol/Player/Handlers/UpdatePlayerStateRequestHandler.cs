@@ -1,5 +1,5 @@
 ﻿using Game.Core;
-using Game.Core.Common.Math;
+using System.Numerics;
 using Game.ServerLogic.Player.Requests;
 using WsServer.Abstract.Messages;
 
@@ -9,6 +9,6 @@ public class UpdatePlayerStateRequestHandler(GameModel gameModel) : RequestHandl
 {
     protected override void Handle(uint clientId, UpdatePlayerStateRequest request)
     {
-        gameModel.SetPlayerControls(clientId, new Vector2D(request.AimX, request.AimY), request.ControlsState);
+        gameModel.SetPlayerControls(clientId, new Vector2(request.AimX, request.AimY), request.ControlsState);
     }
 }
