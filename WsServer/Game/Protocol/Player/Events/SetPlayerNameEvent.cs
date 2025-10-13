@@ -1,15 +1,19 @@
 ﻿using System.Runtime.InteropServices;
+using Game.ServerLogic;
+using MemoryPack;
 using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.Player.Events;
 
 [StructLayout(LayoutKind.Sequential)]
-public struct SetPlayerNameEvent(uint clinetId, string name) : IServerEvent
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class SetPlayerNameEvent(uint ClientId, string Name) : IServerEvent
 {
     public static byte TypeId => 100;
 
-    public uint ClientId = clinetId;
+    public uint ClientId = ClientId;
 
     [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
-    public string Name = name;
+    public string Name = Name;
 }

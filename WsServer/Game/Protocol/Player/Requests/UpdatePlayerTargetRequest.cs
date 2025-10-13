@@ -1,8 +1,12 @@
-﻿using WsServer.Abstract.Messages;
+﻿using Game.ServerLogic;
+using MemoryPack;
+using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.Player.Requests;
 
-public struct UpdatePlayerTargetRequest : IClientRequest
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class UpdatePlayerTargetRequest : IClientRequest
 {
     public static byte TypeId => 106;
 

@@ -1,11 +1,25 @@
 ﻿using Game.ServerLogic.Player.Events.PlayerData;
+using Game.ServerLogic;
+using MemoryPack;
 using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.Player.Events;
 
-public struct PlayerRespawnEvent(Core.Player respawnPlayer) : IServerEvent
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class PlayerRespawnEvent : IServerEvent
 {
     public static byte TypeId => 4;
 
-    public PlayerStateData PlayerStateData = new(respawnPlayer);
+    public PlayerStateData PlayerStateData;
+
+    [MemoryPackConstructor]
+    public PlayerRespawnEvent()
+    {
+    }
+
+    public PlayerRespawnEvent(Core.Player respawnPlayer)
+    {
+        PlayerStateData = new(respawnPlayer);
+    }
 }

@@ -4,7 +4,6 @@ using System.Linq;
 using System.Reflection;
 using WsServer.Abstract;
 using WsServer.Abstract.Messages;
-using WsServer.DataBuffer.Abstract;
 
 namespace WsServer;
 
@@ -13,7 +12,6 @@ public class ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFac
     private readonly MessageTypeRegistry _requestRegistry = new();
     private readonly MessageTypeRegistry _eventRegistry = new();
     private readonly Dictionary<Type, IRequestHandler> _requestHandlers = new();
-    private readonly Dictionary<Type, IDataBufferWriter> _messageDataWriters = new();
 
     public MessageTypeRegistry RequestTypes => _requestRegistry;
     public MessageTypeRegistry ServerEventTypes => _eventRegistry;
@@ -28,7 +26,6 @@ public class ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFac
         //if we use it on client builder - we don't need handlers
         if(requestHandlerFactory != null)
             RegisterMessageHandlers(GetRequestHandlers(), requestHandlerFactory);
-        RegisterMessageDataWriters(GetMessageDataWriters());
     }
 
 
@@ -39,9 +36,11 @@ public class ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFac
             try
             {
                 // Use the concrete type directly
-                var registerMethod = typeof(MessageTypeRegistry)
-                    .GetMethod(nameof(MessageTypeRegistry.Register))
-                    .MakeGenericMethod(type);
+                var methodInfo = typeof(MessageTypeRegistry)
+                    .GetMethod(nameof(MessageTypeRegistry.Register));
+                if (methodInfo is null)
+                    throw new MissingMethodException(typeof(MessageTypeRegistry).FullName, nameof(MessageTypeRegistry.Register));
+                var registerMethod = methodInfo.MakeGenericMethod(type);
 
                 registerMethod.Invoke(registry, null);
                 Console.WriteLine($"Registered: {type.Name}");
@@ -63,16 +62,6 @@ public class ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFac
             var messageType = handlerBaseType.GetGenericArguments()[0];
             var handler = requestHandlerFactory.CreateHandler(handlerType);
             _requestHandlers[messageType] = handler;
-        }
-    }
-    private void RegisterMessageDataWriters(IEnumerable<Type> messageDataWriters)
-    {
-        foreach (var messageDataWriter in messageDataWriters)
-        {
-            var baseType = GetBaseType(messageDataWriter, typeof(DataBufferBufferWriterBase<>));
-            var messageType = baseType.GetGenericArguments()[0];
-            var writerInstance = Activator.CreateInstance(messageDataWriter) as IDataBufferWriter;
-            _messageDataWriters[messageType] = writerInstance!;
         }
     }
 
@@ -97,18 +86,13 @@ public class ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFac
     private IEnumerable<Type> GetMessageDataTypes()
     {
         var types = assembly.GetTypes()
-            .Where(t =>
-                t is { IsAbstract: false } &&
-                typeof(IBufferSerializableData).IsAssignableFrom(t)
-                && !typeof(IServerEvent).IsAssignableFrom(t)
-                && !typeof(IClientRequest).IsAssignableFrom(t)
-            );
+            .Where(t => t is { IsAbstract: false }
+                        && !typeof(IServerEvent).IsAssignableFrom(t)
+                        && !typeof(IClientRequest).IsAssignableFrom(t));
         return types;
     }
 
     private IEnumerable<Type> GetRequestHandlers() => GetTypesImplementing(typeof(IRequestHandler));
-
-    private IEnumerable<Type> GetMessageDataWriters() => GetTypesImplementing(typeof(IDataBufferWriter));
 
 
     private IEnumerable<Type> GetTypesImplementing(Type tInterface)
@@ -121,7 +105,7 @@ public class ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFac
         return types;
     }
 
-    public IDataBufferWriter? GetWriter(Type messageType) => _messageDataWriters!.GetValueOrDefault(messageType, null);
+    // No-op: Legacy DataBuffer writer support removed.
 
     public Type FindClientRequestTypeById(byte messageTypeId) => _requestRegistry.FindTypeById(messageTypeId);
 

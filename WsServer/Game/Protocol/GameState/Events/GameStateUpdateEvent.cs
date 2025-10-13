@@ -1,15 +1,24 @@
 ﻿using Game.Core;
 using Game.ServerLogic.Player.Events.PlayerData;
+using Game.ServerLogic;
+using MemoryPack;
 using WsServer.Abstract;
 using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.GameState.Events;
 
-public struct GameStateUpdateEvent : IServerEvent
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class GameStateUpdateEvent : IServerEvent
 {
     public static byte TypeId => 0;
 
     public PlayerStateData[] PlayerStateData;
+
+    [MemoryPackConstructor]
+    public GameStateUpdateEvent()
+    {
+    }
 
     public GameStateUpdateEvent(IGameModel gameModel) : this()
     {

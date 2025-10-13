@@ -242,6 +242,8 @@ New agent categories can be added by extending base classes and implementing req
 
 ## Development Notes
 
+**Networking**: Agent state and events are synchronized over WebSockets using a MemoryPack-based binary protocol. Each message is prefixed with a 1-byte TypeId, followed by the MemoryPack payload. TypeScript models/readers/writers are auto-generated under `WsCore.Client/src/network/protocol`.
+
 **Important**: The server (`dotnet run`) and client (`npm start`) applications are started manually by developers at the beginning of each development session. Automated tools should not execute these commands, as they are intended to be run interactively by the developer.
 
 This agent system provides a solid foundation for creating complex, interactive game worlds while maintaining performance and extensibility.

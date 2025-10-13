@@ -1,11 +1,24 @@
-﻿using WsServer.Abstract.Messages;
+﻿using Game.ServerLogic;
+using MemoryPack;
+using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.Player.Events;
 
-public struct SetPlayerHpEvent(Core.Player p) : IServerEvent
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class SetPlayerHpEvent : IServerEvent
 {
     public static byte TypeId => 5;
 
-    public uint PlayerId = p.Id;
-    public byte PlayerHp = p.Hp;
+    public uint PlayerId { get; set; }
+    public byte PlayerHp { get; set; }
+
+    [MemoryPackConstructor]
+    public SetPlayerHpEvent() { }
+
+    public SetPlayerHpEvent(Core.Player p)
+    {
+        PlayerId = p.Id;
+        PlayerHp = p.Hp;
+    }
 }

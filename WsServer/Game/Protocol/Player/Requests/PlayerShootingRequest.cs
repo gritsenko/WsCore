@@ -1,10 +1,14 @@
 ﻿using System.Runtime.InteropServices;
+using Game.ServerLogic;
+using MemoryPack;
 using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.Player.Requests;
 
 [StructLayout(LayoutKind.Sequential)]
-public struct PlayerShootingRequest : IClientRequest
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class PlayerShootingRequest : IClientRequest
 {
     public static byte TypeId => 103;
 

@@ -1,21 +1,108 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="utf-8" />
-    <title>WsCore</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WsCore | Real-time Multiplayer Core</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom scrollbar for aesthetic */
+        body::-webkit-scrollbar {
+            width: 8px;
+        }
+        body::-webkit-scrollbar-thumb {
+            background-color: #4a5568; /* Dark gray for scrollbar handle */
+            border-radius: 4px;
+        }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #1e293b; /* Dark Slate Blue background */
+            color: #f8fafc; /* Light text color */
+        }
+        .code-block {
+            background-color: #0f172a; /* Darker background for code */
+        }
+        .text-neon-blue {
+            color: #3b82f6; /* Bright blue accent */
+        }
+    </style>
 </head>
-<body style="margin: 0;">
+<body class="min-h-screen p-4 sm:p-8">
 
-    <h1>WsCore is running</h1>
+    <div class="max-w-4xl mx-auto space-y-12">
 
-    <div>
-        <h2>Test Clients</h2>
+        <!-- Header Section -->
+        <header class="text-center pt-8 pb-4 border-b border-gray-700">
+            <h1 class="text-5xl sm:text-6xl font-extrabold text-white tracking-tight">WsCore</h1>
+            <p class="mt-2 text-xl text-neon-blue font-medium">Real-Time Multiplayer Game Server Core</p>
+        </header>
 
-        <ul>
-            <li>
-                <a href="ts_client.html">Open typescript client</a>
-            </li>
-        </ul>
+        <!-- Overview Section -->
+        <section class="bg-gray-800 p-6 sm:p-8 rounded-xl shadow-2xl space-y-4 border-l-4 border-neon-blue">
+            <h2 class="text-3xl font-bold text-white">Project Overview</h2>
+            <p class="text-gray-300">
+                <strong class="text-white">WsCore</strong> serves as the foundational architecture for building high-performance, real-time multiplayer games. It leverages WebSockets for low-latency communication, utilizing C# on the server-side (`WsServer`) for game logic and efficiency, and a modern TypeScript client (`WsCore.Client`) for the game interface.
+            </p>
+            <ul class="list-disc list-inside text-gray-400 space-y-1 ml-4">
+                <li><span class="text-white font-semibold">Server:</span> .NET 9 C# game logic processing and state management.</li>
+                <li><span class="text-white font-semibold">Client:</span> TypeScript client built with Phaser for rendering and user interaction.</li>
+                <li><span class="text-white font-semibold">Protocol:</span> MemoryPack serialization with a 1-byte TypeId header followed by payload.</li>
+            </ul>
+        </section>
+
+        <!-- Setup Instructions Section -->
+        <section class="space-y-6">
+            <h2 class="text-3xl font-bold text-white">Server Setup & Running</h2>
+
+            <!-- Step 1 -->
+            <div class="bg-gray-700/50 p-6 rounded-xl space-y-3">
+                <h3 class="text-2xl font-semibold text-white">1. Ensure Dependencies Are Met</h3>
+                <p class="text-gray-300">
+                    Make sure you have the .NET 9 SDK installed to run the C# server project.
+                </p>
+            </div>
+
+            <!-- Step 2 -->
+            <div class="bg-gray-700/50 p-6 rounded-xl space-y-3">
+                <h3 class="text-2xl font-semibold text-white">2. Start the Server</h3>
+                <p class="text-gray-300">
+                    Navigate to the main server directory (`WsServer/WsServer`) and execute the following command:
+                </p>
+                <div class="code-block p-3 rounded-lg overflow-x-auto">
+                    <pre class="text-sm text-green-300"><code>dotnet run</code></pre>
+                </div>
+                <p class="text-gray-400 text-sm italic">The server should start listening on the configured port (e.g., 5000 or 8080).</p>
+            </div>
+
+        </section>
+
+        <!-- Client Access Section -->
+        <section class="space-y-6">
+            <h2 class="text-3xl font-bold text-white">Access the Game Client</h2>
+
+            <div class="bg-blue-900/50 p-6 rounded-xl space-y-3 shadow-lg">
+                <h3 class="text-2xl font-semibold text-white">Launch the Web Client (Dev)</h3>
+                <p class="text-blue-200">
+                    The TypeScript client runs on a Vite dev server. In a separate terminal, from <span class="font-mono">WsCore.Client</span> run:
+                </p>
+                <div class="code-block p-3 rounded-lg overflow-x-auto border border-blue-700">
+                    <pre class="text-sm text-yellow-300"><code>npm start</code></pre>
+                </div>
+                <p class="text-blue-300">
+                    Then open the client at:
+                    <a href="http://localhost:5173" target="_blank" class="text-neon-blue hover:text-white underline font-medium transition duration-150">http://localhost:5173</a>
+                </p>
+            </div>
+        </section>
+
+        <!-- Footer/Next Steps -->
+        <footer class="text-center py-6 border-t border-gray-700 mt-12">
+            <p class="text-gray-500 text-sm">
+                For detailed architectural diagrams and performance benchmarks, refer to the project's markdown files (e.g., <span class="text-gray-400">ARCHITECTURE_IMPROVEMENTS.md</span> and <span class="text-gray-400">BENCHMARK_RESULTS.md</span>).
+            </p>
+        </footer>
+
     </div>
 
 </body>

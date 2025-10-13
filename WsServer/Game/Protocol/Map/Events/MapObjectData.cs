@@ -1,12 +1,26 @@
 ﻿using Game.Core.World;
-using WsServer.DataBuffer.Abstract;
+using Game.ServerLogic;
+using MemoryPack;
 
 namespace Game.ServerLogic.Map.Events;
 
-public struct MapObjectData(GameObject obj) : IBufferSerializableData
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class MapObjectData
 {
-    public uint ObjectId = (uint) obj.Id;
-    public float X = obj.X;
-    public float Y = obj.Y;
-    public uint ObjectType = (uint) obj.ObjectType.Id;
+    public uint ObjectId { get; set; }
+    public float X { get; set; }
+    public float Y { get; set; }
+    public uint ObjectType { get; set; }
+
+    [MemoryPackConstructor]
+    public MapObjectData() { }
+
+    public MapObjectData(GameObject obj)
+    {
+        ObjectId = (uint)obj.Id;
+        X = obj.X;
+        Y = obj.Y;
+        ObjectType = (uint)obj.ObjectType.Id;
+    }
 }

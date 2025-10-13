@@ -1,35 +1,29 @@
 ﻿using System;
-using System.Runtime.InteropServices;
+using MemoryPack;
 using WsServer.Abstract;
 using WsServer.Abstract.Messages;
-using WsServer.DataBuffer.Abstract;
-using WsServer.DataBuffer.Writers;
 
 namespace WsServer;
 
 public class MessageSerializer : IMessageSerializer
 {
-    private readonly IDataBufferWriter _defaultBufferBufferWriter;
     private readonly IServerLogicProvider _serverLogicProvider;
 
     public MessageSerializer(IServerLogicProvider serverLogicProvider)
     {
         _serverLogicProvider = serverLogicProvider;
-        _defaultBufferBufferWriter = new CachingDataBufferBufferWriter(WriteItem);
     }
 
-    public void Serialize<TEventMessage>(IDataBuffer dest, TEventMessage message) where TEventMessage : IServerEvent
+    public ArraySegment<byte> Serialize<TEventMessage>(TEventMessage message) where TEventMessage : IServerEvent
     {
         var messageType = _serverLogicProvider.FindServerEventIdByType(typeof(TEventMessage));
-        dest.SetUint8(messageType);
-        WriteItem(dest, message);
-    }
-
-    public void WriteItem(IDataBuffer dest, object item)
-    {
-        var itemType = item.GetType();
-        var writer = _serverLogicProvider.GetWriter(itemType) ?? _defaultBufferBufferWriter;
-        writer.Write(dest, item);
+        var payload = MemoryPackSerializer.Serialize(message);
+        // prepend 1 byte type id
+        var buffer = new byte[1 + payload.Length];
+        buffer[0] = messageType;
+        if (payload.Length > 0)
+            Buffer.BlockCopy(payload, 0, buffer, 1, payload.Length);
+        return new ArraySegment<byte>(buffer, 0, buffer.Length);
     }
 
     public IClientRequest Deserialize(ref byte[] data, out Type messageType)
@@ -39,26 +33,14 @@ public class MessageSerializer : IMessageSerializer
 
         var messageTypeId = data[0];
         messageType = _serverLogicProvider.FindClientRequestTypeById(messageTypeId);
-
         if (messageType == null)
             throw new ArgumentException($"Unknown message type ID: {messageTypeId}");
 
-        var size = Marshal.SizeOf(messageType);
-
-        if (data.Length - 1 < size)
-            throw new ArgumentException("Payload size is less than structure size");
-
-        var payload = new ArraySegment<byte>(data, 1, size);
-        IntPtr ptr = Marshal.AllocHGlobal(size);
-
-        try
-        {
-            Marshal.Copy(payload.Array, payload.Offset, ptr, size);
-            return (IClientRequest)Marshal.PtrToStructure(ptr, messageType);
-        }
-        finally
-        {
-            Marshal.FreeHGlobal(ptr);
-        }
+        // slice payload after 1-byte header
+        var payload = new ReadOnlySpan<byte>(data, 1, data.Length - 1);
+        var obj = MemoryPackSerializer.Deserialize(messageType, payload);
+        if (obj is not IClientRequest req)
+            throw new InvalidCastException($"Deserialized type is not IClientRequest: {messageType}");
+        return req;
     }
 }

@@ -1,5 +1,3 @@
-﻿using WsServer.DataBuffer.Abstract;
+﻿namespace WsServer.Abstract.Messages;
 
-namespace WsServer.Abstract.Messages;
-
-public interface IServerEvent : IMessageType, IBufferSerializableData;
+public interface IServerEvent : IMessageType;

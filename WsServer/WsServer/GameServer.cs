@@ -26,6 +26,7 @@ public class GameServer : GameServerBase<GameModel>
 
     private void GameServer_OnTick()
     {
+        _gameStateEvent.BuildTickSnapshot();
         Messenger.Broadcast(_gameStateEvent);
 
         //if (GameModel.TopChanged)

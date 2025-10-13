@@ -1,9 +1,12 @@
-﻿using WsServer.Abstract.Messages;
-using WsServer.DataBuffer.Abstract;
+﻿using Game.ServerLogic;
+using MemoryPack;
+using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.Bullets.Events;
 
-public struct DestroyedBulletsStateData(uint[] bulletIds) : IBufferSerializableData
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class DestroyedBulletsStateData(uint[] bulletIds)
 {
     public uint[] BulletIds = bulletIds;
 }

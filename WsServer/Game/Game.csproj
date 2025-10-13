@@ -9,4 +9,16 @@
     <ProjectReference Include="..\WsServer.Shared\WsServer.Shared.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <PackageReference Include="MemoryPack" Version="1.21.4" />
+  </ItemGroup>
+
+  <!-- output memorypack TypeScript code to directory -->
+  <ItemGroup>
+      <CompilerVisibleProperty Include="MemoryPackGenerator_TypeScriptOutputDirectory" />
+  </ItemGroup>
+  <PropertyGroup>
+      <MemoryPackGenerator_TypeScriptOutputDirectory>$(MSBuildProjectDirectory)\..\..\WsCore.Client\src\network\protocol</MemoryPackGenerator_TypeScriptOutputDirectory>
+  </PropertyGroup>
+
 </Project>

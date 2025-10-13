@@ -1,11 +1,14 @@
 ﻿using System.Runtime.InteropServices;
+using Game.ServerLogic;
+using MemoryPack;
 using WsServer.Abstract.Messages;
-using WsServer.DataBuffer.Abstract;
 
 namespace Game.ServerLogic.GameState.Events.GameTickStateUpdateEventData;
 
 [StructLayout(LayoutKind.Sequential)]
-public struct MovementStateData : IBufferSerializableData
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class MovementStateData
 {
     public uint PlayerId;
     public float X;
@@ -19,6 +22,9 @@ public struct MovementStateData : IBufferSerializableData
     public float VelocityX;
     public float VelocityY;
     public int AnimationState;
+
+    [MemoryPackConstructor]
+    public MovementStateData() { }
 
     public MovementStateData(Core.Player player)
     {

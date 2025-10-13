@@ -1,9 +1,13 @@
 ﻿using System.Runtime.InteropServices;
+using Game.ServerLogic;
+using MemoryPack;
 using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.Player.Requests;
 
-public struct SetPlayerNameRequest : IClientRequest
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class SetPlayerNameRequest : IClientRequest
 {
     public static byte TypeId => 100;
 
