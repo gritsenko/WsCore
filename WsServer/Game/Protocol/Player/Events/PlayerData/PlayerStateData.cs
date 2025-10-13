@@ -1,21 +1,40 @@
 ﻿using System.Runtime.InteropServices;
 using Game.ServerLogic.GameState.Events.GameTickStateUpdateEventData;
+using Game.ServerLogic;
+using MemoryPack;
 using WsServer.Abstract.Messages;
-using WsServer.DataBuffer.Abstract;
 
 namespace Game.ServerLogic.Player.Events.PlayerData;
 
-[StructLayout(LayoutKind.Sequential)]
-public struct PlayerStateData(Core.Player p) : IBufferSerializableData
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class PlayerStateData
 {
-    public uint Id = p.Id;
+    public uint Id;
 
     [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
-    public string Name = p.Name;
-    public byte Hp = p.Hp;
-    public byte MaxHp = p.MaxHp;
-    public int BodyIndex = p.BodyIndex;
-    public int WeaponIndex = p.WeaponIndex;
-    public int ArmorIndex = p.ArmorIndex;
-    public MovementStateData MovementState = new(p);
+    public string Name;
+    public byte Hp;
+    public byte MaxHp;
+    public int BodyIndex;
+    public int WeaponIndex;
+    public int ArmorIndex;
+    public MovementStateData MovementState;
+
+    [MemoryPackConstructor]
+    public PlayerStateData()
+    {
+    }
+
+    public PlayerStateData(Core.Player p)
+    {
+        Id = p.Id;
+        Name = p.Name;
+        Hp = p.Hp;
+        MaxHp = p.MaxHp;
+        BodyIndex = p.BodyIndex;
+        WeaponIndex = p.WeaponIndex;
+        ArmorIndex = p.ArmorIndex;
+        MovementState = new(p);
+    }
 }

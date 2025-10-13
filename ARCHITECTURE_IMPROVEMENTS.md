@@ -4,7 +4,7 @@
 
 ### Design Philosophy: Simple, Fast, Scalable Monolith
 
-**Core Principle**: Leverage .NET's performance capabilities to create a highly efficient monolithic server that can handle significant load through vertical scaling and optimization rather than horizontal distribution.
+**Core Principle**: Leverage .NET 9's performance capabilities to create a highly efficient monolithic server that can handle significant load through vertical scaling and optimization rather than horizontal distribution.
 
 ## Current Architecture Analysis
 
@@ -19,6 +19,7 @@
 2. **CPU Utilization**: Multi-threaded game logic processing
 3. **Spatial Partitioning**: Reduce unnecessary entity updates
 4. **Connection Optimization**: Efficient WebSocket handling
+5. **Serialization**: MemoryPack-based protocol with 1-byte TypeId header
 5. **Caching Strategy**: In-memory and distributed caching
 
 ## Optimized Monolithic Architecture
@@ -53,6 +54,7 @@ graph LR
     G --> H[Client Updates]
     C --> I[Memory Pool]
     I --> J[Garbage Collection]
+    B --> K[MemoryPack Serializer]
 ```
 
 ## .NET Performance Optimizations
@@ -240,12 +242,12 @@ public class ServerConfiguration
 
 ```yaml
 # Dockerfile
-FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 COPY . .
 RUN dotnet publish -c Release -o /app
 
-FROM mcr.microsoft.com/dotnet/aspnet:8.0
+FROM mcr.microsoft.com/dotnet/aspnet:9.0
 WORKDIR /app
 COPY --from=build /app .
 EXPOSE 8080
@@ -258,9 +260,9 @@ services:
     build: .
     ports:
       - "8080:8080"
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Production
-      - MAX_CONNECTIONS=10000
+        environment:
+            - ASPNETCORE_ENVIRONMENT=Production
+            - MAX_CONNECTIONS=10000
     deploy:
       resources:
         limits:
@@ -275,6 +277,7 @@ services:
 1. **Memory Pooling**: Implement object pooling for entities and buffers
 2. **Spatial Partitioning**: Add grid-based spatial management
 3. **Connection Optimization**: Improve WebSocket handling efficiency
+4. **Serialization**: Migrate to MemoryPack end-to-end (server + client TS codegen)
 
 ### Phase 2: Performance Enhancements (Week 2)
 1. **Parallel Processing**: Multi-thread game loop for entity updates

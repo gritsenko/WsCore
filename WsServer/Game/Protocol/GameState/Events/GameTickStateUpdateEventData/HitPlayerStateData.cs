@@ -1,12 +1,25 @@
 ﻿using Game.Core;
+using Game.ServerLogic;
+using MemoryPack;
 using WsServer.Abstract.Messages;
-using WsServer.DataBuffer.Abstract;
 
 namespace Game.ServerLogic.GameState.Events.GameTickStateUpdateEventData;
 
-public struct HitPlayerStateData(HitInfo hitInfo) : IBufferSerializableData
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class HitPlayerStateData
 {
-    public uint PlayerId = hitInfo.PlayerId;
-    public uint HitterId = hitInfo.HitterId;
-    public int NewHp = hitInfo.NewHp;
+    public uint PlayerId { get; set; }
+    public uint HitterId { get; set; }
+    public int NewHp { get; set; }
+
+    [MemoryPackConstructor]
+    public HitPlayerStateData() { }
+
+    public HitPlayerStateData(HitInfo hitInfo)
+    {
+        PlayerId = hitInfo.PlayerId;
+        HitterId = hitInfo.HitterId;
+        NewHp = hitInfo.NewHp;
+    }
 }

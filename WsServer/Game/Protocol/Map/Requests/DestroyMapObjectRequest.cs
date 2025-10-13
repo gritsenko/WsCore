@@ -1,8 +1,12 @@
-﻿using WsServer.Abstract.Messages;
+﻿using Game.ServerLogic;
+using MemoryPack;
+using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.Map.Requests;
 
-public struct DestroyMapObjectRequest : IClientRequest
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class DestroyMapObjectRequest : IClientRequest
 {
     public static byte TypeId => 53;
 

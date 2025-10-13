@@ -1,8 +1,12 @@
-﻿using WsServer.Abstract.Messages;
+﻿using Game.ServerLogic;
+using MemoryPack;
+using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.Player.Requests;
 
-public struct PlayerRespawnRequest : IClientRequest
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class PlayerRespawnRequest : IClientRequest
 {
     public static byte TypeId => 105;
 

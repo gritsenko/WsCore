@@ -1,21 +1,32 @@
-﻿import Player from "../game/Player.js";
-import * as WsConnection from "./WsConnection.js";
-export default class WsClient extends WsConnection.default {
+﻿import Player from "../game/Player";
+import WsConnection from "./WsConnection";
+import { InitPlayerEvent } from "./protocol/InitPlayerEvent";
+import { PlayerJoinedEvent } from "./protocol/PlayerJoinedEvent";
+import { PlayerLeftEvent } from "./protocol/PlayerLeftEvent";
+import { GameStateUpdateEvent } from "./protocol/GameStateUpdateEvent";
+import { GameTickUpdateEvent } from "./protocol/GameTickUpdateEvent";
+import { SetPlayerNameEvent } from "./protocol/SetPlayerNameEvent";
+import { ChatMessageEvent } from "./protocol/ChatMessageEvent";
+import { UpdateMapObjectsEvent } from "./protocol/UpdateMapObjectsEvent";
+import { PlayerStateData } from "./protocol/PlayerStateData";
+import { MapObjectData } from "./protocol/MapObjectData";
 
-    static MapObjectData = WsConnection.MapObjectData;
+export default class WsClient extends WsConnection {
 
-    myPlayer: Player;
+    static MapObjectData = MapObjectData;
+
+    myPlayer: Player | null = null;
     myPlayerName = "John Smith";
     playersCount = 0;
-    players = [];
+    players: { [id: number]: Player } = {};
 
-    onPlayerCreateCallback: Function;
-    onGameInitCallback: Function;
-    onMapObjectsCallback: Function;
-    onPlayerRemovedCallback: Function;
+    onPlayerCreateCallback?: (player: Player) => void;
+    onGameInitCallback?: () => void;
+    onMapObjectsCallback?: (objects: (MapObjectData | null)[] | null) => void;
+    onPlayerRemovedCallback?: (player: Player) => void;
 
-    onInitPlayerEvent(msg: WsConnection.InitPlayerEvent) {
-        this.clientId = msg.ClientId;
+    override onInitPlayerEvent(msg: InitPlayerEvent): void {
+        this.clientId = msg.clientId;
         console.log("Player initialized", this.clientId);
         this.sendSetPlayerNameRequest(this.myPlayerName);
         this.sendUpdatePlayerSlotsRequest(0, 0, 0);
@@ -23,77 +34,91 @@ export default class WsClient extends WsConnection.default {
         this.onGameInitCallback?.();
     }
 
-    onSetPlayerNameEvent(msg) {
-        if (this.players[msg.ClientId] != null) {
-            this.players[msg.ClientId].updateName(msg.Name);
+    override onSetPlayerNameEvent(msg: SetPlayerNameEvent): void {
+        const clientId = msg.clientId;
+        if (this.players[clientId] != null) {
+            this.players[clientId].updateName(msg.name || "");
         }
     }
 
-    onChatMessageEvent(msg) {
-        this.writeToChat(msg.ClientId, msg.Message);
+    override onChatMessageEvent(msg: ChatMessageEvent): void {
+        this.writeToChat(msg.clientId, msg.message || "");
     }
 
-    onPlayerJoinedEvent(msg: WsConnection.PlayerJoinedEvent) {
-        this.updatePlayer(msg.PlayerStateData);
-    }
-
-    onPlayerLeftEvent(msg: WsConnection.PlayerLeftEvent) {
-        this.removePlayer(msg.ClientId);
-    }
-
-    onGameStateUpdateEvent(msg: WsConnection.GameStateUpdateEvent) {
-        const playersCount = msg.PlayerStateData.length;
-        for (let i = 0; i < playersCount; i++) {
-            this.updatePlayer(msg.PlayerStateData[i]);
+    override onPlayerJoinedEvent(msg: PlayerJoinedEvent): void {
+        if (msg.playerStateData) {
+            this.updatePlayer(msg.playerStateData);
         }
     }
 
-    onGameTickUpdateEvent(msg: WsConnection.GameTickUpdateEvent) {
-        const playersCount = msg.MovementStates.length;
+    override onPlayerLeftEvent(msg: PlayerLeftEvent): void {
+        this.removePlayer(msg.clientId);
+    }
+
+    override onGameStateUpdateEvent(msg: GameStateUpdateEvent): void {
+        if (!msg.playerStateData) return;
+        
+        const playersCount = msg.playerStateData.length;
+        for (let i = 0; i < playersCount; i++) {
+            const playerData = msg.playerStateData[i];
+            if (playerData) {
+                this.updatePlayer(playerData);
+            }
+        }
+    }
+
+    override onGameTickUpdateEvent(msg: GameTickUpdateEvent): void {
+        if (!msg.movementStates) return;
+        
+        const playersCount = msg.movementStates.length;
 
         for (let i = 0; i < playersCount; i++) {
-            const state = msg.MovementStates[i];
+            const state = msg.movementStates[i];
+            if (!state) continue;
 
-            const playerId = state.PlayerId;
+            const playerId = state.playerId;
             const p = this.players[playerId];
 
             if (p != undefined) {
-                p.x = state.X;
-                p.y = state.Y;
-                p.ax = state.AimX;
-                p.ay = state.AimY;
-                p.targetX = state.TargetX;
-                p.targetY = state.TargetY;
-                p.angle = state.BodyAngle;
-                p.controls = state.ControlsState;
-                p.speed.x = state.VelocityX;
-                p.speed.y = state.VelocityY;
-                p.animationState = state.AnimationState;
+                p.x = state.x;
+                p.y = state.y;
+                p.ax = state.aimX;
+                p.ay = state.aimY;
+                p.targetX = state.targetX;
+                p.targetY = state.targetY;
+                p.angle = state.bodyAngle;
+                p.controls = state.controlsState;
+                p.speed.x = state.velocityX;
+                p.speed.y = state.velocityY;
+                p.animationState = state.animationState;
                 p.onStateUpdatedFromServer();
             }
         }
     }
 
-    onMapObjectsEvent(msg) {
-        this.onMapObjectsCallback?.(msg.MapObjects);
+    override onUpdateMapObjectsEvent(msg: UpdateMapObjectsEvent): void {
+        this.onMapObjectsCallback?.(msg.mapObjects);
     }
 
-    writeToChat(id, message) {
+    writeToChat(id: number, message: string): void {
         console.log(`Message to chat from client ${id}: ${message}`);
     }
 
-    removePlayer(clientId) {
+    removePlayer(clientId: number): void {
         const player = this.players[clientId];
-        this.players.splice(this.players.indexOf(player), 1);
+        if (!player) return;
+        
+        delete this.players[clientId];
+        this.playersCount--;
         this.onPlayerRemovedCallback?.(player);
 
         player.destroy();
     }
 
-    updatePlayer(playerData) {
-        let player = null;
+    updatePlayer(playerData: PlayerStateData): void {
+        let player: Player | null = null;
         let isNewPlayer = false;
-        const playerId = playerData.Id;
+        const playerId = playerData.id;
 
         if (playerId in this.players) {
             player = this.players[playerId];
@@ -116,22 +141,24 @@ export default class WsClient extends WsConnection.default {
         }
     }
 
-    setPlayerData(p, pd: WsConnection.PlayerStateData) {
-        p.name = pd.Name.trim();
-        p.hp = pd.Hp;
-        p.maxHp = pd.MaxHp;
-        p.body = pd.BodyIndex;
-        p.weapon = pd.WeaponIndex;
-        p.armor = pd.ArmorIndex;
+    setPlayerData(p: Player, pd: PlayerStateData): void {
+        p.name = (pd.name || "").trim();
+        p.hp = pd.hp;
+        p.maxHp = pd.maxHp;
+        p.body = pd.bodyIndex;
+        p.weapon = pd.weaponIndex;
+        p.armor = pd.armorIndex;
 
-        const ms = pd.MovementState;
-        p.x = ms.X;
-        p.y = ms.Y;
-        p.ax = ms.AimX;
-        p.ay = ms.AimY;
-        p.angle = ms.BodyAngle;
-        p.controls = ms.ControlsState;
-        p.speed.x = ms.VelocityX;
-        p.speed.y = ms.VelocityY;
+        const ms = pd.movementState;
+        if (ms) {
+            p.x = ms.x;
+            p.y = ms.y;
+            p.ax = ms.aimX;
+            p.ay = ms.aimY;
+            p.angle = ms.bodyAngle;
+            p.controls = ms.controlsState;
+            p.speed.x = ms.velocityX;
+            p.speed.y = ms.velocityY;
+        }
     }
 }

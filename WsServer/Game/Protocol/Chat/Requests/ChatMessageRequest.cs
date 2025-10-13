@@ -1,9 +1,13 @@
 ﻿using System.Runtime.InteropServices;
+using Game.ServerLogic;
+using MemoryPack;
 using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.Chat.Requests;
 
-public struct ChatMessageRequest : IClientRequest
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class ChatMessageRequest : IClientRequest
 {
     public static byte TypeId => 200;
 

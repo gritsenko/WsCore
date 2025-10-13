@@ -1,9 +1,13 @@
 ﻿using System.Runtime.InteropServices;
+using Game.ServerLogic;
+using MemoryPack;
 using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.Chat.Events;
 
-public struct ChatMessageEvent(uint clientId, string message) : IServerEvent
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class ChatMessageEvent(uint clientId, string message) : IServerEvent
 {
     public static byte TypeId => 200;
     public uint ClientId = clientId;

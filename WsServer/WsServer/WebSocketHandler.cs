@@ -57,7 +57,20 @@ public class WebSocketHandler(
 
                 if (result.MessageType == WebSocketMessageType.Binary)
                 {
-                    gameServer.ProcessClientMessageData(Id, buffer);
+                    // Accumulate frames until EndOfMessage to reconstruct full payload
+                    using var ms = new System.IO.MemoryStream();
+                    ms.Write(buffer, 0, result.Count);
+
+                    while (!result.EndOfMessage && socket.State == WebSocketState.Open)
+                    {
+                        result = await socket.ReceiveAsync(seg, _cts.Token);
+                        if (result.MessageType != WebSocketMessageType.Binary)
+                            break;
+                        ms.Write(buffer, 0, result.Count);
+                    }
+
+                    var bytes = ms.ToArray();
+                    gameServer.ProcessClientMessageData(Id, bytes);
                 }
             }
         }

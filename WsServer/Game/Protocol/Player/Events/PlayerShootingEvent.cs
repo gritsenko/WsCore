@@ -1,10 +1,14 @@
 ﻿using System.Runtime.InteropServices;
+using Game.ServerLogic;
+using MemoryPack;
 using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.Player.Events;
 
 [StructLayout(LayoutKind.Sequential)]
-public struct PlayerShootingEvent(uint clientId, int weapon, uint[] bulletIds) : IServerEvent
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class PlayerShootingEvent(uint clientId, int weapon, uint[] bulletIds) : IServerEvent
 {
     public static byte TypeId => 103;
 
