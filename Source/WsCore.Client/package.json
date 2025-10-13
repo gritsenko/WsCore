@@ -1,0 +1,20 @@
+{
+  "name": "threejs-playable",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/main.ts",
+  "scripts": {
+    "start": "vite",
+    "build": "vite build"
+  },
+  "dependencies": {
+    "base64-arraybuffer": "^1.0.2",
+    "jszip": "^3.10.1",
+    "phaser": "^3.90.0",
+    "typestate": "^1.0.6"
+  },
+  "devDependencies": {
+    "vite": "^6.3.2",
+    "vite-plugin-singlefile": "^2.0.3"
+  }
+}
