@@ -191,21 +191,3 @@ export default class MyApp {
     }
 }
 
-
-let app : MyApp;
-
-function runGame() {
-    var form = document.getElementById("name-form");
-    var textbox = document.getElementById("name-text-input") as HTMLInputElement;
-    form.style.display = "none";
-    app = new MyApp();
-    var userName = textbox.value;
-    app.playerName = userName;
-}
-
-document.addEventListener("DOMContentLoaded", () => runGame());
-
-function onStartGameClicked() {
-    runGame();
-}
-

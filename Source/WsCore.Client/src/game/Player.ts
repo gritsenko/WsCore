@@ -42,7 +42,6 @@ export default class Player {
 
     static animationKeys: AnimationDef[] = [];
 
-    static animationsReady = false;
     fsm = new FiniteStateMachine<PlayerState>(PlayerState.Run);
     sprite: Phaser.GameObjects.Sprite;
     nickText: Phaser.GameObjects.Text;
@@ -85,20 +84,16 @@ export default class Player {
     }
 
     static initAnimations(currentScene: Phaser.Scene) {
-        if (Player.animationsReady)
-            return;
-
-        Player.animationsReady = true;
-
         for (let i = 0; i < Player.animationKeys.length; i++ ) {
             const animDef = Player.animationKeys[i];
-
-            currentScene.anims.create({
-                key: animDef.key,
-                frames: currentScene.anims.generateFrameNumbers(animDef.key, { start: 0, end: animDef.framesCount - 1 }),
-                frameRate: 12,
-                repeat: -1
-            });
+            if (!currentScene.anims.exists(animDef.key)) {
+                currentScene.anims.create({
+                    key: animDef.key,
+                    frames: currentScene.anims.generateFrameNumbers(animDef.key, { start: 0, end: animDef.framesCount - 1 }),
+                    frameRate: 12,
+                    repeat: -1
+                });
+            }
         }
     }
 

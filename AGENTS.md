@@ -240,4 +240,8 @@ New agent categories can be added by extending base classes and implementing req
 - Use delta compression for position updates
 - Implement client-side prediction carefully
 
+## Development Notes
+
+**Important**: The server (`dotnet run`) and client (`npm start`) applications are started manually by developers at the beginning of each development session. Automated tools should not execute these commands, as they are intended to be run interactively by the developer.
+
 This agent system provides a solid foundation for creating complex, interactive game worlds while maintaining performance and extensibility.
