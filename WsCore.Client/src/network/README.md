@@ -31,13 +31,13 @@ WsCore.Client/src/network/
 ### 1. Basic Connection
 
 ```typescript
-import WsConnection from "./network/WsConnection.js";
+import WsConnection from './network/WsConnection.js';
 
 const connection = new WsConnection();
 connection.connect(); // Auto-detects WebSocket URL
 
 // Or specify custom URL:
-connection.connect("ws://localhost:5000/ws");
+connection.connect('ws://localhost:5000/ws');
 ```
 
 ### 2. Handle Server Events
@@ -46,24 +46,24 @@ Override the event handler methods:
 
 ```typescript
 class GameConnection extends WsConnection {
-    override onInitPlayerEvent(msg: InitPlayerEvent): void {
-        this.clientId = msg.clientId;
-        console.log("Connected as player:", msg.clientId);
-    }
+  override onInitPlayerEvent(msg: InitPlayerEvent): void {
+    this.clientId = msg.clientId;
+    console.log('Connected as player:', msg.clientId);
+  }
 
-    override onPlayerJoinedEvent(msg: PlayerJoinedEvent): void {
-        console.log("Player joined:", msg.playerStateData);
-        // Add player sprite to game
-    }
+  override onPlayerJoinedEvent(msg: PlayerJoinedEvent): void {
+    console.log('Player joined:', msg.playerStateData);
+    // Add player sprite to game
+  }
 
-    override onGameTickUpdateEvent(msg: GameTickUpdateEvent): void {
-        // Update game state every server tick
-        msg.movementStates?.forEach(state => {
-            if (state) {
-                this.updatePlayer(state.playerId, state);
-            }
-        });
-    }
+  override onGameTickUpdateEvent(msg: GameTickUpdateEvent): void {
+    // Update game state every server tick
+    msg.movementStates?.forEach(state => {
+      if (state) {
+        this.updatePlayer(state.playerId, state);
+      }
+    });
+  }
 }
 ```
 
@@ -77,7 +77,7 @@ connection.sendUpdatePlayerStateRequest(mouseX, mouseY, controlsState);
 connection.sendPlayerShootingRequest(weaponId);
 
 // Chat message
-connection.sendChatMessageRequest("Hello world!");
+connection.sendChatMessageRequest('Hello world!');
 
 // Respawn
 connection.sendPlayerRespawnRequest();
@@ -92,12 +92,13 @@ connection.sendUpdatePlayerSlotsRequest(bodyId, gunId, armorId);
 
 ```typescript
 // Old way - manual serialization
-this.writeBuff.newMessage()
-    .pushUInt8(ClientMessageType.UpdatePlayerStateRequest)
-    .pushFloat(AimX)
-    .pushFloat(AimY)
-    .pushInt32(ControlsState)
-    .send(this.ws);
+this.writeBuff
+  .newMessage()
+  .pushUInt8(ClientMessageType.UpdatePlayerStateRequest)
+  .pushFloat(AimX)
+  .pushFloat(AimY)
+  .pushInt32(ControlsState)
+  .send(this.ws);
 ```
 
 ### After (MemoryPack)
@@ -110,6 +111,7 @@ connection.sendUpdatePlayerStateRequest(aimX, aimY, controlsState);
 ### Deserialization Changes
 
 **Before:**
+
 ```typescript
 const playerJoinedEvent = new PlayerJoinedEvent();
 playerJoinedEvent.PlayerStateData = this.readPlayerStateData(buff);
@@ -117,6 +119,7 @@ this.onPlayerJoinedEvent(playerJoinedEvent);
 ```
 
 **After:**
+
 ```typescript
 // Automatic deserialization from MemoryPackReader
 this.onPlayerJoinedEvent(PlayerJoinedEvent.deserializeCore(reader)!);
@@ -127,6 +130,7 @@ this.onPlayerJoinedEvent(PlayerJoinedEvent.deserializeCore(reader)!);
 Message type IDs must match between client and server:
 
 ### Server Events (Server → Client)
+
 ```typescript
 InitPlayerEvent = 1
 PlayerJoinedEvent = 2
@@ -137,6 +141,7 @@ SetPlayerHpEvent = 5
 ```
 
 ### Client Requests (Client → Server)
+
 ```typescript
 UpdatePlayerStateRequest = 101
 PlayerShootingRequest = 103
@@ -150,6 +155,7 @@ ChatMessageRequest = 200
 When you add a new message type on the server:
 
 1. **Add C# class** with `[MemoryPackable]` and `[GenerateTypeScript]`:
+
    ```csharp
    [GenerateTypeScript]
    [MemoryPackable]
@@ -162,8 +168,9 @@ When you add a new message type on the server:
 2. **Rebuild server** - TypeScript files auto-generate in `WsCore.Client/src/network/protocol/`
 
 3. **Import in WsConnection.ts**:
+
    ```typescript
-   import { NewMessageRequest } from "./protocol/NewMessageRequest.js";
+   import { NewMessageRequest } from './protocol/NewMessageRequest.js';
    ```
 
 4. **Add handler method**:
@@ -188,8 +195,8 @@ public float AimX { get; set; }
 
 ```typescript
 // TypeScript (client)
-playerId: number
-aimX: number
+playerId: number;
+aimX: number;
 ```
 
 ## Performance Notes
@@ -202,16 +209,18 @@ aimX: number
 ## Debugging
 
 ### View raw message bytes:
+
 ```typescript
 private processServerMessage(data: ArrayBuffer): void {
     const bytes = new Uint8Array(data);
     console.log("Received bytes:", Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join(' '));
-    
+
     // ... rest of processing
 }
 ```
 
 ### Log all messages:
+
 ```typescript
 override onPlayerJoinedEvent(msg: PlayerJoinedEvent): void {
     console.log("PlayerJoinedEvent:", JSON.stringify(msg, null, 2));
@@ -221,14 +230,17 @@ override onPlayerJoinedEvent(msg: PlayerJoinedEvent): void {
 ## Common Issues
 
 ### Issue: "Property does not exist on type"
+
 **Cause:** Property name doesn't match generated TypeScript  
 **Fix:** Check the generated `.ts` file in `protocol/` folder for correct property name (camelCase)
 
 ### Issue: Messages not deserializing
+
 **Cause:** Message type ID mismatch between client and server  
 **Fix:** Ensure `ServerEventType` and `ClientMessageType` enums match server-side type IDs
 
 ### Issue: WebSocket not connecting
+
 **Cause:** URL configuration  
 **Fix:** Check browser console for connection errors, verify server is running
 

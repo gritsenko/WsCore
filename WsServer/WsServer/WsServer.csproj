@@ -15,28 +15,15 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Remove="Scripts\**" />
+    <Content Remove="Scripts\**" />
+    <EmbeddedResource Remove="Scripts\**" />
+    <None Remove="Scripts\**" />
+    <TypeScriptCompile Remove="Scripts\**" />
+  </ItemGroup>
+
+  <ItemGroup>
     <Compile Remove="SocketHandler.cs" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Content Remove="Scripts\AnimationDef.ts" />
-    <Content Remove="Scripts\App.ts" />
-    <Content Remove="Scripts\Common.ts" />
-    <Content Remove="Scripts\MapObject.ts" />
-    <Content Remove="Scripts\World.ts" />
-    <Content Remove="Scripts\WsClient.ts" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <None Remove="Scripts\Player.ts" />
-    <None Remove="Scripts\ReadBuffer.ts" />
-    <None Remove="Scripts\WriteBuffer.ts" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Content Include="Scripts\Player.ts" />
-    <Content Include="Scripts\typings\matter.d.ts" />
-    <Content Include="Scripts\typings\phaser.d.ts" />
   </ItemGroup>
 
   <ItemGroup>
@@ -50,15 +37,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Game\Game.csproj" />
     <ProjectReference Include="..\WsServer.Shared\WsServer.Shared.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <TypeScriptCompile Include="Scripts\AnimationDef.ts" />
-    <TypeScriptCompile Include="Scripts\App.ts" />
-    <TypeScriptCompile Include="Scripts\Common.ts" />
-    <TypeScriptCompile Include="Scripts\MapObject.ts" />
-    <TypeScriptCompile Include="Scripts\Player.ts" />
-    <TypeScriptCompile Include="Scripts\World.ts" />
   </ItemGroup>
 
   <ItemGroup>

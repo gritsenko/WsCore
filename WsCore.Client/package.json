@@ -5,7 +5,9 @@
   "main": "src/main.ts",
   "scripts": {
     "start": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "format": "prettier --write \"src/**/*.{ts,js,json,css,md}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,js,json,css,md}\""
   },
   "dependencies": {
     "base64-arraybuffer": "^1.0.2",
@@ -15,6 +17,7 @@
   },
   "devDependencies": {
     "vite": "^6.3.2",
-    "vite-plugin-singlefile": "^2.0.3"
+    "vite-plugin-singlefile": "^2.0.3",
+    "prettier": "^3.0.0"
   }
 }
