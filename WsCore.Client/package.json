@@ -1,5 +1,5 @@
 {
-  "name": "threejs-playable",
+  "name": "phaser-playable",
   "version": "1.0.0",
   "description": "",
   "main": "src/main.ts",

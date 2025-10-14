@@ -1,86 +1,57 @@
-# ThreeJS html5 playable WR_PBClickUpgrade
+# WsCore.Client (Phaser Edition)
 
-## Общая информация
+## Overview
 
-### Проектная структура
+WsCore.Client is a modern TypeScript client for the WsCore multiplayer game server, built with [Phaser 3](https://phaser.io/) for 2D rendering and real-time gameplay. It communicates with the server using a high-performance MemoryPack-based binary protocol and features auto-generated TypeScript models for all network messages.
 
-Проект представляет собой веб-приложение, построенное с использованием фреймворка Three.js для отображения 3д моделей в формате gltf(glb) и 2д спрайтов. Так же предусмотрена сборка всех ассетов и кода проекта в один html файл. Для этого используется сборщик vite с доп. плагином.
+## Features
 
-### Файлы и папки
+- Fast, real-time multiplayer networking (WebSocket, MemoryPack)
+- Modular, event-driven architecture
+- Phaser 3 for 2D game rendering and input
+- Auto-generated protocol models (from C# server)
+- Modern build system (Vite)
 
-- vite.config.ts: Этот файл содержит конфигурацию для Vite - инструмента сборки и разработки веб-приложений. В нем определяются настройки для сборки проекта, включая указание корневой папки (./src) и папки для вывода собранного проекта (../dist).
-- package.json: Этот файл содержит метаданные для проекта, включая название, версию, описание и список зависимостей. В нем также определяются скрипты для запуска проекта (например, npm start).
-- src/: Эта папка содержит исходный код проекта. В ней находятся файлы с расширением .ts, которые содержат код на TypeScript.
-- src/app.ts: Этот файл содержит код для приложения. В нем импортируются необходимые модули и создается приложение.
-- assets/: Эта папка содержит ресурсы проекта, такие как 3D-модели и текстуры.
-- readme.md: Этот файл содержит инструкции по установке и запуску проекта.
+## Project Structure
 
-### Зависимости
+- `src/` — Main TypeScript source code
+  - `game/` — Game logic, world, player, and map objects
+  - `network/` — WebSocket connection, protocol, and auto-generated models
+  - `types/` — Shared type definitions
+  - `utils/` — Utility functions
+- `public/` — Static assets (sprites, maps, UI)
+- `index.html` — Entry point
+- `vite.config.ts` — Vite build configuration
+- `package.json` — Project metadata and scripts
 
-Проект зависит от следующих пакетов:
+## Getting Started
 
-- three: библиотека для создания 3D-граничной анимации.
-- vite: инструмент сборки и разработки веб-приложений.
-- vite-plugin-singlefile: плагин для Vite, который позволяет собирать проект в один файл.
-- node.js: среда выполнения JavaScript.
-- npm: менеджер пакетов для Node.js.
-
----
-
-## Установка и запуск
-
-Чтобы склонировать репозиторий, установить зависимости и запустить проект в браузере через VS Code на Windows, выполните следующие шаги:
-
----
-
-### 1. Установите необходимые программы
-Перед началом убедитесь, что у вас установлены:
-- **Git**: [Скачать Git](https://git-scm.com/)
-- **Node.js** (включает npm): [Скачать Node.js](https://nodejs.org/)
-- **VS Code**: [Скачать Visual Studio Code](https://code.visualstudio.com/)
-
----
-
-### 2. Клонирование репозитория
-1. Откройте **VS Code**.
-2. Нажмите `Ctrl+Shift+P`, введите `Git: Clone` и выберите эту команду.
-3. Вставьте ссылку на репозиторий:  
-   ```
-   https://github.com/honk-su/WR_PBClickUpgrade.git
-   ```
-4. Выберите папку, куда хотите сохранить проект.
-5. После клонирования VS Code предложит открыть проект — согласитесь.
-
----
-
-### 3. Установка зависимостей
-1. Откройте терминал в VS Code: `Ctrl+```
-2. Убедитесь, что текущая директория указывает на корневую папку проекта. Это можно проверить командой:
-   ```
-   pwd
-   ```
-   Она должна вывести путь к папке с проектом.
-3. Выполните команду для установки зависимостей:
-   ```
+1. **Install dependencies:**
+   ```sh
    npm install
    ```
-
----
-
-### 4. Запуск проекта в браузере
-1. В терминале выполните команду:
-   ```
+2. **Run the development server:**
+   ```sh
    npm start
    ```
-2. После этого проект запустится через **Vite**, и в консоли появится ссылка на локальный сервер. Обычно это:
+3. **Build for production:**
+   ```sh
+   npm run build
    ```
-   http://localhost:5173
-   ```
-3. Откройте эту ссылку в браузере.
+
+## Main Dependencies
+
+- [phaser](https://phaser.io/) — 2D game engine
+- [vite](https://vitejs.dev/) — Fast build tool
+- [vite-plugin-singlefile](https://github.com/salvoravida/vite-plugin-singlefile) — Bundle to single HTML file
+- [base64-arraybuffer](https://github.com/niklasvh/base64-arraybuffer) — Binary utils
+- [jszip](https://stuk.github.io/jszip/) — Zip file support
+
+## Notes
+
+- All network protocol models are auto-generated from the C# server using MemoryPack. Do not edit files in `src/network/protocol/` manually.
+- The client is designed for use with the WsCore server. See the main project README for server setup and protocol details.
 
 ---
 
-### 5. Настройка среды (опционально)
-Если у вас возникают ошибки:
-- Убедитесь, что версия Node.js соответствует требованиям (рекомендуется **LTS** версия).
-- Проверьте, есть ли конфликтующие процессы, которые блокируют порт `5173`. Вы можете изменить порт в `vite.config.js`, если это необходимо.
+© 2025 WsCore Project

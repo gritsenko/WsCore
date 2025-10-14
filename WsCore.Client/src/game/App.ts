@@ -27,12 +27,11 @@ export default class MyApp {
     this.initKeyHadler(Keyboard.KEY_RIGHT, Keyboard.KEY_RIGHT_MASK_OFFSET);
   }
 
-  /* called after phaser is initalized */
+  // Called after Phaser is initialized
   initGameClient() {
-    //this.gameClient = new WsClient();
     this.gameClient.myPlayerName = this.playerName;
     this.gameClient.onPlayerCreateCallback = p => this.addPlayerCreateCallback(p);
-    this.gameClient.onGameInitCallback = p => this.onGameInit();
+    this.gameClient.onGameInitCallback = () => this.onGameInit();
     this.gameClient.onMapObjectsCallback = data => this.worldMap.updateMapObjects(data);
     this.gameClient.connect('ws://127.0.0.1:5000/ws');
   }
@@ -71,8 +70,6 @@ export default class MyApp {
         width: '100%',
         height: '100%',
       },
-      //width: 200,
-      //height: 200,
       backgroundColor: '#fbf0e4',
       physics: {
         default: 'arcade',
@@ -114,7 +111,6 @@ export default class MyApp {
 
     this.worldMap.create(this.currentScene);
 
-    //  Set the camera and physics bounds to be the size of 4x4 bg images
     p.cameras.main.setBounds(0, 0, 1920 * 2, 1080 * 2);
     p.physics.world.setBounds(0, 0, 1920 * 2, 1080 * 2);
 
@@ -133,12 +129,12 @@ export default class MyApp {
       console.log('Hello from the E Key!');
       var mp = new MapObject();
       var data = new WsClient.MapObjectData();
-      data.X = Math.floor(this.worldMap.mapCursor.x / WorldMap.cellSize);
-      data.Y = Math.floor(this.worldMap.mapCursor.y / WorldMap.cellSize);
-      data.ObjectType = Phaser.Math.Between(0, 1);
+      data.x = Math.floor(this.worldMap.mapCursor.x / WorldMap.cellSize);
+      data.y = Math.floor(this.worldMap.mapCursor.y / WorldMap.cellSize);
+      data.objectType = Phaser.Math.Between(0, 1);
       mp.create(p, data);
 
-      this.gameClient.sendSetMapObjectRequest(data.X, data.Y, data.ObjectType);
+      this.gameClient.sendSetMapObjectRequest(data.x, data.y, data.objectType);
     });
 
     p.input.keyboard.on('keydown-Q', event => {
@@ -147,8 +143,6 @@ export default class MyApp {
       const y = Math.floor(this.worldMap.mapCursor.y / WorldMap.cellSize);
       this.gameClient.sendDestroyMapObjectRequest(x, y);
     });
-
-    //this.createUI(p);
   }
 
   preloadUI(loader) {
@@ -163,24 +157,17 @@ export default class MyApp {
     logo.alpha = 0.7;
     logo.depth = 100000;
     logo.setScrollFactor(0);
-    //p.cameras.main.ignore([logo]);
-    //Phaser.Display.Align.In.TopLeft(logo, p);
   }
 
   fitView(view) {
     const w = window.innerWidth;
     const h = window.innerHeight;
 
-    //this part resizes the canvas but keeps ratio the same
     view.style.width = w + 'px';
     view.style.height = h + 'px';
-    //this part adjusts the ratio:
 
     this.phaserGame.renderer.resize(w, h);
-    //hack
     var config = this.phaserGame.config;
-    //config.width = w;
-    //config.height = h;
 
     if (this.currentScene != undefined) this.currentScene.cameras.resize(w, h);
   }

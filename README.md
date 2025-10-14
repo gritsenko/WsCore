@@ -32,8 +32,9 @@ WsCore implements a modular, scalable architecture that separates concerns acros
 - **Request/Response pattern** for client-server communication
 - **Message serialization** via MemoryPack with automatic type mapping
 
-#### 5. **Client Code (TypeScript + MemoryPack)**
-- **Auto-generated TS models**: produced by MemoryPack source generator during server build (see `WsServer/Game/Game.csproj`)
+#### 5. **Client Code (Phaser + TypeScript + MemoryPack)**
+- **Phaser 3** for 2D rendering and input handling
+- **Auto-generated TS models** produced by MemoryPack source generator during server build (see `WsServer/Game/Game.csproj`)
 - **Type-safe client API** matching server-side message contracts
 - **Binary protocol**: reads 1-byte TypeId then MemoryPack payload using generated `MemoryPackReader`
 - **Real-time message handling** with event callbacks
@@ -102,6 +103,23 @@ WsCore/
     ├── WsServer/             # ASP.NET Core WebSocket host
     ├── Game/                 # Game logic and protocol definitions
     └── WsServer.Shared/      # Messaging, serialization, reflection registry
+
+## Client (Phaser) Quickstart
+
+Run client and server separately during development:
+
+```bash
+# Terminal 1: server
+cd WsServer/WsServer
+dotnet run
+
+# Terminal 2: client
+cd WsCore.Client
+npm install
+npm start
+```
+
+Note: The server and client are intentionally started manually (no auto-run from tools). MemoryPack-generated TS files will appear under `WsCore.Client/src/network/protocol` after building the server.
 ```
 
 ## Key Interfaces
