@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging.Debug;
 using Game.Core;
 using WsServer;
 using WsServer.Abstract;
+using WsServer.ServerInfo;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddLogging(b =>
@@ -25,6 +26,8 @@ builder.Services.AddSingleton<IServerLogicProvider, ReflectionServerLogicProvide
 //init game server
 builder.Services.AddSingleton<IClientConnectionManager, ConnectionManager>();
 builder.Services.AddSingleton<IGameMessenger, GameMessenger>();
+// server info provider for dashboard
+builder.Services.AddSingleton<ServerInfoProvider>();
 
 builder.Services.AddSingleton<GameModel>();
 builder.Services.AddSingleton<IGameServer, GameServer>();
@@ -45,5 +48,8 @@ app.UseStaticFiles();
 // WebSocket handling
 app.UseWebSockets();
 app.Map("/ws", WebSocketHandler.HandleWebSocket);
+
+// Simple server info endpoint for dashboard
+app.MapGet("/info", (ServerInfoProvider provider) => provider.GetInfo());
 
 app.Run();
