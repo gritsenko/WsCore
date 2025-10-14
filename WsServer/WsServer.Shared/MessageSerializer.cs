@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Buffers;
 using MemoryPack;
 using WsServer.Abstract;
 using WsServer.Abstract.Messages;
@@ -17,13 +18,16 @@ public class MessageSerializer : IMessageSerializer
     public ArraySegment<byte> Serialize<TEventMessage>(TEventMessage message) where TEventMessage : IServerEvent
     {
         var messageType = _serverLogicProvider.FindServerEventIdByType(typeof(TEventMessage));
-        var payload = MemoryPackSerializer.Serialize(message);
-        // prepend 1 byte type id
-        var buffer = new byte[1 + payload.Length];
-        buffer[0] = messageType;
-        if (payload.Length > 0)
-            Buffer.BlockCopy(payload, 0, buffer, 1, payload.Length);
-        return new ArraySegment<byte>(buffer, 0, buffer.Length);
+        // Use ArrayBufferWriter for pooled buffer
+        var writer = new ArrayBufferWriter<byte>(1024);
+        writer.GetSpan(1)[0] = messageType; // Reserve and set header
+        writer.Advance(1);
+        MemoryPackSerializer.Serialize(writer, message);
+        var buffer = writer.WrittenSpan;
+        // Copy to ArrayPool-rented buffer for compatibility with ArraySegment<byte>
+        var pooled = ArrayPool<byte>.Shared.Rent(buffer.Length);
+        buffer.CopyTo(pooled);
+        return new ArraySegment<byte>(pooled, 0, buffer.Length);
     }
 
     public IClientRequest Deserialize(ref byte[] data, out Type messageType)
