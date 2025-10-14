@@ -1,5 +1,4 @@
 ﻿using Game.Core.World;
-using Game.ServerLogic;
 using MemoryPack;
 
 namespace Game.ServerLogic.Map.Events;

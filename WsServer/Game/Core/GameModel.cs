@@ -43,7 +43,7 @@ public class GameModel : IGameModel
 
     private void InitTestState()
     {
-        for (int i = 0; i < 50; i++)
+        for (int i = 0; i < 5000; i++)
         {
             var p = CreateNewPlayer(true);
             _players[p.Id] = p;

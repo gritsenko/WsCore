@@ -6,6 +6,7 @@ using System.Net.WebSockets;
 using System.Threading;
 using System.Threading.Tasks;
 using WsServer.Abstract;
+using System.Buffers;
 
 namespace WsServer;
 
@@ -39,6 +40,8 @@ public class WebSocketHandler(
         {
             var buffer = new byte[BufferSize];
             var seg = new ArraySegment<byte>(buffer);
+            // Use a reusable ArrayBufferWriter for accumulating frames
+            var messageBuffer = new ArrayBufferWriter<byte>(BufferSize);
 
             if(socket.State == WebSocketState.Open)
                 gameServer.OnClientConnected(this, newId => Id = newId);
@@ -58,19 +61,19 @@ public class WebSocketHandler(
                 if (result.MessageType == WebSocketMessageType.Binary)
                 {
                     // Accumulate frames until EndOfMessage to reconstruct full payload
-                    using var ms = new System.IO.MemoryStream();
-                    ms.Write(buffer, 0, result.Count);
+                    messageBuffer.Clear();
+                    messageBuffer.Write(buffer.AsSpan(0, result.Count));
 
                     while (!result.EndOfMessage && socket.State == WebSocketState.Open)
                     {
                         result = await socket.ReceiveAsync(seg, _cts.Token);
                         if (result.MessageType != WebSocketMessageType.Binary)
                             break;
-                        ms.Write(buffer, 0, result.Count);
+                        messageBuffer.Write(buffer.AsSpan(0, result.Count));
                     }
 
-                    var bytes = ms.ToArray();
-                    gameServer.ProcessClientMessageData(Id, bytes);
+                    // Pass the written buffer to the game server
+                    gameServer.ProcessClientMessageData(Id, messageBuffer.WrittenSpan.ToArray());
                 }
             }
         }
