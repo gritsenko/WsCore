@@ -1,7 +1,5 @@
 ﻿using Game.Core;
-using Game.ServerLogic;
 using MemoryPack;
-using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.GameState.Events.GameTickStateUpdateEventData;
 

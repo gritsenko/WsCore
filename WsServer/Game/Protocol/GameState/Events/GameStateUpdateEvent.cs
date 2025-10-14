@@ -1,6 +1,5 @@
 ﻿using Game.Core;
 using Game.ServerLogic.Player.Events.PlayerData;
-using Game.ServerLogic;
 using MemoryPack;
 using WsServer.Abstract;
 using WsServer.Abstract.Messages;

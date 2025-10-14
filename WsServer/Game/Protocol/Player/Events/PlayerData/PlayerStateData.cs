@@ -1,6 +1,5 @@
 ﻿using System.Runtime.InteropServices;
 using Game.ServerLogic.GameState.Events.GameTickStateUpdateEventData;
-using Game.ServerLogic;
 using MemoryPack;
 using WsServer.Abstract.Messages;
 
