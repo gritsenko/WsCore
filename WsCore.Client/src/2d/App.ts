@@ -127,14 +127,14 @@ export default class MyApp {
 
     p.input.keyboard.on('keydown-E', event => {
       console.log('Hello from the E Key!');
-      var mp = new MapObject();
-      var data = new WsClient.MapObjectData();
-      data.x = Math.floor(this.worldMap.mapCursor.x / WorldMap.cellSize);
-      data.y = Math.floor(this.worldMap.mapCursor.y / WorldMap.cellSize);
-      data.objectType = Phaser.Math.Between(0, 1);
-      mp.create(p, data);
 
-      this.gameClient.sendSetMapObjectRequest(data.x, data.y, data.objectType);
+      // Get the position where we want to place the tree
+      const gridX = Math.floor(this.worldMap.mapCursor.x / WorldMap.cellSize);
+      const gridY = Math.floor(this.worldMap.mapCursor.y / WorldMap.cellSize);
+      const objectType = Phaser.Math.Between(0, 1);
+
+      // Send request to server to create the object
+      this.gameClient.sendSetMapObjectRequest(gridX, gridY, objectType);
     });
 
     p.input.keyboard.on('keydown-Q', event => {

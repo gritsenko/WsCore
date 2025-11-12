@@ -1,5 +1,5 @@
 ﻿import WorldMap from './World.js';
-import { MapObjectData } from '../network/WsConnection.js';
+import { MapObjectData } from '../network/protocol/MapObjectData.js';
 
 export default class MapObject {
   type = 0;
@@ -16,9 +16,9 @@ export default class MapObject {
   }
 
   create(currentScene: Phaser.Scene, objData: MapObjectData) {
-    this.x = objData.X;
-    this.y = objData.Y;
-    this.type = objData.ObjectType;
+    this.x = objData.x;
+    this.y = objData.y;
+    this.type = objData.objectType;
 
     var x = this.x * WorldMap.cellSize + WorldMap.cellSize / 2;
     var y = this.y * WorldMap.cellSize;

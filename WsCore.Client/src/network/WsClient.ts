@@ -1,4 +1,4 @@
-﻿import Player from '../game/Player';
+﻿import Player from '../2d/Player';
 import WsConnection from './WsConnection';
 import { InitPlayerEvent } from './protocol/InitPlayerEvent';
 import { PlayerJoinedEvent } from './protocol/PlayerJoinedEvent';

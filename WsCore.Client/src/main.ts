@@ -1,5 +1,4 @@
-import Phaser from 'phaser';
-import MyApp from './game/App.js';
+import MyApp from './2d/App.js';
 
 // Global app instance
 let app: MyApp;

@@ -1,6 +1,6 @@
 ﻿import { lerp, pad } from '../utils/Common.js';
-import AnimationDef from '../types/AnimationDef.js';
-import { FiniteStateMachine } from '../types/TypeState.js';
+import AnimationDef from './AnimationDef.js';
+import { FiniteStateMachine } from '../utils/TypeState.js';
 
 enum PlayerState {
   Idle,

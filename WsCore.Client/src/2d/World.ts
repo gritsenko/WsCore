@@ -1,5 +1,5 @@
 import MapObject from './MapObject.js';
-import { MapObjectData } from '../network/WsConnection.js';
+import { MapObjectData } from '../network/protocol/MapObjectData.js';
 
 export default class WorldMap {
   static cellSize = 50;
