@@ -186,7 +186,7 @@ Note: In development, the server and client are started separately. Automated to
 |---------|-------------|---------------|
 | Rendering | Traditional 2D sprites | WebGL 3D isometric |
 | Camera | Following camera | Orthographic isometric |
-| Performance | Canvas-based | GPU-accelerated |
+| Performance | GPU-accelerated | GPU-accelerated |
 | Assets | Shared across both clients | Shared across both clients |
 | Controls | Arrow keys + mouse | Arrow keys + mouse |
 | Multiplayer | ✅ Full support | ✅ Full support |
