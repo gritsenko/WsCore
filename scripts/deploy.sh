@@ -15,12 +15,17 @@ echo ""
 # Check arguments
 if [ -z "$1" ] || [ -z "$2" ]; then
     echo -e "${BLUE}Usage:${NC}"
-    echo "  $0 <user@host> <domain> [deploy-dir] [image-name:tag]"
+    echo "  $0 <user@host> <domain> [deploy-dir] [image-name:tag] [--build] [--platform PLATFORM]"
     echo ""
     echo -e "${BLUE}Examples:${NC}"
     echo "  $0 root@msk.gritsenko.biz msk.gritsenko.biz"
-    echo "  $0 root@example.com example.com ~/gameserver"
-    echo "  $0 deploy@example.com example.com ~/gameserver wscore-game-server:latest"
+    echo "  $0 root@msk.gritsenko.biz msk.gritsenko.biz ~/WsCoreServer"
+    echo "  $0 root@msk.gritsenko.biz msk.gritsenko.biz ~/WsCoreServer wscore-game-server:latest --build"
+    echo "  $0 root@msk.gritsenko.biz msk.gritsenko.biz ~/WsCoreServer wscore-game-server:latest --build --platform arm64"
+    echo ""
+    echo -e "${BLUE}Flags:${NC}"
+    echo "  --build              Build the Docker image before deployment"
+    echo "  --platform PLATFORM  Docker platform (linux/amd64 or linux/arm64, default: linux/amd64)"
     echo ""
     echo -e "${YELLOW}Setup SSH key authentication (recommended):${NC}"
     echo "  ssh-copy-id -i ~/.ssh/id_rsa root@<your-vds-host>"
@@ -32,6 +37,28 @@ VDS_TARGET="$1"
 DOMAIN="$2"
 DEPLOY_DIR="${3:-~/WsCoreServer}"
 IMAGE_NAME="${4:-wscore-game-server:latest}"
+BUILD_IMAGE=false
+PLATFORM="linux/amd64"
+
+# Parse remaining arguments for flags
+shift 4
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --build)
+            BUILD_IMAGE=true
+            shift
+            ;;
+        --platform)
+            PLATFORM="linux/$2"
+            shift 2
+            ;;
+        *)
+            echo -e "${RED}Unknown option: $1${NC}"
+            exit 1
+            ;;
+    esac
+done
+
 IMAGE_TAR="wscore-game-server-latest.tar"
 EMAIL="admin@${DOMAIN}"
 
@@ -41,7 +68,22 @@ echo "  Domain: ${DOMAIN}"
 echo "  Deploy Dir: ${DEPLOY_DIR}"
 echo "  Docker Image: ${IMAGE_NAME}"
 echo "  Email: ${EMAIL}"
+echo "  Platform: ${PLATFORM}"
+echo "  Build Image: $([ "$BUILD_IMAGE" = true ] && echo 'Yes' || echo 'No')"
 echo ""
+
+# Step 0 (Optional): Build Docker image if requested
+if [ "$BUILD_IMAGE" = true ]; then
+    echo -e "${YELLOW}[0/8] Building Docker image for ${PLATFORM}...${NC}"
+    docker build \
+        --tag "${IMAGE_NAME}" \
+        --platform "${PLATFORM}" \
+        --file Dockerfile \
+        --progress=plain \
+        .
+    echo -e "${GREEN}✓ Docker image built successfully${NC}"
+    echo ""
+fi
 
 # Step 1: Verify SSH connectivity
 echo -e "${YELLOW}[1/7] Testing SSH connection...${NC}"
