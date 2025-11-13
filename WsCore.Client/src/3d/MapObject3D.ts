@@ -41,10 +41,10 @@ export default class MapObject3D {
     const texture = MapObject3D.textures.get(textureKey);
 
     if (texture) {
-      const material = new THREE.SpriteMaterial({ 
+      const material = new THREE.SpriteMaterial({
         map: texture,
         transparent: true,
-        depthTest: true
+        depthTest: true,
       });
       const sprite = new THREE.Sprite(material);
 
@@ -57,9 +57,9 @@ export default class MapObject3D {
     } else {
       // Create a placeholder cube if texture not loaded
       const geometry = new THREE.BoxGeometry(40, 80, 40);
-      const material = new THREE.MeshStandardMaterial({ 
-        color: this.type === 0 ? 0x228B22 : 0x8B4513,
-        roughness: 0.8
+      const material = new THREE.MeshStandardMaterial({
+        color: this.type === 0 ? 0x228b22 : 0x8b4513,
+        roughness: 0.8,
       });
       const mesh = new THREE.Mesh(geometry, material);
       mesh.position.set(x, 40, z);

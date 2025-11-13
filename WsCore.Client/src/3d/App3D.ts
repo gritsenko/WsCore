@@ -74,7 +74,7 @@ export default class MyApp3D {
     // Perspective camera setup
     const width = window.innerWidth;
     const height = window.innerHeight;
-    
+
     this.camera = new THREE.PerspectiveCamera(
       60, // field of view
       width / height, // aspect ratio

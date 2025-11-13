@@ -127,19 +127,20 @@ export default class Player3D implements IPlayer {
     this.isMyPlayer = isMyPlayer;
 
     // Load initial sprite texture
-    const initialTexture = Player3D.spriteSheets.get('knight_idle') || 
-                          Player3D.spriteSheets.get('knight_run');
-    
+    const initialTexture =
+      Player3D.spriteSheets.get('knight_idle') || Player3D.spriteSheets.get('knight_run');
+
     if (initialTexture) {
       // Get the definition for the initial animation to set correct tile dimensions
-      const initialDef = Player3D.spriteDefinitions.get('knight_idle') ||
-                        Player3D.spriteDefinitions.get('knight_run');
-      
+      const initialDef =
+        Player3D.spriteDefinitions.get('knight_idle') ||
+        Player3D.spriteDefinitions.get('knight_run');
+
       if (initialDef) {
         this.tilesHorizontal = initialDef.cols;
         this.tilesVertical = initialDef.rows;
       }
-      
+
       // Configure texture for sprite sheet animation
       initialTexture.magFilter = THREE.NearestFilter;
       initialTexture.minFilter = THREE.NearestFilter;
@@ -148,10 +149,10 @@ export default class Player3D implements IPlayer {
       initialTexture.repeat.set(1 / this.tilesHorizontal, 1 / this.tilesVertical);
       initialTexture.offset.set(0, 1 - 1 / this.tilesVertical);
 
-      const material = new THREE.SpriteMaterial({ 
-        map: initialTexture, 
+      const material = new THREE.SpriteMaterial({
+        map: initialTexture,
         sizeAttenuation: true,
-        transparent: true
+        transparent: true,
       });
       this.sprite = new THREE.Sprite(material);
       this.sprite.scale.set(80, 80, 1);
@@ -218,12 +219,12 @@ export default class Player3D implements IPlayer {
     if (!Player3D.spritesLoaded || !this.sprite) return;
 
     const stateName = this.fsm.currentState === PlayerState.Idle ? 'knight_idle' : 'knight_run';
-    
+
     // Switch texture if animation state changed
     if (this.currentAnimationState !== stateName) {
       const newTexture = Player3D.spriteSheets.get(stateName);
       const def = Player3D.spriteDefinitions.get(stateName);
-      
+
       if (newTexture && def) {
         // Configure new texture
         newTexture.magFilter = THREE.NearestFilter;
@@ -234,12 +235,12 @@ export default class Player3D implements IPlayer {
         this.tilesVertical = def.rows;
         newTexture.repeat.set(1 / this.tilesHorizontal, 1 / this.tilesVertical);
         newTexture.offset.set(0, 1 - 1 / this.tilesVertical);
-        
+
         // Update sprite material
         if (this.sprite.material instanceof THREE.SpriteMaterial) {
           (this.sprite.material as THREE.SpriteMaterial).map = newTexture;
         }
-        
+
         this.currentAnimationState = stateName;
         this.currentFrame = 0;
         this.frameCounter = 0;

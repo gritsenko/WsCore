@@ -1,6 +1,6 @@
 # 3D Version (Three.js Implementation)
 
-This directory contains the Three.js-based 3D version of the WsCore client with an isometric top-down camera view.
+This directory contains the Three.js-based 3D version of the WsCore client with an isometric top-down camera view. The 3D version communicates with the .NET 10 server using the same MemoryPack binary protocol as the 2D version.
 
 ## Features
 
@@ -10,8 +10,9 @@ The 3D version implements the same core features as the 2D version (Phaser):
 - **Player Movement**: Real-time player position updates with smooth interpolation
 - **Animation System**: Sprite-based animations using canvas texture mapping
 - **Map Objects**: Tree rendering with proper depth sorting
-- **Network Integration**: Full WebSocket support for multiplayer gameplay
+- **Network Integration**: Full WebSocket support for multiplayer gameplay with .NET 10 server
 - **Keyboard Controls**: Arrow keys for movement, E/Q for map object manipulation
+- **.NET 10 Server Integration**: Uses MemoryPack binary protocol for high-performance communication
 
 ## Key Components
 
@@ -23,6 +24,7 @@ Main application class handling Three.js initialization, scene setup, camera con
 - WebGL renderer initialization
 - Asset loading system
 - Mouse click and keyboard input handling
+- Connection to .NET 10 WebSocket server
 
 ### World3D.ts
 
@@ -70,6 +72,22 @@ http://localhost:5173/
 http://localhost:5173/?mode=2d
 ```
 
+## .NET 10 Server Integration
+
+The 3D client connects to the same .NET 10 server as the 2D client:
+
+- **Server**: ASP.NET Core 10 WebSocket host
+- **Protocol**: MemoryPack binary serialization
+- **Port**: 5000 (default)
+- **Connection**: `ws://localhost:5000`
+- **Models**: Auto-generated TypeScript models from C# server code
+
+### Server Requirements
+
+- **.NET 10 SDK** required
+- **MemoryPack source generator** in server project
+- **WebSocket support** enabled
+
 ## Technical Details
 
 ### Sprite Animation System
@@ -83,6 +101,18 @@ The 3D version uses canvas-based sprite animation to avoid needing a separate an
 5. Frame updates trigger texture re-rendering
 
 This approach allows pixel-perfect sprite rendering while working with Three.js' sprite system.
+
+### MemoryPack Protocol
+
+Communication with the .NET 10 server uses MemoryPack binary protocol:
+
+```
+[TypeId:byte][MemoryPack payload]
+```
+
+- **Type Safety**: Auto-generated TypeScript models ensure type compatibility
+- **Performance**: Ultra-fast, low-allocation serialization
+- **WebSocket**: Full-duplex real-time communication
 
 ### Coordinate System
 
@@ -108,13 +138,14 @@ All assets are shared with the 2D version:
 
 ## Differences from 2D Version
 
-| Feature       | 2D (Phaser)             | 3D (Three.js)           |
-| ------------- | ----------------------- | ----------------------- |
-| Rendering     | Canvas 2D               | WebGL                   |
-| Animation     | Phaser animation system | Canvas sprite rendering |
-| Camera        | Perspective following   | Orthographic isometric  |
-| Depth Sorting | Automatic (y + height)  | Manual (z = y / 100)    |
-| Objects       | Physics-based           | Transform-based         |
+| Feature       | 2D (Phaser)             | 3D (Three.js)           | Server (.NET 10) |
+| ------------- | ----------------------- | ----------------------- | ---------------- |
+| Rendering     | Canvas 2D               | WebGL                   | ✅               |
+| Animation     | Phaser animation system | Canvas sprite rendering | ✅               |
+| Camera        | Perspective following   | Orthographic isometric  | ✅               |
+| Depth Sorting | Automatic (y + height)  | Manual (z = y / 100)    | ✅               |
+| Objects       | Physics-based           | Transform-based         | ✅               |
+| Network       | MemoryPack WebSocket    | MemoryPack WebSocket    | Native           |
 
 ## Performance Considerations
 
@@ -122,6 +153,7 @@ All assets are shared with the 2D version:
 - Sprite materials use canvas textures instead of texture atlases for simplicity
 - Consider using vertex/fragment shaders for larger scale deployments
 - WebGL rendering provides better performance for larger player counts
+- MemoryPack protocol provides excellent performance for network communication
 
 ## Future Optimizations
 
@@ -130,3 +162,24 @@ All assets are shared with the 2D version:
 3. LOD (Level of Detail) system for distant objects
 4. Shader-based animations instead of canvas updates
 5. GLTF model support for more complex objects
+6. .NET 10 server-side optimizations
+7. Enhanced MemoryPack serialization techniques
+
+## Server Integration Example
+
+```typescript
+// Connection to .NET 10 server
+const wsConnection = new WsConnection('ws://localhost:5000');
+wsConnection.connect();
+
+// MemoryPack message handling
+wsConnection.on('message', data => {
+  // Auto-generated TypeScript models ensure type safety
+  const playerUpdate = PlayerStateData.deserialize(data);
+  // Process update...
+});
+```
+
+---
+
+**Note**: This 3D implementation is designed to work seamlessly with the .NET 10 server and provides the same gameplay experience as the 2D version while offering modern WebGL-based rendering.

@@ -1,6 +1,21 @@
 # WsCore
 
-A high-performance, real-time game server built with .NET 9 and WebSocket, designed for multiplayer game development with an efficient MemoryPack-based binary protocol.
+A high-performance, real-time game server built with .NET 10 and WebSocket, designed for multiplayer game development with an efficient MemoryPack-based binary protocol. Features both 2D (Phaser) and 3D (Three.js) client samples for flexible gameplay experiences.
+
+## Screenshots
+
+![Dashboard](docs/media/dashboard.jpg)
+*WsCore Server Dashboard - Real-time server monitoring and metrics*
+
+## Client Samples
+
+### 2D Client (Phaser)
+![2D Client](docs/media/phaser.jpg)
+*Traditional 2D rendering with sprite-based gameplay*
+
+### 3D Client (Three.js)
+![3D Client](docs/media/threejs.jpg)
+*Modern 3D isometric rendering with WebGL acceleration*
 
 ## Architecture Overview
 
@@ -9,7 +24,7 @@ WsCore implements a modular, scalable architecture that separates concerns acros
 ### Core Components
 
 #### 1. **WebSocket Server (`WsServer/`)**
-- **ASP.NET Core WebSocket handler** for real-time bidirectional communication
+- **ASP.NET Core 10 WebSocket handler** for real-time bidirectional communication
 - **Dependency injection** for loose coupling and testability
 - **Static file serving** for web-based game clients
 - **Connection lifecycle management** with proper cleanup and error handling
@@ -32,8 +47,9 @@ WsCore implements a modular, scalable architecture that separates concerns acros
 - **Request/Response pattern** for client-server communication
 - **Message serialization** via MemoryPack with automatic type mapping
 
-#### 5. **Client Code (Phaser + TypeScript + MemoryPack)**
-- **Phaser 3** for 2D rendering and input handling
+#### 5. **Client Code (Dual Client Support)**
+- **2D Client (Phaser)**: Traditional 2D rendering and input handling
+- **3D Client (Three.js)**: Modern WebGL-based isometric 3D rendering
 - **Auto-generated TS models** produced by MemoryPack source generator during server build (see `WsServer/Game/Game.csproj`)
 - **Type-safe client API** matching server-side message contracts
 - **Binary protocol**: reads 1-byte TypeId then MemoryPack payload using generated `MemoryPackReader`
@@ -97,14 +113,18 @@ private async Task RunGameLoopAsync()
 
 ```
 WsCore/
-├── WsCore.Client/            # TypeScript client (Vite)
-│   └── src/network/protocol  # Auto-generated MemoryPack TS files
-└── WsServer/
-    ├── WsServer/             # ASP.NET Core WebSocket host
-    ├── Game/                 # Game logic and protocol definitions
-    └── WsServer.Shared/      # Messaging, serialization, reflection registry
+├── WsCore.Client/               # Dual client TypeScript (Vite)
+│   ├── src/
+│   │   ├── 2d/                 # 2D Phaser client
+│   │   ├── 3d/                 # 3D Three.js client
+│   │   └── network/protocol    # Auto-generated MemoryPack TS files
+├── WsServer/
+│   ├── WsServer/               # ASP.NET Core 10 WebSocket host
+│   ├── Game/                   # Game logic and protocol definitions
+│   └── WsServer.Shared/        # Messaging, serialization, reflection registry
+```
 
-## Client (Phaser) Quickstart
+## Client Quickstart
 
 Run client and server separately during development:
 
@@ -119,8 +139,13 @@ npm install
 npm start
 ```
 
+### Client Access
+- **2D Version**: `http://localhost:5173/`
+- **3D Version**: `http://localhost:5173/?mode=3d`
+
+Both clients share the same game logic, assets, and network protocol while providing different visual experiences.
+
 Note: The server and client are intentionally started manually (no auto-run from tools). MemoryPack-generated TS files will appear under `WsCore.Client/src/network/protocol` after building the server.
-```
 
 ## Key Interfaces
 
@@ -155,3 +180,15 @@ npm start
 
 Note: In development, the server and client are started separately. Automated tools should not start them.
 
+## Client Features Comparison
+
+| Feature | 2D (Phaser) | 3D (Three.js) |
+|---------|-------------|---------------|
+| Rendering | Traditional 2D sprites | WebGL 3D isometric |
+| Camera | Following camera | Orthographic isometric |
+| Performance | Canvas-based | GPU-accelerated |
+| Assets | Shared across both clients | Shared across both clients |
+| Controls | Arrow keys + mouse | Arrow keys + mouse |
+| Multiplayer | ✅ Full support | ✅ Full support |
+
+The dual-client approach allows developers to choose the visual style that best fits their game concept while maintaining the same core gameplay mechanics and server infrastructure.

@@ -31,10 +31,10 @@ export default class World3D {
     // Create grass texture
     const grassTexture = this.createGrassTexture();
 
-    const material = new THREE.MeshStandardMaterial({ 
+    const material = new THREE.MeshStandardMaterial({
       map: grassTexture,
       roughness: 0.9,
-      metalness: 0.0
+      metalness: 0.0,
     });
     this.groundPlane = new THREE.Mesh(groundGeometry, material);
     this.groundPlane.receiveShadow = true;
@@ -82,7 +82,7 @@ export default class World3D {
       const y = Math.random() * canvas.height;
       const width = Math.random() * 2 + 0.5;
       const height = Math.random() * 4 + 2;
-      
+
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(Math.random() * Math.PI);
@@ -97,7 +97,7 @@ export default class World3D {
       const y = Math.random() * canvas.height;
       const width = Math.random() * 1.5 + 0.3;
       const height = Math.random() * 3 + 1;
-      
+
       ctx.save();
       ctx.translate(x, y);
       ctx.rotate(Math.random() * Math.PI);
