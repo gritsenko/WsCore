@@ -1,7 +1,8 @@
-import MyApp from './2d/App.js';
+import MyApp from './2d/App';
+import MyApp3D from './3d/App3D';
 
 // Global app instance
-let app: MyApp;
+let app: MyApp | MyApp3D;
 
 // Global functions for HTML onclick handlers
 function onStartGameClicked() {
@@ -12,7 +13,16 @@ function runGame() {
   const form = document.getElementById('name-form');
   const textbox = document.getElementById('name-text-input') as HTMLInputElement;
   form.style.display = 'none';
-  app = new MyApp();
+
+  // Check if 3D mode is requested via URL parameter
+  const use3D = new URLSearchParams(window.location.search).get('mode') === '3d';
+
+  if (use3D) {
+    app = new MyApp3D();
+  } else {
+    app = new MyApp();
+  }
+
   const userName = textbox.value;
   app.playerName = userName;
 }

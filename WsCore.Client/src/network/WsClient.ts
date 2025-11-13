@@ -11,18 +11,44 @@ import { UpdateMapObjectsEvent } from './protocol/UpdateMapObjectsEvent';
 import { PlayerStateData } from './protocol/PlayerStateData';
 import { MapObjectData } from './protocol/MapObjectData';
 
-export default class WsClient extends WsConnection {
+export interface IPlayer {
+  id: number;
+  x: number;
+  y: number;
+  ax: number;
+  ay: number;
+  targetX: number;
+  targetY: number;
+  angle: number;
+  controls: number;
+  name: string;
+  speed: { x: number; y: number };
+  animationState: number;
+  hp: number;
+  maxHp: number;
+  body: number;
+  weapon: number;
+  armor: number;
+  isMyPlayer: boolean;
+
+  updateName(name: string): void;
+  onStateUpdatedFromServer(): void;
+  destroy(): void;
+}
+
+export default class WsClient<T extends IPlayer = Player> extends WsConnection {
   static MapObjectData = MapObjectData;
 
-  myPlayer: Player | null = null;
+  myPlayer: T | null = null;
   myPlayerName = 'John Smith';
   playersCount = 0;
-  players: { [id: number]: Player } = {};
+  players: { [id: number]: T } = {};
+  playerFactory?: (id: number) => T;
 
-  onPlayerCreateCallback?: (player: Player) => void;
+  onPlayerCreateCallback?: (player: T) => void;
   onGameInitCallback?: () => void;
   onMapObjectsCallback?: (objects: (MapObjectData | null)[] | null) => void;
-  onPlayerRemovedCallback?: (player: Player) => void;
+  onPlayerRemovedCallback?: (player: T) => void;
 
   override onInitPlayerEvent(msg: InitPlayerEvent): void {
     this.clientId = msg.clientId;
@@ -115,14 +141,19 @@ export default class WsClient extends WsConnection {
   }
 
   updatePlayer(playerData: PlayerStateData): void {
-    let player: Player | null = null;
+    let player: T | null = null;
     let isNewPlayer = false;
     const playerId = playerData.id;
 
     if (playerId in this.players) {
       player = this.players[playerId];
     } else {
-      player = new Player(playerId);
+      // Use factory function if provided, otherwise create default Player
+      if (this.playerFactory) {
+        player = this.playerFactory(playerId);
+      } else {
+        player = new Player(playerId) as unknown as T;
+      }
       this.players[playerId] = player;
       isNewPlayer = true;
       this.playersCount++;
@@ -140,7 +171,7 @@ export default class WsClient extends WsConnection {
     }
   }
 
-  setPlayerData(p: Player, pd: PlayerStateData): void {
+  setPlayerData(p: T, pd: PlayerStateData): void {
     p.name = (pd.name || '').trim();
     p.hp = pd.hp;
     p.maxHp = pd.maxHp;

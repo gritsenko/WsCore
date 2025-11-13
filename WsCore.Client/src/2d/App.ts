@@ -1,9 +1,9 @@
-import * as Common from '../utils/Common.js';
-import Keyboard from '../utils/Keyboard.js';
-import MapObject from './MapObject.js';
-import WsClient from '../network/WsClient.js';
-import WorldMap from './World.js';
-import Player from './Player.js';
+import * as Common from '../utils/Common';
+import Keyboard from '../utils/Keyboard';
+import MapObject from './MapObject';
+import WsClient from '../network/WsClient';
+import WorldMap from './World';
+import Player from './Player';
 import Phaser from 'phaser';
 
 export default class MyApp {

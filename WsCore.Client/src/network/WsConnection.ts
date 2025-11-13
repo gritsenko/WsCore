@@ -30,34 +30,34 @@ export enum ClientMessageType {
 }
 
 // Import all MemoryPack generated types
-import { InitPlayerEvent } from './protocol/InitPlayerEvent.js';
-import { PlayerJoinedEvent } from './protocol/PlayerJoinedEvent.js';
-import { PlayerLeftEvent } from './protocol/PlayerLeftEvent.js';
-import { PlayerRespawnEvent } from './protocol/PlayerRespawnEvent.js';
-import { SetPlayerHpEvent } from './protocol/SetPlayerHpEvent.js';
-import { SetPlayerNameEvent } from './protocol/SetPlayerNameEvent.js';
-import { PlayerShootingEvent } from './protocol/PlayerShootingEvent.js';
-import { PlayersTopEvent } from './protocol/PlayersTopEvent.js';
-import { UpdatePlayerSlotsEvent } from './protocol/UpdatePlayerSlotsEvent.js';
-import { UpdateMapObjectsEvent } from './protocol/UpdateMapObjectsEvent.js';
-import { GameStateUpdateEvent } from './protocol/GameStateUpdateEvent.js';
-import { GameTickUpdateEvent } from './protocol/GameTickUpdateEvent.js';
-import { ChatMessageEvent } from './protocol/ChatMessageEvent.js';
+import { InitPlayerEvent } from './protocol/InitPlayerEvent';
+import { PlayerJoinedEvent } from './protocol/PlayerJoinedEvent';
+import { PlayerLeftEvent } from './protocol/PlayerLeftEvent';
+import { PlayerRespawnEvent } from './protocol/PlayerRespawnEvent';
+import { SetPlayerHpEvent } from './protocol/SetPlayerHpEvent';
+import { SetPlayerNameEvent } from './protocol/SetPlayerNameEvent';
+import { PlayerShootingEvent } from './protocol/PlayerShootingEvent';
+import { PlayersTopEvent } from './protocol/PlayersTopEvent';
+import { UpdatePlayerSlotsEvent } from './protocol/UpdatePlayerSlotsEvent';
+import { UpdateMapObjectsEvent } from './protocol/UpdateMapObjectsEvent';
+import { GameStateUpdateEvent } from './protocol/GameStateUpdateEvent';
+import { GameTickUpdateEvent } from './protocol/GameTickUpdateEvent';
+import { ChatMessageEvent } from './protocol/ChatMessageEvent';
 
-import { GetTilesRequest } from './protocol/GetTilesRequest.js';
-import { GetMapObjectsRequest } from './protocol/GetMapObjectsRequest.js';
-import { DestroyMapObjectRequest } from './protocol/DestroyMapObjectRequest.js';
-import { SetMapObjectRequest } from './protocol/SetMapObjectRequest.js';
-import { SetPlayerNameRequest } from './protocol/SetPlayerNameRequest.js';
-import { UpdatePlayerStateRequest } from './protocol/UpdatePlayerStateRequest.js';
-import { UpdatePlayerSlotsRequest } from './protocol/UpdatePlayerSlotsRequest.js';
-import { PlayerShootingRequest } from './protocol/PlayerShootingRequest.js';
-import { PlayerRespawnRequest } from './protocol/PlayerRespawnRequest.js';
-import { UpdatePlayerTargetRequest } from './protocol/UpdatePlayerTargetRequest.js';
-import { ChatMessageRequest } from './protocol/ChatMessageRequest.js';
+import { GetTilesRequest } from './protocol/GetTilesRequest';
+import { GetMapObjectsRequest } from './protocol/GetMapObjectsRequest';
+import { DestroyMapObjectRequest } from './protocol/DestroyMapObjectRequest';
+import { SetMapObjectRequest } from './protocol/SetMapObjectRequest';
+import { SetPlayerNameRequest } from './protocol/SetPlayerNameRequest';
+import { UpdatePlayerStateRequest } from './protocol/UpdatePlayerStateRequest';
+import { UpdatePlayerSlotsRequest } from './protocol/UpdatePlayerSlotsRequest';
+import { PlayerShootingRequest } from './protocol/PlayerShootingRequest';
+import { PlayerRespawnRequest } from './protocol/PlayerRespawnRequest';
+import { UpdatePlayerTargetRequest } from './protocol/UpdatePlayerTargetRequest';
+import { ChatMessageRequest } from './protocol/ChatMessageRequest';
 
-import { MemoryPackReader } from './protocol/MemoryPackReader.js';
-import { MemoryPackWriter } from './protocol/MemoryPackWriter.js';
+import { MemoryPackReader } from './protocol/MemoryPackReader';
+import { MemoryPackWriter } from './protocol/MemoryPackWriter';
 
 /**
  * WebSocket connection manager using MemoryPack serialization

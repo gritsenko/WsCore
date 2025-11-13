@@ -1,5 +1,5 @@
-﻿import WorldMap from './World.js';
-import { MapObjectData } from '../network/protocol/MapObjectData.js';
+﻿import WorldMap from './World';
+import { MapObjectData } from '../network/protocol/MapObjectData';
 
 export default class MapObject {
   type = 0;

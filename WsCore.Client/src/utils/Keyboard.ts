@@ -1,4 +1,4 @@
-﻿import KeyDef from './KeyDef.js';
+﻿import KeyDef from './KeyDef';
 
 export default class Keyboard {
   static KEY_LEFT = 65; //A

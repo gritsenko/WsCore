@@ -1,6 +1,7 @@
-﻿import { lerp, pad } from '../utils/Common.js';
-import AnimationDef from './AnimationDef.js';
-import { FiniteStateMachine } from '../utils/TypeState.js';
+﻿import { lerp, pad } from '../utils/Common';
+import AnimationDef from './AnimationDef';
+import { FiniteStateMachine } from '../utils/TypeState';
+import { IPlayer } from '../network/WsClient';
 
 enum PlayerState {
   Idle,
@@ -9,7 +10,7 @@ enum PlayerState {
   Die,
 }
 
-export default class Player {
+export default class Player implements IPlayer {
   static nickOffset = -60;
 
   id: number;
