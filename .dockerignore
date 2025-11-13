@@ -1,0 +1,36 @@
+# Files and directories to exclude from Docker build context
+.git
+.gitignore
+.DS_Store
+*.md
+docs/
+node_modules/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Build artifacts
+bin/
+obj/
+dist/
+publish/
+
+# IDE files
+*.user
+*.suo
+*.cache
+
+# Docker files (not needed in context)
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# CI/CD
+.github/
+.gitlab-ci.yml
+
+# Logs
+logs/
+*.log

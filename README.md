@@ -2,6 +2,8 @@
 
 A high-performance, real-time game server built with .NET 10 and WebSocket, designed for multiplayer game development with an efficient MemoryPack-based binary protocol. Features both 2D (Phaser) and 3D (Three.js) client samples for flexible gameplay experiences.
 
+**🚀 Production Ready:** Docker setup with automated deployment scripts for VDS. See [docs/](docs/) for deployment guides.
+
 ## Screenshots
 
 ![Dashboard](docs/media/dashboard.jpg)
@@ -192,3 +194,72 @@ Note: In development, the server and client are started separately. Automated to
 | Multiplayer | ✅ Full support | ✅ Full support |
 
 The dual-client approach allows developers to choose the visual style that best fits their game concept while maintaining the same core gameplay mechanics and server infrastructure.
+
+## 🐳 Docker & Deployment
+
+WsCore includes production-ready Docker setup with automated deployment scripts.
+
+### Quick Deploy
+```bash
+# Make scripts executable
+chmod +x scripts/*.sh
+
+# Test locally
+docker-compose up -d && curl http://localhost && docker-compose down
+
+# Deploy to VDS
+./scripts/deploy-vds.sh deploy@your-vds-ip ~/gameserver
+
+# Setup HTTPS
+./scripts/setup-ssl.sh deploy@your-vds-ip your-domain.com admin@example.com
+```
+
+### Documentation
+- 📖 **[docs/QUICKSTART.md](docs/QUICKSTART.md)** - 5-minute quick start
+- 📖 **[docs/DEPLOYMENT_GUIDE.md](docs/DEPLOYMENT_GUIDE.md)** - Complete deployment guide
+- 📖 **[docs/INDEX.md](docs/INDEX.md)** - Full documentation index
+- ⚙️ **[docs/CONFIG_EXAMPLES.md](docs/CONFIG_EXAMPLES.md)** - Advanced configurations
+
+### Docker Image Details
+- **Base Images**: Node.js 20-alpine (client), .NET 10 (server)
+- **Size**: ~379 MB
+- **Output**: Single optimized container with client + server
+- **Features**: Nginx reverse proxy, SSL/TLS, health checks, non-root user
+
+### Managing Deployments (Update & Monitor)
+
+Once deployed, use these commands to manage your running instance:
+
+#### Check Server Status
+```bash
+ssh <user>@<your-vds-host> 'cd <deploy-dir> && docker compose ps'
+```
+
+#### View Application Logs
+```bash
+ssh <user>@<your-vds-host> 'cd <deploy-dir> && docker compose logs -f game-server'
+```
+
+#### Update Application (New Version)
+```bash
+# 1. Build new image locally
+./scripts/build.sh wscore-game-server latest
+
+# 2. Deploy updated image to server
+./scripts/deploy.sh <user>@<your-vds-host> <deploy-dir>
+```
+
+#### Restart Services
+```bash
+ssh <user>@<your-vds-host> 'cd <deploy-dir> && docker compose restart'
+```
+
+#### View Nginx Logs
+```bash
+ssh <user>@<your-vds-host> 'cd <deploy-dir> && docker compose logs -f nginx-proxy'
+```
+
+**Placeholders:**
+- `<user>` - SSH user (e.g., `root` or `deploy`)
+- `<your-vds-host>` - Server hostname/IP (e.g., `example.com`)
+- `<deploy-dir>` - Deployment directory (e.g., `~/WsCoreServer`)

@@ -5,7 +5,8 @@ export default defineConfig({
 	plugins: [viteSingleFile()],
 	base: "./",
 	build: {
-		outDir: '../dist',
+		outDir: './dist',
+		emptyOutDir: true,
 		sourcemap: false,
 	},
 })
