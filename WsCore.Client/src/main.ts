@@ -32,4 +32,4 @@ function runGame() {
 (window as any).runGame = runGame;
 
 // Auto-run on DOM load
-document.addEventListener('DOMContentLoaded', () => runGame());
+// document.addEventListener('DOMContentLoaded', () => runGame());

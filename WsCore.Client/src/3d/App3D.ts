@@ -4,6 +4,7 @@ import WsClient from '../network/WsClient';
 import World3D from './World3D';
 import Player3D from './Player3D';
 import MapObject3D from './MapObject3D';
+import ChatUI from '../utils/ChatUI';
 import * as THREE from 'three';
 // Import OrbitControls for three.js
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
@@ -20,9 +21,11 @@ export default class MyApp3D {
   worldMap = new World3D();
 
   gameClient = new WsClient<Player3D>();
+  chatUI: ChatUI;
 
   constructor() {
     console.log('App3D instance created');
+    this.chatUI = new ChatUI();
     this.initThree();
 
     this.initKeyHandler(Keyboard.KEY_UP, Keyboard.KEY_UP_MASK_OFFSET);
@@ -38,6 +41,35 @@ export default class MyApp3D {
     this.gameClient.onPlayerCreateCallback = p => this.addPlayerCreateCallback(p);
     this.gameClient.onGameInitCallback = () => this.onGameInit();
     this.gameClient.onMapObjectsCallback = data => this.worldMap.updateMapObjects(data);
+    
+    // Set up chat message callback
+    this.chatUI.setOnMessageCallback(message => {
+      this.gameClient.sendChatMessageRequest(message);
+    });
+    
+    // Override writeToChat to display messages in UI
+    this.gameClient.writeToChat = (id: number, message: string) => {
+      let playerName = `Player ${id}`;
+      
+      // First, check if this is our own message
+      if (this.gameClient.myPlayer && id === this.gameClient.myPlayer.id) {
+        playerName = this.playerName;
+      }
+      // Check cached player name
+      else if (this.gameClient.playerNames[id]) {
+        playerName = this.gameClient.playerNames[id];
+      }
+      // Check if the player object has a name
+      else {
+        const player = this.gameClient.players[id];
+        if (player?.name && player.name.length > 0) {
+          playerName = player.name;
+        }
+      }
+      
+      this.chatUI.addMessage(playerName, message);
+    };
+    
     this.gameClient.connect('ws://127.0.0.1:5000/ws');
   }
 

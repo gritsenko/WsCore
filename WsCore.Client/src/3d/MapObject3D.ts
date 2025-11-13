@@ -69,11 +69,11 @@ export default class MapObject3D {
   }
 
   destroy() {
-    if (this.sprite) {
-      this.sprite.removeFromParent();
+    if (this.sprite && this.sprite.parent) {
+      this.sprite.parent.remove(this.sprite);
     }
-    if (this.mesh) {
-      this.mesh.removeFromParent();
+    if (this.mesh && this.mesh.parent) {
+      this.mesh.parent.remove(this.mesh);
     }
   }
 }

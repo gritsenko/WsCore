@@ -4,6 +4,66 @@
     <meta charset="utf-8" />
     <title>Project Seven</title>
     <style>
+        /* Chat overlay styles */
+        #chat-overlay {
+            /* Styles are applied inline by ChatUI.ts, but you can override here */
+        }
+
+        /* Ensure name form is properly styled */
+        #name-form {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            border: 2px solid #4a9eff;
+            border-radius: 8px;
+            padding: 40px;
+            z-index: 2000;
+            box-shadow: 0 0 20px rgba(74, 158, 255, 0.4);
+            font-family: Arial, sans-serif;
+            color: #e0e0e0;
+        }
+
+        #name-form p {
+            margin: 0 0 15px 0;
+            font-size: 16px;
+            color: #4a9eff;
+            font-weight: bold;
+        }
+
+        #name-text-input {
+            width: 200px;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid #4a9eff;
+            border-radius: 4px;
+            color: white;
+            font-size: 14px;
+        }
+
+        #name-text-input:focus {
+            outline: none;
+            border-color: #7cb8ff;
+            background: rgba(255, 255, 255, 0.15);
+        }
+
+        #name-form button {
+            background: linear-gradient(to right, #2a5a8f, #4a9eff);
+            color: white;
+            border: 1px solid #4a9eff;
+            border-radius: 4px;
+            padding: 10px 30px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+
+        #name-form button:hover {
+            background: linear-gradient(to right, #3a6aaf, #5aaaff);
+            box-shadow: 0 0 10px rgba(74, 158, 255, 0.5);
+        }
     </style>
 </head>
 <body style="margin: 0;">

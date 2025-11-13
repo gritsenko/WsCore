@@ -43,6 +43,7 @@ export default class WsClient<T extends IPlayer = Player> extends WsConnection {
   myPlayerName = 'John Smith';
   playersCount = 0;
   players: { [id: number]: T } = {};
+  playerNames: { [id: number]: string } = {}; // Cache player names
   playerFactory?: (id: number) => T;
 
   onPlayerCreateCallback?: (player: T) => void;
@@ -61,8 +62,11 @@ export default class WsClient<T extends IPlayer = Player> extends WsConnection {
 
   override onSetPlayerNameEvent(msg: SetPlayerNameEvent): void {
     const clientId = msg.clientId;
+    const playerName = msg.name || '';
+    // Cache the player name
+    this.playerNames[clientId] = playerName;
     if (this.players[clientId] != null) {
-      this.players[clientId].updateName(msg.name || '');
+      this.players[clientId].updateName(playerName);
     }
   }
 
