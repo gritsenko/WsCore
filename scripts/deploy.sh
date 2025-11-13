@@ -13,35 +13,42 @@ echo -e "${BLUE}Automated deployment with Docker image transfer and SSL setup${N
 echo ""
 
 # Check arguments
-if [ -z "$1" ] || [ -z "$2" ]; then
+if [ -z "$1" ]; then
     echo -e "${BLUE}Usage:${NC}"
-    echo "  $0 <user@host> <domain> [deploy-dir] [image-name:tag] [--build] [--platform PLATFORM]"
+    echo "  $0 <user@host> [options]"
     echo ""
     echo -e "${BLUE}Examples:${NC}"
-    echo "  $0 root@msk.gritsenko.biz msk.gritsenko.biz"
-    echo "  $0 root@msk.gritsenko.biz msk.gritsenko.biz ~/WsCoreServer"
-    echo "  $0 root@msk.gritsenko.biz msk.gritsenko.biz ~/WsCoreServer wscore-game-server:latest --build"
-    echo "  $0 root@msk.gritsenko.biz msk.gritsenko.biz ~/WsCoreServer wscore-game-server:latest --build --platform arm64"
+    echo "  $0 root@msk.gritsenko.biz"
+    echo "  $0 root@example.com --build"
+    echo "  $0 root@example.com --build --platform arm64"
     echo ""
-    echo -e "${BLUE}Flags:${NC}"
+    echo -e "${BLUE}Options:${NC}"
     echo "  --build              Build the Docker image before deployment"
-    echo "  --platform PLATFORM  Docker platform (linux/amd64 or linux/arm64, default: linux/amd64)"
+    echo "  --platform PLATFORM  Docker platform (amd64 or arm64, default: amd64)"
+    echo "  --dir PATH           Deployment directory (default: ~/WsCoreServer)"
+    echo "  --image NAME:TAG     Docker image name (default: wscore-game-server:latest)"
     echo ""
-    echo -e "${YELLOW}Setup SSH key authentication (recommended):${NC}"
-    echo "  ssh-copy-id -i ~/.ssh/id_rsa root@<your-vds-host>"
+    echo -e "${YELLOW}Notes:${NC}"
+    echo "  - Domain is automatically extracted from user@host"
+    echo "  - If image doesn't exist, you'll be prompted to build it"
+    echo "  - SSH key setup: ssh-copy-id -i ~/.ssh/id_rsa root@<your-vds-host>"
     echo ""
     exit 0
 fi
 
 VDS_TARGET="$1"
-DOMAIN="$2"
-DEPLOY_DIR="${3:-~/WsCoreServer}"
-IMAGE_NAME="${4:-wscore-game-server:latest}"
-BUILD_IMAGE=false
-PLATFORM="linux/amd64"
+shift
 
-# Parse remaining arguments for flags
-shift 4
+# Extract domain from user@host (everything after @)
+DOMAIN="${VDS_TARGET##*@}"
+
+# Default values
+DEPLOY_DIR="~/WsCoreServer"
+IMAGE_NAME="wscore-game-server:latest"
+BUILD_IMAGE=false
+PLATFORM="amd64"
+
+# Parse optional arguments
 while [[ $# -gt 0 ]]; do
     case $1 in
         --build)
@@ -49,7 +56,15 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --platform)
-            PLATFORM="linux/$2"
+            PLATFORM="$2"
+            shift 2
+            ;;
+        --dir)
+            DEPLOY_DIR="$2"
+            shift 2
+            ;;
+        --image)
+            IMAGE_NAME="$2"
             shift 2
             ;;
         *)
@@ -68,16 +83,41 @@ echo "  Domain: ${DOMAIN}"
 echo "  Deploy Dir: ${DEPLOY_DIR}"
 echo "  Docker Image: ${IMAGE_NAME}"
 echo "  Email: ${EMAIL}"
-echo "  Platform: ${PLATFORM}"
-echo "  Build Image: $([ "$BUILD_IMAGE" = true ] && echo 'Yes' || echo 'No')"
+echo "  Platform: linux/${PLATFORM}"
 echo ""
 
-# Step 0 (Optional): Build Docker image if requested
+# Step 0: Check if image exists
+if ! docker image inspect "${IMAGE_NAME}" > /dev/null 2>&1; then
+    echo -e "${YELLOW}Docker image not found: ${IMAGE_NAME}${NC}"
+    echo ""
+    echo -e "${BLUE}Would you like to build it now?${NC}"
+    read -p "Build Docker image? (y/n) " -n 1 -r
+    echo ""
+    
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        BUILD_IMAGE=true
+        echo -e "${BLUE}Which platform would you like to build for?${NC}"
+        echo "  1. amd64 (Intel/AMD servers - default)"
+        echo "  2. arm64 (Raspberry Pi, Apple Silicon)"
+        read -p "Choose platform (1 or 2, default 1): " -n 1 -r
+        echo ""
+        
+        if [[ $REPLY == "2" ]]; then
+            PLATFORM="arm64"
+        fi
+    else
+        echo -e "${RED}✗ Cannot deploy without image. Please build first:${NC}"
+        echo "  ./scripts/build.sh wscore-game-server latest"
+        exit 1
+    fi
+fi
+
+# Step 1 (Optional): Build Docker image if requested
 if [ "$BUILD_IMAGE" = true ]; then
-    echo -e "${YELLOW}[0/8] Building Docker image for ${PLATFORM}...${NC}"
+    echo -e "${YELLOW}[1/8] Building Docker image for linux/${PLATFORM}...${NC}"
     docker build \
         --tag "${IMAGE_NAME}" \
-        --platform "${PLATFORM}" \
+        --platform "linux/${PLATFORM}" \
         --file Dockerfile \
         --progress=plain \
         .
@@ -85,8 +125,8 @@ if [ "$BUILD_IMAGE" = true ]; then
     echo ""
 fi
 
-# Step 1: Verify SSH connectivity
-echo -e "${YELLOW}[1/7] Testing SSH connection...${NC}"
+# Verify SSH connectivity
+echo -e "${YELLOW}[2/7] Testing SSH connection...${NC}"
 if ssh -o ConnectTimeout=5 "${VDS_TARGET}" "echo 'SSH connection OK'" > /dev/null; then
     echo -e "${GREEN}✓ SSH connection successful${NC}"
 else
@@ -97,33 +137,32 @@ else
 fi
 echo ""
 
-# Step 2: Verify Docker image exists locally
-echo -e "${YELLOW}[2/7] Verifying Docker image locally...${NC}"
+# Verify Docker image exists locally
+echo -e "${YELLOW}[3/7] Verifying Docker image locally...${NC}"
 if ! docker image inspect "${IMAGE_NAME}" > /dev/null 2>&1; then
     echo -e "${RED}✗ Docker image not found: ${IMAGE_NAME}${NC}"
-    echo -e "${YELLOW}Build it first with: ./scripts/build.sh wscore-game-server latest${NC}"
     exit 1
 fi
 echo -e "${GREEN}✓ Image found: ${IMAGE_NAME}${NC}"
 echo ""
 
-# Step 3: Export image to tar file
-echo -e "${YELLOW}[3/7] Exporting Docker image to tar (this may take a minute)...${NC}"
+# Export image to tar file
+echo -e "${YELLOW}[4/7] Exporting Docker image to tar (this may take a minute)...${NC}"
 docker save "${IMAGE_NAME}" -o "${IMAGE_TAR}"
 IMAGE_SIZE=$(du -h "${IMAGE_TAR}" | cut -f1)
 echo -e "${GREEN}✓ Image exported: ${IMAGE_TAR} (${IMAGE_SIZE})${NC}"
 echo ""
 
-# Step 4: Create deploy directory and upload files
-echo -e "${YELLOW}[4/7] Creating deploy directory and uploading files...${NC}"
+# Create deploy directory and upload files
+echo -e "${YELLOW}[5/7] Creating deploy directory and uploading files...${NC}"
 ssh "${VDS_TARGET}" "mkdir -p ${DEPLOY_DIR} && echo 'Directory created'"
 scp docker-compose.yml "${VDS_TARGET}:${DEPLOY_DIR}/"
 scp nginx.conf "${VDS_TARGET}:${DEPLOY_DIR}/"
 echo -e "${GREEN}✓ Configuration files uploaded${NC}"
 echo ""
 
-# Step 5: Transfer image and load it
-echo -e "${YELLOW}[5/7] Transferring image to server (this may take several minutes)...${NC}"
+# Transfer image and load it
+echo -e "${YELLOW}[6/7] Transferring image to server (this may take several minutes)...${NC}"
 scp "${IMAGE_TAR}" "${VDS_TARGET}:${DEPLOY_DIR}/"
 echo -e "${GREEN}✓ Image transferred${NC}"
 
@@ -138,8 +177,8 @@ ssh "${VDS_TARGET}" "
 echo -e "${GREEN}✓ Image loaded on server${NC}"
 echo ""
 
-# Step 6: Setup directories and start containers
-echo -e "${YELLOW}[6/7] Setting up directories and starting containers...${NC}"
+# Setup directories and start containers
+echo -e "${YELLOW}[7/7] Setting up directories and starting containers...${NC}"
 ssh "${VDS_TARGET}" "
     cd ${DEPLOY_DIR}
     mkdir -p ssl certbot/conf certbot/www
@@ -147,7 +186,6 @@ ssh "${VDS_TARGET}" "
     
     # Create a docker-compose override file to use the image instead of building
     cat > docker-compose.override.yml << 'COMPOSE_EOF'
-version: '3.8'
 services:
   game-server:
     image: ${IMAGE_NAME}
@@ -166,8 +204,8 @@ COMPOSE_EOF
 echo -e "${GREEN}✓ Containers started${NC}"
 echo ""
 
-# Step 7: Setup SSL Certificate
-echo -e "${YELLOW}[7/7] Setting up SSL certificate with Let's Encrypt...${NC}"
+# Setup SSL Certificate
+echo -e "${YELLOW}[8/7] Setting up SSL certificate with Let's Encrypt...${NC}"
 ssh "${VDS_TARGET}" "
     cd ${DEPLOY_DIR}
     
@@ -192,14 +230,14 @@ ssh "${VDS_TARGET}" "
     
     echo 'SSL certificate ready'
     
-    # Update nginx.conf to enable HTTPS with correct domain
-    sed -i 's/server_name msk.gritsenko.biz/server_name ${DOMAIN}/g' nginx.conf
+    # Update nginx.conf to use actual domain (replace placeholder)
+    sed -i 's/DOMAIN_PLACEHOLDER/${DOMAIN}/g' nginx.conf
     
-    # Reload nginx to pick up certificate
-    docker compose exec -T nginx nginx -s reload || docker compose restart nginx
+    # Restart nginx container to pick up updated nginx.conf from the volume
+    docker compose restart nginx
     
     sleep 2
-    echo 'HTTPS configured and nginx reloaded'
+    echo 'HTTPS configured and nginx restarted'
 "
 echo ""
 echo -e "${GREEN}✓ SSL certificate setup completed!${NC}"
@@ -223,15 +261,6 @@ echo "  Restart app:    ssh ${VDS_TARGET} 'cd ${DEPLOY_DIR} && docker compose re
 echo "  View nginx logs: ssh ${VDS_TARGET} 'cd ${DEPLOY_DIR} && docker compose logs -f nginx'"
 echo ""
 echo -e "${YELLOW}To update the app later:${NC}"
-echo "  1. Build new image: ./scripts/build.sh wscore-game-server latest"
-echo "  2. Re-run deployment: ./scripts/deploy.sh ${VDS_TARGET} ${DOMAIN}"
-echo ""
-echo -e "${BLUE}Note about SSL certificates:${NC}"
-if [ "${EMAIL}" != "admin@${DOMAIN}" ]; then
-    echo "  - Self-signed certificate was used (not trusted by browsers)"
-    echo "  - For production, ensure your domain DNS points to: $(ssh ${VDS_TARGET} 'hostname -I 2>/dev/null | awk '\''{print \$1}'\''')2>/dev/null || echo 'server IP'"
-    echo "  - Then run certbot manually with proper email"
-else
-    echo "  - For proper Let's Encrypt certificate, ensure DNS points to your server IP"
-fi
+echo "  1. Make changes to code"
+echo "  2. Re-run this script: ./scripts/deploy.sh ${VDS_TARGET}"
 echo ""
