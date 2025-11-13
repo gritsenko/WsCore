@@ -8,53 +8,55 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${YELLOW}=== WsCore Deployment Script ===${NC}"
-echo -e "${BLUE}Deploy Docker image directly to any server (root or non-root user)${NC}"
+echo -e "${YELLOW}=== WsCore Production Deployment Script ===${NC}"
+echo -e "${BLUE}Automated deployment with Docker image transfer and SSL setup${NC}"
 echo ""
 
 # Check arguments
-if [ -z "$1" ]; then
+if [ -z "$1" ] || [ -z "$2" ]; then
     echo -e "${BLUE}Usage:${NC}"
-    echo "  $0 <user@host> [deploy-dir] [image-name:tag]"
+    echo "  $0 <user@host> <domain> [deploy-dir] [image-name:tag]"
     echo ""
     echo -e "${BLUE}Examples:${NC}"
-    echo "  $0 root@msk.gritsenko.biz"
-    echo "  $0 root@msk.gritsenko.biz ~/WsCoreServer"
-    echo "  $0 root@msk.gritsenko.biz ~/WsCoreServer wscore-game-server:latest"
-    echo "  $0 deploy@msk.gritsenko.biz ~/gameserver"
+    echo "  $0 root@msk.gritsenko.biz msk.gritsenko.biz"
+    echo "  $0 root@example.com example.com ~/gameserver"
+    echo "  $0 deploy@example.com example.com ~/gameserver wscore-game-server:latest"
     echo ""
-    echo -e "${YELLOW}Setup SSH key authentication (optional but recommended):${NC}"
-    echo "  ssh-copy-id -i ~/.ssh/id_rsa root@msk.gritsenko.biz"
+    echo -e "${YELLOW}Setup SSH key authentication (recommended):${NC}"
+    echo "  ssh-copy-id -i ~/.ssh/id_rsa root@<your-vds-host>"
     echo ""
-    echo -e "${YELLOW}For root-only deployments, create a non-root user later for regular management.${NC}"
     exit 0
 fi
 
 VDS_TARGET="$1"
-DEPLOY_DIR="${2:-~/WsCoreServer}"
-IMAGE_NAME="${3:-wscore-game-server:latest}"
+DOMAIN="$2"
+DEPLOY_DIR="${3:-~/WsCoreServer}"
+IMAGE_NAME="${4:-wscore-game-server:latest}"
 IMAGE_TAR="wscore-game-server-latest.tar"
+EMAIL="admin@${DOMAIN}"
 
 echo -e "${YELLOW}Deployment Configuration:${NC}"
 echo "  VDS Target: ${VDS_TARGET}"
+echo "  Domain: ${DOMAIN}"
 echo "  Deploy Dir: ${DEPLOY_DIR}"
 echo "  Docker Image: ${IMAGE_NAME}"
+echo "  Email: ${EMAIL}"
 echo ""
 
 # Step 1: Verify SSH connectivity
-echo -e "${YELLOW}[1/6] Testing SSH connection...${NC}"
+echo -e "${YELLOW}[1/7] Testing SSH connection...${NC}"
 if ssh -o ConnectTimeout=5 "${VDS_TARGET}" "echo 'SSH connection OK'" > /dev/null; then
     echo -e "${GREEN}✓ SSH connection successful${NC}"
 else
     echo -e "${RED}✗ SSH connection failed. Make sure:${NC}"
-    echo "  - SSH key is set up: ssh-copy-id -i ~/.ssh/id_rsa root@${VDS_TARGET##*@}"
+    echo "  - SSH key is set up: ssh-copy-id -i ~/.ssh/id_rsa ${VDS_TARGET##*@}"
     echo "  - Server is reachable"
     exit 1
 fi
 echo ""
 
 # Step 2: Verify Docker image exists locally
-echo -e "${YELLOW}[2/6] Verifying Docker image locally...${NC}"
+echo -e "${YELLOW}[2/7] Verifying Docker image locally...${NC}"
 if ! docker image inspect "${IMAGE_NAME}" > /dev/null 2>&1; then
     echo -e "${RED}✗ Docker image not found: ${IMAGE_NAME}${NC}"
     echo -e "${YELLOW}Build it first with: ./scripts/build.sh wscore-game-server latest${NC}"
@@ -64,14 +66,14 @@ echo -e "${GREEN}✓ Image found: ${IMAGE_NAME}${NC}"
 echo ""
 
 # Step 3: Export image to tar file
-echo -e "${YELLOW}[3/6] Exporting Docker image to tar (this may take a minute)...${NC}"
+echo -e "${YELLOW}[3/7] Exporting Docker image to tar (this may take a minute)...${NC}"
 docker save "${IMAGE_NAME}" -o "${IMAGE_TAR}"
 IMAGE_SIZE=$(du -h "${IMAGE_TAR}" | cut -f1)
 echo -e "${GREEN}✓ Image exported: ${IMAGE_TAR} (${IMAGE_SIZE})${NC}"
 echo ""
 
 # Step 4: Create deploy directory and upload files
-echo -e "${YELLOW}[4/6] Creating deploy directory and uploading files...${NC}"
+echo -e "${YELLOW}[4/7] Creating deploy directory and uploading files...${NC}"
 ssh "${VDS_TARGET}" "mkdir -p ${DEPLOY_DIR} && echo 'Directory created'"
 scp docker-compose.yml "${VDS_TARGET}:${DEPLOY_DIR}/"
 scp nginx.conf "${VDS_TARGET}:${DEPLOY_DIR}/"
@@ -79,7 +81,7 @@ echo -e "${GREEN}✓ Configuration files uploaded${NC}"
 echo ""
 
 # Step 5: Transfer image and load it
-echo -e "${YELLOW}[5/6] Transferring image to server (this may take several minutes)...${NC}"
+echo -e "${YELLOW}[5/7] Transferring image to server (this may take several minutes)...${NC}"
 scp "${IMAGE_TAR}" "${VDS_TARGET}:${DEPLOY_DIR}/"
 echo -e "${GREEN}✓ Image transferred${NC}"
 
@@ -94,8 +96,8 @@ ssh "${VDS_TARGET}" "
 echo -e "${GREEN}✓ Image loaded on server${NC}"
 echo ""
 
-# Step 6: Create necessary directories and start containers
-echo -e "${YELLOW}[6/6] Setting up directories and starting containers...${NC}"
+# Step 6: Setup directories and start containers
+echo -e "${YELLOW}[6/7] Setting up directories and starting containers...${NC}"
 ssh "${VDS_TARGET}" "
     cd ${DEPLOY_DIR}
     mkdir -p ssl certbot/conf certbot/www
@@ -113,10 +115,52 @@ COMPOSE_EOF
     docker compose up -d
     echo 'Containers started'
     
+    # Wait for nginx to be ready
+    echo 'Waiting for nginx to be ready...'
+    sleep 3
+    
     docker compose ps
 "
+echo -e "${GREEN}✓ Containers started${NC}"
 echo ""
-echo -e "${GREEN}✓ Deployment completed!${NC}"
+
+# Step 7: Setup SSL Certificate
+echo -e "${YELLOW}[7/7] Setting up SSL certificate with Let's Encrypt...${NC}"
+ssh "${VDS_TARGET}" "
+    cd ${DEPLOY_DIR}
+    
+    # Try to get certificate from Let's Encrypt
+    echo 'Requesting SSL certificate from Let'\''s Encrypt...'
+    if docker compose exec -T certbot certbot certonly \
+        --webroot \
+        -w /var/www/certbot \
+        -d ${DOMAIN} \
+        --non-interactive \
+        --agree-tos \
+        --email ${EMAIL} \
+        --quiet 2>/dev/null; then
+        echo 'Let'\''s Encrypt certificate acquired successfully'
+    else
+        echo 'Let'\''s Encrypt certificate request failed, creating self-signed certificate...'
+        mkdir -p ./certbot/conf/live/${DOMAIN}
+        cd ./certbot/conf/live/${DOMAIN}
+        openssl req -x509 -newkey rsa:4096 -keyout privkey.pem -out fullchain.pem -days 365 -nodes -subj \"/CN=${DOMAIN}\" 2>/dev/null || true
+        cd -
+    fi
+    
+    echo 'SSL certificate ready'
+    
+    # Update nginx.conf to enable HTTPS with correct domain
+    sed -i 's/server_name msk.gritsenko.biz/server_name ${DOMAIN}/g' nginx.conf
+    
+    # Reload nginx to pick up certificate
+    docker compose exec -T nginx nginx -s reload || docker compose restart nginx
+    
+    sleep 2
+    echo 'HTTPS configured and nginx reloaded'
+"
+echo ""
+echo -e "${GREEN}✓ SSL certificate setup completed!${NC}"
 echo ""
 
 # Cleanup local tar file
@@ -124,18 +168,28 @@ rm -f "${IMAGE_TAR}"
 echo -e "${YELLOW}Local tar file cleaned up${NC}"
 echo ""
 
-echo -e "${YELLOW}Next steps:${NC}"
-echo "  1. SSH into server: ssh root@${VDS_TARGET##*@}"
-echo "  2. Check status: cd ${DEPLOY_DIR} && docker compose ps"
-echo "  3. View logs: docker compose logs -f game-server"
-echo "  4. Restart services: docker compose restart"
+echo -e "${GREEN}=== Deployment Complete! ===${NC}"
 echo ""
-echo -e "${YELLOW}For HTTPS with Let's Encrypt:${NC}"
-echo "  1. Edit nginx.conf - uncomment HTTPS sections and set domain"
-echo "  2. Run: ssh root@${VDS_TARGET##*@} 'cd ${DEPLOY_DIR} && docker compose exec certbot certbot certonly --webroot -w /var/www/certbot -d yourdomain.com'"
-echo "  3. Restart: docker compose restart nginx"
+echo -e "${YELLOW}Your app is now available at:${NC}"
+echo "  🌐 https://${DOMAIN}"
+echo "  🔄 HTTP redirects to HTTPS automatically"
+echo ""
+echo -e "${YELLOW}Management commands:${NC}"
+echo "  Check status:   ssh ${VDS_TARGET} 'cd ${DEPLOY_DIR} && docker compose ps'"
+echo "  View logs:      ssh ${VDS_TARGET} 'cd ${DEPLOY_DIR} && docker compose logs -f game-server'"
+echo "  Restart app:    ssh ${VDS_TARGET} 'cd ${DEPLOY_DIR} && docker compose restart'"
+echo "  View nginx logs: ssh ${VDS_TARGET} 'cd ${DEPLOY_DIR} && docker compose logs -f nginx'"
 echo ""
 echo -e "${YELLOW}To update the app later:${NC}"
 echo "  1. Build new image: ./scripts/build.sh wscore-game-server latest"
-echo "  2. Re-run this script: ./scripts/deploy-root.sh root@msk.gritsenko.biz ~/WsCoreServer"
+echo "  2. Re-run deployment: ./scripts/deploy.sh ${VDS_TARGET} ${DOMAIN}"
+echo ""
+echo -e "${BLUE}Note about SSL certificates:${NC}"
+if [ "${EMAIL}" != "admin@${DOMAIN}" ]; then
+    echo "  - Self-signed certificate was used (not trusted by browsers)"
+    echo "  - For production, ensure your domain DNS points to: $(ssh ${VDS_TARGET} 'hostname -I 2>/dev/null | awk '\''{print \$1}'\''')2>/dev/null || echo 'server IP'"
+    echo "  - Then run certbot manually with proper email"
+else
+    echo "  - For proper Let's Encrypt certificate, ensure DNS points to your server IP"
+fi
 echo ""

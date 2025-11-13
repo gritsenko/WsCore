@@ -197,22 +197,30 @@ The dual-client approach allows developers to choose the visual style that best 
 
 ## 🐳 Docker & Deployment
 
-WsCore includes production-ready Docker setup with automated deployment scripts.
+WsCore includes production-ready Docker setup with fully automated deployment scripts.
 
-### Quick Deploy
+### Quick Deploy (One Command!)
+
 ```bash
 # Make scripts executable
 chmod +x scripts/*.sh
 
-# Test locally
-docker-compose up -d && curl http://localhost && docker-compose down
+# 1. Build the image locally
+./scripts/build.sh wscore-game-server latest
 
-# Deploy to VDS
-./scripts/deploy-vds.sh deploy@your-vds-ip ~/gameserver
+# 2. Deploy to your server (includes SSL setup automatically!)
+./scripts/deploy.sh root@your-vds-host your-domain.com
 
-# Setup HTTPS
-./scripts/setup-ssl.sh deploy@your-vds-ip your-domain.com admin@example.com
+# That's it! Your app is live at https://your-domain.com 🎉
 ```
+
+**The deploy script handles everything:**
+- ✅ Docker image export and secure transfer
+- ✅ Container orchestration with docker-compose
+- ✅ SSL certificate acquisition (Let's Encrypt) or self-signed fallback
+- ✅ HTTPS configuration and HTTP→HTTPS redirect
+- ✅ Nginx reverse proxy setup
+- ✅ All in one command!
 
 ### Documentation
 - 📖 **[docs/QUICKSTART.md](docs/QUICKSTART.md)** - 5-minute quick start
@@ -222,13 +230,13 @@ docker-compose up -d && curl http://localhost && docker-compose down
 
 ### Docker Image Details
 - **Base Images**: Node.js 20-alpine (client), .NET 10 (server)
-- **Size**: ~379 MB
+- **Size**: ~98 MB (optimized for amd64 production)
 - **Output**: Single optimized container with client + server
-- **Features**: Nginx reverse proxy, SSL/TLS, health checks, non-root user
+- **Features**: Nginx reverse proxy, SSL/TLS, health checks, automatic restarts
 
-### Managing Deployments (Update & Monitor)
+### Managing Deployments
 
-Once deployed, use these commands to manage your running instance:
+Once deployed, manage your running instance with these commands:
 
 #### Check Server Status
 ```bash
@@ -246,7 +254,7 @@ ssh <user>@<your-vds-host> 'cd <deploy-dir> && docker compose logs -f game-serve
 ./scripts/build.sh wscore-game-server latest
 
 # 2. Deploy updated image to server
-./scripts/deploy.sh <user>@<your-vds-host> <deploy-dir>
+./scripts/deploy.sh <user>@<your-vds-host> <domain> [deploy-dir]
 ```
 
 #### Restart Services
@@ -258,6 +266,18 @@ ssh <user>@<your-vds-host> 'cd <deploy-dir> && docker compose restart'
 ```bash
 ssh <user>@<your-vds-host> 'cd <deploy-dir> && docker compose logs -f nginx-proxy'
 ```
+
+#### SSL Certificate Renewal
+```bash
+# For Let's Encrypt certificates (auto-renewed by certbot)
+ssh <user>@<your-vds-host> 'cd <deploy-dir> && docker compose exec certbot certbot renew'
+```
+
+**Placeholders:**
+- `<user>` - SSH user (e.g., `root` or `deploy`)
+- `<your-vds-host>` - Server hostname/IP (e.g., `example.com`)
+- `<deploy-dir>` - Deployment directory (default: `~/WsCoreServer`)
+- `<domain>` - Your domain name (e.g., `example.com`)
 
 **Placeholders:**
 - `<user>` - SSH user (e.g., `root` or `deploy`)
