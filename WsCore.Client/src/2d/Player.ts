@@ -169,6 +169,8 @@ export default class Player implements IPlayer {
   }
 
   updateDirection() {
+    if (!this.sprite) return; // Exit early if sprite not initialized
+
     if (this.targetX > this.sprite.x && this.sprite.scaleX < this.scaleFactor) {
       this.sprite.scaleX = this.scaleFactor;
     }

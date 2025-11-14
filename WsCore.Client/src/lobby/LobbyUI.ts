@@ -6,9 +6,13 @@ export default class LobbyUI {
   private usersList: HTMLDivElement | null = null;
   private chatMessages: HTMLDivElement | null = null;
   private chatInput: HTMLInputElement | null = null;
+  private roomsList: HTMLDivElement | null = null;
   private messageCallback: ((message: string) => void) | null = null;
+  private roomJoinCallback: ((roomId: string) => void) | null = null;
   private users: Map<number, string> = new Map();
+  private rooms: Map<string, { name: string; userCount: number }> = new Map();
   private currentUserId: number = -1;
+  private currentRoomId: string = 'lobby';
   private maxMessages: number = 100;
   private static cssLoaded = false;
 
@@ -18,6 +22,7 @@ export default class LobbyUI {
       LobbyUI.cssLoaded = true;
     }
     this.initializeUI();
+    this.initializeDefaultRooms();
   }
 
   /**
@@ -31,6 +36,16 @@ export default class LobbyUI {
   }
 
   /**
+   * Initialize default rooms
+   */
+  private initializeDefaultRooms(): void {
+    this.rooms.set('lobby', { name: 'Lobby', userCount: 0 });
+    this.rooms.set('voice', { name: 'Voice Room', userCount: 0 });
+    this.rooms.set('2d-game', { name: '2D Game Room', userCount: 0 });
+    this.rooms.set('3d-game', { name: '3D Game Room', userCount: 0 });
+  }
+
+  /**
    * Initialize the Discord-style lobby UI
    */
   private initializeUI(): void {
@@ -38,20 +53,41 @@ export default class LobbyUI {
     this.container = document.createElement('div');
     this.container.id = 'lobby-container';
 
-    // Sidebar with users list
-    const sidebar = document.createElement('div');
-    sidebar.className = 'lobby-sidebar';
+    // Left sidebar with rooms and users
+    const leftSidebar = document.createElement('div');
+    leftSidebar.className = 'lobby-left-sidebar';
 
-    const sidebarTitle = document.createElement('div');
-    sidebarTitle.className = 'lobby-sidebar-title';
-    sidebarTitle.textContent = 'Users Online';
-    sidebar.appendChild(sidebarTitle);
+    // Rooms section
+    const roomsSection = document.createElement('div');
+    roomsSection.className = 'lobby-rooms-section';
+
+    const roomsTitle = document.createElement('div');
+    roomsTitle.className = 'lobby-rooms-title';
+    roomsTitle.textContent = 'Rooms';
+    roomsSection.appendChild(roomsTitle);
+
+    this.roomsList = document.createElement('div');
+    this.roomsList.className = 'lobby-rooms-list';
+    roomsSection.appendChild(this.roomsList);
+
+    leftSidebar.appendChild(roomsSection);
+
+    // Users section
+    const usersSection = document.createElement('div');
+    usersSection.className = 'lobby-users-section';
+
+    const usersTitle = document.createElement('div');
+    usersTitle.className = 'lobby-users-title';
+    usersTitle.textContent = 'Users Online';
+    usersSection.appendChild(usersTitle);
 
     this.usersList = document.createElement('div');
     this.usersList.className = 'lobby-users-list';
-    sidebar.appendChild(this.usersList);
+    usersSection.appendChild(this.usersList);
 
-    this.container.appendChild(sidebar);
+    leftSidebar.appendChild(usersSection);
+
+    this.container.appendChild(leftSidebar);
 
     // Main chat area
     const chatArea = document.createElement('div');
@@ -61,7 +97,8 @@ export default class LobbyUI {
     const chatHeader = document.createElement('div');
     chatHeader.className = 'lobby-chat-header';
     const headerTitle = document.createElement('span');
-    headerTitle.textContent = 'General Chat';
+    headerTitle.className = 'lobby-chat-header-title';
+    headerTitle.textContent = 'Lobby Chat';
     chatHeader.appendChild(headerTitle);
     chatArea.appendChild(chatHeader);
 
@@ -78,7 +115,7 @@ export default class LobbyUI {
     this.chatInput.type = 'text';
     this.chatInput.className = 'lobby-input';
     this.chatInput.placeholder = 'Type your message...';
-    this.chatInput.onkeypress = (e) => {
+    this.chatInput.onkeypress = e => {
       if (e.key === 'Enter') {
         this.sendMessage();
       }
@@ -102,13 +139,67 @@ export default class LobbyUI {
     document.body.style.margin = '0';
     document.body.style.padding = '0';
     document.body.style.overflow = 'hidden';
+
+    // Update the rooms display
+    this.updateRoomsList();
   }
 
   /**
-   * Set current user ID for message display
+   * Set callback for when room is joined
    */
-  setCurrentUserId(userId: number): void {
-    this.currentUserId = userId;
+  setOnRoomJoinCallback(callback: (roomId: string) => void): void {
+    this.roomJoinCallback = callback;
+  }
+
+  /**
+   * Update room list display
+   */
+  private updateRoomsList(): void {
+    if (!this.roomsList) return;
+
+    this.roomsList.innerHTML = '';
+
+    for (const [roomId, room] of this.rooms) {
+      const roomElement = document.createElement('div');
+      roomElement.className = 'lobby-room-item';
+
+      // Highlight current room
+      if (roomId === this.currentRoomId) {
+        roomElement.classList.add('lobby-room-current');
+      }
+
+      // Room name
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'lobby-room-name';
+      nameSpan.textContent = room.name;
+      roomElement.appendChild(nameSpan);
+
+      // User count badge
+      const countBadge = document.createElement('span');
+      countBadge.className = 'lobby-room-count';
+      countBadge.textContent = room.userCount.toString();
+      roomElement.appendChild(countBadge);
+
+      // Click handler
+      roomElement.onclick = () => {
+        if (this.roomJoinCallback && roomId !== this.currentRoomId) {
+          this.roomJoinCallback(roomId);
+        }
+      };
+
+      this.roomsList.appendChild(roomElement);
+    }
+  }
+
+  /**
+   * Update room user count
+   */
+  updateRoomUserCount(roomId: string, userCount: number): void {
+    const room = this.rooms.get(roomId);
+    if (room) {
+      room.userCount = userCount;
+      this.updateRoomsList();
+    }
   }
 
   /**
@@ -125,6 +216,35 @@ export default class LobbyUI {
   removeUser(userId: number): void {
     this.users.delete(userId);
     this.updateUsersList();
+  }
+  /**
+   * Clear all users from the list
+   */
+  clearAllUsers(): void {
+    this.users.clear();
+    this.updateUsersList();
+  }
+
+  /**
+   * Set current user ID for message display
+   */
+  setCurrentUserId(userId: number): void {
+    this.currentUserId = userId;
+  }
+
+  /**
+   * Set current room
+   */
+  setCurrentRoom(roomId: string): void {
+    this.currentRoomId = roomId;
+    const room = this.rooms.get(roomId);
+    const headerTitle = this.container?.querySelector(
+      '.lobby-chat-header-title'
+    ) as HTMLSpanElement;
+    if (headerTitle && room) {
+      headerTitle.textContent = room.name;
+    }
+    this.updateRoomsList();
   }
 
   /**
@@ -263,7 +383,9 @@ export default class LobbyUI {
     this.chatMessages = null;
     this.chatInput = null;
     this.usersList = null;
+    this.roomsList = null;
     this.container = null;
     this.users.clear();
+    this.rooms.clear();
   }
 }

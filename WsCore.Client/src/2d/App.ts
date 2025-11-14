@@ -36,16 +36,16 @@ export default class MyApp {
     this.gameClient.onPlayerCreateCallback = p => this.addPlayerCreateCallback(p);
     this.gameClient.onGameInitCallback = () => this.onGameInit();
     this.gameClient.onMapObjectsCallback = data => this.worldMap.updateMapObjects(data);
-    
+
     // Set up chat message callback
     this.chatUI.setOnMessageCallback(message => {
       this.gameClient.sendChatMessageRequest(message);
     });
-    
+
     // Override writeToChat to display messages in UI
     this.gameClient.writeToChat = (id: number, message: string) => {
       let playerName = `Player ${id}`;
-      
+
       // First, check if this is our own message
       if (this.gameClient.myPlayer && id === this.gameClient.myPlayer.id) {
         playerName = this.playerName;
@@ -61,10 +61,10 @@ export default class MyApp {
           playerName = player.name;
         }
       }
-      
+
       this.chatUI.addMessage(playerName, message);
     };
-    
+
     this.gameClient.connect('ws://127.0.0.1:5000/ws');
   }
 

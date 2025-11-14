@@ -12,23 +12,15 @@ function onStartGameClicked() {
 
 function runGame() {
   const form = document.getElementById('name-form');
-  const modeSelection = document.getElementById('mode-selection') as HTMLSelectElement;
   const textbox = document.getElementById('name-text-input') as HTMLInputElement;
   form.style.display = 'none';
 
-  // Get mode from selection or URL parameter
-  const mode = new URLSearchParams(window.location.search).get('mode') || modeSelection?.value || '2d';
+  const userName = textbox.value || 'User';
 
-  if (mode === '3d') {
-    app = new MyApp3D();
-  } else if (mode === 'chat') {
-    app = new LobbyApp();
-  } else {
-    app = new MyApp();
-  }
-
-  const userName = textbox.value;
+  // Always use Lobby mode as default
+  app = new LobbyApp();
   app.playerName = userName;
+  app.setPlayerName(userName);
 }
 
 // Make functions global for HTML access
