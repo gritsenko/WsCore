@@ -11,7 +11,12 @@ export class RoomManager {
   /**
    * Create a new room
    */
-  public createRoom(roomId: string, roomName: string, supportedModes: CommunicationMode[], isPersistent: boolean = false): Room {
+  public createRoom(
+    roomId: string,
+    roomName: string,
+    supportedModes: CommunicationMode[],
+    isPersistent: boolean = false
+  ): Room {
     const room = new Room(roomId, roomName, supportedModes, isPersistent);
     this.rooms.set(roomId, room);
     return room;
@@ -43,7 +48,7 @@ export class RoomManager {
       this.clientRoomMap.set(clientId, roomId);
       return true;
     }
-    
+
     return false;
   }
 

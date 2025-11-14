@@ -14,6 +14,7 @@ export enum ServerEventType {
   InitPlayerEvent = 255,
   ChatMessageEvent = 200,
   RoomListEvent = 250,
+  RoomUsersUpdateEvent = 251,
 }
 
 export enum ClientMessageType {
@@ -29,6 +30,7 @@ export enum ClientMessageType {
   UpdatePlayerTargetRequest = 106,
   ChatMessageRequest = 200,
   GetRoomListRequest = 250,
+  JoinRoomRequest = 251,
 }
 
 // Import all MemoryPack generated types
@@ -46,6 +48,7 @@ import { GameStateUpdateEvent } from './protocol/GameStateUpdateEvent';
 import { GameTickUpdateEvent } from './protocol/GameTickUpdateEvent';
 import { ChatMessageEvent } from './protocol/ChatMessageEvent';
 import { RoomListEvent } from './protocol/RoomListEvent';
+import { RoomUsersUpdateEvent } from './protocol/RoomUsersUpdateEvent';
 
 import { GetTilesRequest } from './protocol/GetTilesRequest';
 import { GetMapObjectsRequest } from './protocol/GetMapObjectsRequest';
@@ -59,6 +62,7 @@ import { PlayerRespawnRequest } from './protocol/PlayerRespawnRequest';
 import { UpdatePlayerTargetRequest } from './protocol/UpdatePlayerTargetRequest';
 import { ChatMessageRequest } from './protocol/ChatMessageRequest';
 import { GetRoomListRequest } from './protocol/GetRoomListRequest';
+import { JoinRoomRequest } from './protocol/JoinRoomRequest';
 
 import { MemoryPackReader } from './protocol/MemoryPackReader';
 import { MemoryPackWriter } from './protocol/MemoryPackWriter';
@@ -87,6 +91,7 @@ export default class WsConnection {
   onGameTickUpdateEvent(msg: GameTickUpdateEvent): void {}
   onChatMessageEvent(msg: ChatMessageEvent): void {}
   onRoomListEvent(msg: RoomListEvent): void {}
+  onRoomUsersUpdateEvent(msg: RoomUsersUpdateEvent): void {}
 
   constructor() {}
 
@@ -170,6 +175,9 @@ export default class WsConnection {
           break;
         case ServerEventType.RoomListEvent:
           this.onRoomListEvent(RoomListEvent.deserializeCore(reader)!);
+          break;
+        case ServerEventType.RoomUsersUpdateEvent:
+          this.onRoomUsersUpdateEvent(RoomUsersUpdateEvent.deserializeCore(reader)!);
           break;
         default:
           console.warn(`Unknown server message type: ${messageType}`);
@@ -288,6 +296,13 @@ export default class WsConnection {
     const request = new GetRoomListRequest();
     const data = GetRoomListRequest.serialize(request);
     this.sendMessage(ClientMessageType.GetRoomListRequest, data);
+  }
+
+  sendJoinRoomRequest(roomId: string): void {
+    const request = new JoinRoomRequest();
+    request.roomId = roomId;
+    const data = JoinRoomRequest.serialize(request);
+    this.sendMessage(ClientMessageType.JoinRoomRequest, data);
   }
 
   /**

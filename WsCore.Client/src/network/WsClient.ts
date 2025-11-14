@@ -13,6 +13,7 @@ import { MapObjectData } from './protocol/MapObjectData';
 import { RoomManager } from './rooms/RoomManager.js';
 import { CommunicationMode } from './rooms/CommunicationMode.js';
 import { RoomListEvent } from './protocol/RoomListEvent';
+import { RoomUsersUpdateEvent } from './protocol/RoomUsersUpdateEvent';
 
 export interface IPlayer {
   id: number;
@@ -51,18 +52,24 @@ export default class WsClient<T extends IPlayer = Player> extends WsConnection {
   private initializeDefaultRooms(): void {
     // Create default rooms - mark them as persistent so they don't get deleted when empty
     this.roomManager.createRoom('lobby', 'Lobby', [CommunicationMode.TextChat], true);
-    this.roomManager.createRoom('voice', 'Voice Room', [
-      CommunicationMode.VoiceChat,
-      CommunicationMode.TextChat,
-    ], true);
-    this.roomManager.createRoom('2d-game', '2D Game Room', [
-      CommunicationMode.Spatial2D,
-      CommunicationMode.TextChat,
-    ], true);
-    this.roomManager.createRoom('3d-game', '3D Game Room', [
-      CommunicationMode.Spatial3D,
-      CommunicationMode.TextChat,
-    ], true);
+    this.roomManager.createRoom(
+      'voice',
+      'Voice Room',
+      [CommunicationMode.VoiceChat, CommunicationMode.TextChat],
+      true
+    );
+    this.roomManager.createRoom(
+      '2d-game',
+      '2D Game Room',
+      [CommunicationMode.Spatial2D, CommunicationMode.TextChat],
+      true
+    );
+    this.roomManager.createRoom(
+      '3d-game',
+      '3D Game Room',
+      [CommunicationMode.Spatial3D, CommunicationMode.TextChat],
+      true
+    );
   }
 
   myPlayer: T | null = null;
@@ -81,6 +88,7 @@ export default class WsClient<T extends IPlayer = Player> extends WsConnection {
   onGameInitCallback?: () => void;
   onMapObjectsCallback?: (objects: (MapObjectData | null)[] | null) => void;
   onPlayerRemovedCallback?: (player: T) => void;
+  onRoomUsersUpdateCallback?: (msg: RoomUsersUpdateEvent) => void;
 
   override onInitPlayerEvent(msg: InitPlayerEvent): void {
     this.clientId = msg.clientId;
@@ -183,6 +191,26 @@ export default class WsClient<T extends IPlayer = Player> extends WsConnection {
     }
   }
 
+  override onRoomUsersUpdateEvent(msg: RoomUsersUpdateEvent): void {
+    console.log(`Room users update for ${msg.roomId}:`, msg.users);
+
+    if (msg.roomId && msg.users) {
+      const room = this.roomManager.getRoom(msg.roomId);
+      if (room) {
+        // Clear existing clients and rebuild from update
+        room.clients.clear();
+        for (const userInfo of msg.users) {
+          if (userInfo) {
+            room.addClient(userInfo.clientId, userInfo.name || '');
+          }
+        }
+      }
+    }
+
+    // Call callback if provided (for UI updates, etc.)
+    this.onRoomUsersUpdateCallback?.(msg);
+  }
+
   writeToChat(id: number, message: string): void {
     console.log(`Message to chat from client ${id}: ${message}`);
   }
@@ -260,7 +288,7 @@ export default class WsClient<T extends IPlayer = Player> extends WsConnection {
   joinRoom(roomId: string, playerName?: string): boolean {
     const name = playerName || this.myPlayerName;
     const success = this.roomManager.joinRoom(this.clientId, name, roomId);
-    
+
     if (success) {
       const room = this.roomManager.getRoom(roomId);
       if (room) {
@@ -268,8 +296,11 @@ export default class WsClient<T extends IPlayer = Player> extends WsConnection {
           room.supportsMode(CommunicationMode.Spatial2D) ||
           room.supportsMode(CommunicationMode.Spatial3D);
       }
+
+      // Send join room request to server
+      this.sendJoinRoomRequest(roomId);
     }
-    
+
     return success;
   }
 

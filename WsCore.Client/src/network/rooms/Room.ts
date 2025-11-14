@@ -14,7 +14,12 @@ export class Room {
   public userCount: number = 0;
   public isPersistent: boolean = false; // Default rooms should not be deleted
 
-  constructor(id: string, name: string, supportedModes: CommunicationMode[], isPersistent: boolean = false) {
+  constructor(
+    id: string,
+    name: string,
+    supportedModes: CommunicationMode[],
+    isPersistent: boolean = false
+  ) {
     this.id = id;
     this.name = name;
     this.supportedModes = new Set(supportedModes);

@@ -4,6 +4,7 @@ import LobbyPlayer from './LobbyPlayer';
 import { SetPlayerNameEvent } from '../network/protocol/SetPlayerNameEvent';
 import { PlayerJoinedEvent } from '../network/protocol/PlayerJoinedEvent';
 import { PlayerLeftEvent } from '../network/protocol/PlayerLeftEvent';
+import { RoomUsersUpdateEvent } from '../network/protocol/RoomUsersUpdateEvent';
 
 export default class LobbyApp {
   serverUrl = '';
@@ -55,6 +56,11 @@ export default class LobbyApp {
     // Callback when a player leaves
     this.gameClient.onPlayerLeftEvent = (msg: PlayerLeftEvent) => {
       this.handlePlayerLeft(msg);
+    };
+
+    // Callback when room users list is updated
+    this.gameClient.onRoomUsersUpdateCallback = (msg: RoomUsersUpdateEvent) => {
+      this.handleRoomUsersUpdate(msg);
     };
 
     // Set initial game init callback
@@ -111,7 +117,7 @@ export default class LobbyApp {
 
     // Clear current messages and users list
     this.lobbyUI.clearMessages();
-    
+
     // Clear all users from UI to rebuild with room members only
     this.lobbyUI.clearAllUsers();
 
@@ -228,6 +234,26 @@ export default class LobbyApp {
 
     // Clean up cached data
     delete this.gameClient.playerNames[playerId];
+  }
+
+  /**
+   * Handle when room users list is updated
+   */
+  private handleRoomUsersUpdate(msg: RoomUsersUpdateEvent): void {
+    console.log(`Room users updated for room: ${msg.roomId}`, msg.users);
+
+    // Only update UI if this is the current room
+    const currentRoom = this.gameClient.getCurrentRoom();
+    if (currentRoom && currentRoom.id === msg.roomId && msg.users) {
+      // Clear existing users and rebuild
+      this.lobbyUI.clearAllUsers();
+
+      for (const userInfo of msg.users) {
+        if (userInfo) {
+          this.lobbyUI.addUser(userInfo.clientId, userInfo.name || `Player ${userInfo.clientId}`);
+        }
+      }
+    }
   }
 
   /**

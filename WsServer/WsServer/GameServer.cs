@@ -1,7 +1,10 @@
 ﻿using Game.Core;
 using Game.ServerLogic.GameState.Events;
 using Game.ServerLogic.Player.Events;
+using Game.ServerLogic.Rooms.Events;
 using Microsoft.Extensions.Logging;
+using System.Collections.Generic;
+using System.Linq;
 using WsServer.Abstract;
 using WsServer.Rooms;
 
@@ -79,11 +82,20 @@ public class GameServer : GameServerBase<GameModel>
 
     private void GameServer_OnPlayerRemoved(uint clientId)
     {
+        // Get the room before removing the client
+        var room = _roomManager.GetClientRoom(clientId);
+        
         // Remove from room if they were in one
         _roomManager.LeaveRoom(clientId);
         
         // Broadcast to all clients
         Messenger.Broadcast(new PlayerLeftEvent(clientId));
+        
+        // If they were in a room, broadcast the updated user list to remaining room members
+        if (room != null)
+        {
+            BroadcastRoomUserUpdate(room.Id);
+        }
     }
 
     private void GameServer_OnPlayerAdded(uint clientId)
@@ -98,8 +110,34 @@ public class GameServer : GameServerBase<GameModel>
 
         //notifying other players that new player joined
         Messenger.Broadcast(new PlayerJoinedEvent(player));
+        
+        // Broadcast the updated lobby user list to all lobby members
+        BroadcastRoomUserUpdate("lobby");
+        
         //send game state to new client
         Messenger.Send(clientId, new GameStateUpdateEvent(GameModel));
+    }
+
+    /// <summary>
+    /// Broadcast the current users in a room to all room members
+    /// </summary>
+    private void BroadcastRoomUserUpdate(string roomId)
+    {
+        var room = _roomManager.GetRoom(roomId);
+        if (room == null)
+            return;
+        
+        var users = room.Clients.Values
+            .Select(client => new RoomUserInfo { ClientId = client.Id, Name = client.Name })
+            .ToList();
+        
+        var updateEvent = new RoomUsersUpdateEvent(roomId, users);
+        
+        // Send to all clients in this room
+        foreach (var clientId in room.GetClientIds())
+        {
+            Messenger.Send(clientId, updateEvent);
+        }
     }
 
     /// <summary>
