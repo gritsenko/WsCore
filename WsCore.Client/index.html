@@ -23,6 +23,7 @@
             box-shadow: 0 0 20px rgba(74, 158, 255, 0.4);
             font-family: Arial, sans-serif;
             color: #e0e0e0;
+            min-width: 300px;
         }
 
         #name-form p {
@@ -32,28 +33,50 @@
             font-weight: bold;
         }
 
-        #name-text-input {
-            width: 200px;
+        #name-form label {
+            display: block;
+            margin: 16px 0 8px 0;
+            font-size: 14px;
+            color: #a0a0a0;
+            font-weight: 600;
+        }
+
+        #name-text-input,
+        #mode-selection {
+            width: 100%;
             padding: 10px;
             background: rgba(255, 255, 255, 0.1);
             border: 1px solid #4a9eff;
             border-radius: 4px;
             color: white;
             font-size: 14px;
+            box-sizing: border-box;
+            margin-bottom: 16px;
         }
 
-        #name-text-input:focus {
+        #name-text-input:focus,
+        #mode-selection:focus {
             outline: none;
             border-color: #7cb8ff;
             background: rgba(255, 255, 255, 0.15);
         }
 
+        #mode-selection {
+            cursor: pointer;
+        }
+
+        #mode-selection option {
+            background: #1e1e1e;
+            color: white;
+        }
+
         #name-form button {
+            width: 100%;
             background: linear-gradient(to right, #2a5a8f, #4a9eff);
             color: white;
             border: 1px solid #4a9eff;
             border-radius: 4px;
-            padding: 10px 30px;
+            padding: 12px 30px;
             cursor: pointer;
             font-size: 14px;
             font-weight: bold;
@@ -70,10 +93,19 @@
     <div id="game"></div>
 
     <div id="name-form">
-        <p>Enter your name:</p>
-        <input id="name-text-input" value="Igor" />
-        <button style="display: block; margin-top: 32px;"
-                onclick="onStartGameClicked();">
+        <p>Connect to Server</p>
+        
+        <label for="name-text-input">Username:</label>
+        <input id="name-text-input" value="Igor" placeholder="Enter your username" />
+        
+        <label for="mode-selection">Game Mode:</label>
+        <select id="mode-selection">
+            <option value="2d">2D Game</option>
+            <option value="3d">3D Game</option>
+            <option value="chat">Lobby Chat</option>
+        </select>
+        
+        <button style="margin-top: 8px;" onclick="onStartGameClicked();">
             Start
         </button>
     </div>
