@@ -1,4 +1,4 @@
-# WsCore Docker Deployment - Complete Index
+# WsCore Documentation - Complete Index
 
 ## 📖 Documentation (Start Here!)
 
@@ -7,11 +7,46 @@
 | **[QUICKSTART.md](QUICKSTART.md)** | 5-minute quick start guide (tested ✅) | 5 min |
 | **[DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)** | Complete step-by-step guide with architecture | 15 min |
 | **[CONFIG_EXAMPLES.md](CONFIG_EXAMPLES.md)** | Advanced configurations & customization | 10 min |
+| **[ROOM_ARCHITECTURE.md](ROOM_ARCHITECTURE.md)** | Room-based communication system | 10 min |
 
 ### Quick Navigation
 - 🚀 Want to deploy NOW? → [QUICKSTART.md](QUICKSTART.md)
 - 📚 Need complete guide? → [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md)
+- 🏗️ Understanding rooms? → [ROOM_ARCHITECTURE.md](ROOM_ARCHITECTURE.md)
 - ⚙️ Need advanced configs? → [CONFIG_EXAMPLES.md](CONFIG_EXAMPLES.md)
+
+---
+
+## 🏗️ Architecture Overview
+
+### Core System Components
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     WsCore Architecture                      │
+├─────────────────────────────────────────────────────────────┤
+│  WsServer (ASP.NET Core 10)                               │
+│  ├── WebSocket Handler (/ws)                              │
+│  ├── Room Manager (4 persistent rooms)                     │
+│  ├── Game Loop (30 FPS)                                   │
+│  ├── MemoryPack Protocol (1-byte header)                   │
+│  └── Message Discovery (Reflection-based)                  │
+├─────────────────────────────────────────────────────────────┤
+│  Client Applications (TypeScript)                         │
+│  ├── 2D Client (Phaser) - Spatial2D + TextChat            │
+│  ├── 3D Client (Three.js) - Spatial3D + TextChat          │
+│  └── Lobby Interface (Discord-style) - TextChat only      │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Room-Based Communication System
+
+| Room Name | Communication Modes | Purpose |
+|-----------|-------------------|---------|
+| **lobby** | TextChat | Default starting room, text chat only |
+| **voice** | VoiceChat + TextChat | Voice communication (future) |
+| **2d-game** | Spatial2D + TextChat | 2D Phaser gameplay with chat |
+| **3d-game** | Spatial3D + TextChat | 3D Three.js gameplay with chat |
 
 ---
 
@@ -40,11 +75,9 @@
 | Script | Purpose | Usage |
 |--------|---------|-------|
 | **[build.sh](scripts/build.sh)** | Build Docker image locally | `./scripts/build.sh [name] [tag]` |
-| **[push.sh](scripts/push.sh)** | Push to Docker registry | `./scripts/push.sh [name] [tag] [registry]` |
-| **[deploy-vds.sh](scripts/deploy-vds.sh)** | ⭐ Deploy to remote VDS | `./scripts/deploy-vds.sh <user@host> [dir]` |
-| **[manage-vds.sh](scripts/manage-vds.sh)** | Manage running services | `./scripts/manage-vds.sh <user@host> <cmd>` |
-| **[setup-ssl.sh](scripts/setup-ssl.sh)** | Setup HTTPS with Let's Encrypt | `./scripts/setup-ssl.sh <user@host> <domain>` |
-| **[README.md](scripts/README.md)** | Script reference & examples | (in scripts/) |
+| **[deploy.sh](scripts/deploy.sh)** | ⭐ Deploy to remote VDS | `./scripts/deploy.sh <user@host> <domain>` |
+| **[deploy.ps1](scripts/deploy.ps1)** | PowerShell deployment script | `.\scripts\deploy.ps1 <user@host> <domain>` |
+| **[build.ps1](scripts/build.ps1)** | PowerShell build script | `.\scripts\build.ps1 [name] [tag]` |
 
 ### Main Commands
 ```bash
@@ -52,65 +85,56 @@
 chmod +x scripts/*.sh
 
 # Deploy to VDS
-./scripts/deploy-vds.sh deploy@your-vds-ip ~/gameserver
+./scripts/deploy.sh deploy@your-vds-ip ~/gameserver
 
-# Setup HTTPS
-./scripts/setup-ssl.sh deploy@your-vds-ip your-domain.com admin@example.com
+# Check status after deployment
+ssh deploy@your-vds-ip 'cd ~/gameserver && docker compose ps'
 
-# Manage services
-./scripts/manage-vds.sh deploy@your-vds-ip status      # Check status
-./scripts/manage-vds.sh deploy@your-vds-ip logs        # View logs
-./scripts/manage-vds.sh deploy@your-vds-ip restart     # Restart
-./scripts/manage-vds.sh deploy@your-vds-ip update      # Update image
-./scripts/manage-vds.sh deploy@your-vds-ip shell       # SSH into VDS
+# View logs
+ssh deploy@your-vds-ip 'cd ~/gameserver && docker compose logs -f'
 ```
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ Server Architecture Details
 
-### Docker Image (Single Build)
-```
-Dockerfile (Multi-stage)
-├── Stage 1: Node.js Builder
-│   ├── Base: node:20-alpine
-│   ├── Install npm dependencies
-│   ├── Build TypeScript/Vite client
-│   └── Output: /app/client/dist (single index.html)
-├── Stage 2: .NET Builder
-│   ├── Base: mcr.microsoft.com/dotnet/sdk:10.0
-│   ├── Restore NuGet packages
-│   ├── Build .NET 10 solution (Release)
-│   └── Output: published DLLs
-└── Stage 3: Runtime
-    ├── Base: mcr.microsoft.com/dotnet/aspnet:10.0
-    ├── Copy server (Stage 2) → /app
-    ├── Copy client (Stage 1) → /app/wwwroot
-    ├── User: gameserver:1001 (non-root)
-    ├── Health check: HTTP monitoring
-    └── Ports: 80, 443
-```
+### Core Components
 
-### Deployment Stack (VDS)
+#### 1. **WebSocket Handler (`WsServer/WsServer/`)**
+- **Framework**: ASP.NET Core 10
+- **Endpoint**: `/ws`
+- **Features**: Connection lifecycle, binary message processing, static file serving
+
+#### 2. **Room Manager (`WsServer.WsServer/GameServer.cs`)**
+- **Persistent Rooms**: 4 predefined rooms with different communication modes
+- **Auto-join**: New players automatically join lobby
+- **Spatial Filtering**: Game updates filtered by room and proximity
+- **Communication Modes**: TextChat, VoiceChat (future), Spatial2D, Spatial3D
+
+#### 3. **Game Loop (`WsServer.Game/Core/GameModel.cs`)**
+- **Fixed Timestep**: 30 FPS (33ms intervals)
+- **Game State**: Player management, bullet physics, collision detection
+- **Concurrency**: Thread-safe collections (ConcurrentDictionary)
+- **Events**: Player join/leave, tick updates, hits, respawns
+
+#### 4. **MemoryPack Protocol (`WsServer.WsServer.Shared/`)**
+- **Binary Format**: `[TypeId:byte][MemoryPack payload]`
+- **Type Safety**: Compile-time message verification
+- **Performance**: Pooled buffers, minimal allocations
+- **TypeScript Generation**: Auto-generated client types
+
+### Message Flow
+
 ```
-┌─ Docker Compose Network ─────────────────┐
-│                                          │
-│  ┌──────────┐      ┌──────────┐        │
-│  │ nginx    │◄────►│ game-    │        │
-│  │ (443)    │      │ server   │        │
-│  │ (80)     │      │ (80)     │        │
-│  └──────────┘      └──────────┘        │
-│       │                                  │
-│  ┌────┴──────────────────────┐         │
-│  │  certbot (SSL renewal)    │         │
-│  │  (auto-renew every 12h)   │         │
-│  └──────────────────────────┘         │
-│                                        │
-└────────────────────────────────────────┘
-         ▲
-         │ Port 443 (HTTPS)
-         │ Port 80 (HTTP)
-    Internet
+Client WebSocket Connection
+    ↓
+Join Default Lobby Room (TextChat)
+    ↓
+Navigate to Game Rooms (Spatial + TextChat)
+    ↓
+Receive Room-Aware Updates
+    ├── Spatial Updates (filtered by proximity)
+    └── Text Messages (all room members)
 ```
 
 ---
@@ -119,25 +143,24 @@ Dockerfile (Multi-stage)
 
 ### Option 1: Quick Deployment (Recommended)
 ```bash
-# 1. Deploy to VDS
-./scripts/deploy-vds.sh deploy@your-vds-ip ~/gameserver
+# 1. Make scripts executable
+chmod +x scripts/*.sh
 
-# 2. Setup HTTPS
-./scripts/setup-ssl.sh deploy@your-vds-ip your-domain.com admin@example.com
+# 2. Build and deploy
+./scripts/build.sh wscore-game-server latest
+./scripts/deploy.sh deploy@your-vds-ip ~/gameserver
 
-# 3. Done!
+# 3. Setup HTTPS (automatic)
+# Script handles Let's Encrypt automatically
 ```
 
-### Option 2: Build & Push (For Registry)
-```bash
-# 1. Build locally
-./scripts/build.sh wscore-game-server latest
+### Option 2: PowerShell (Windows)
+```powershell
+# Build with PowerShell
+.\scripts\build.ps1 wscore-game-server latest
 
-# 2. Push to registry
-./scripts/push.sh wscore-game-server latest docker.io/yourusername
-
-# 3. Deploy from registry
-./scripts/deploy-vds.sh deploy@your-vds-ip ~/gameserver docker.io/yourusername/wscore-game-server:latest
+# Deploy with PowerShell
+.\scripts\deploy.ps1 deploy@your-vds-ip ~/gameserver
 ```
 
 ---
@@ -157,19 +180,19 @@ WsCore/
 ```
 scripts/
 ├── build.sh                (1.0K) - Build image
-├── push.sh                 (1.4K) - Push to registry
-├── deploy-vds.sh           (2.6K) - Main deployment script ⭐
-├── manage-vds.sh           (2.2K) - Service management
-├── setup-ssl.sh            (2.8K) - SSL setup
-└── README.md               (3.2K) - Script reference
+├── build.ps1               (1.1K) - PowerShell build
+├── deploy.sh               (2.8K) - Main deployment script ⭐
+├── deploy.ps1              (2.9K) - PowerShell deployment
+└── README.md               (2.5K) - Script reference
 ```
 
 ### Documentation
 ```
+docs/
 ├── QUICKSTART.md           (3.5K) - 5-min quick start
-├── DEPLOYMENT_GUIDE.md     (11K)  - Complete guide
+├── DEPLOYMENT_GUIDE.md     (12K)  - Complete guide
 ├── CONFIG_EXAMPLES.md      (4.4K) - Advanced configs
-├── DOCKER_SETUP_SUMMARY.txt (6K)  - Setup summary
+├── ROOM_ARCHITECTURE.md    (5.2K) - Room system details
 └── INDEX.md                (this) - File index
 ```
 
@@ -185,10 +208,10 @@ scripts/
 - [ ] Have SSH key configured
 
 ### After Deployment
-- [ ] Check status: `./scripts/manage-vds.sh <vds> status`
-- [ ] View logs: `./scripts/manage-vds.sh <vds> logs`
-- [ ] Setup SSL: `./scripts/setup-ssl.sh <vds> <domain> <email>`
+- [ ] Check status: `ssh <user>@<host> 'cd <dir> && docker compose ps'`
+- [ ] View logs: `ssh <user>@<host> 'cd <dir> && docker compose logs -f'`
 - [ ] Test HTTPS: `curl -I https://your-domain.com`
+- [ ] Verify rooms: Access lobby, 2d-game, 3d-game rooms
 
 ---
 
@@ -196,32 +219,28 @@ scripts/
 
 ### Deploy
 ```bash
-./scripts/deploy-vds.sh deploy@192.168.1.100 ~/gameserver
+./scripts/deploy.sh deploy@192.168.1.100 ~/gameserver
 ```
 
 ### Check Status
 ```bash
-./scripts/manage-vds.sh deploy@192.168.1.100 status
+ssh deploy@192.168.1.100 'cd ~/gameserver && docker compose ps'
 ```
 
 ### View Live Logs
 ```bash
-./scripts/manage-vds.sh deploy@192.168.1.100 logs
+ssh deploy@192.168.1.100 'cd ~/gameserver && docker compose logs -f'
 ```
 
-### Setup HTTPS
+### Restart Services
 ```bash
-./scripts/setup-ssl.sh deploy@192.168.1.100 msk.gritsenko.biz admin@example.com
+ssh deploy@192.168.1.100 'cd ~/gameserver && docker compose restart'
 ```
 
-### Update Image
+### Update Application
 ```bash
-./scripts/manage-vds.sh deploy@192.168.1.100 update
-```
-
-### SSH into VDS
-```bash
-./scripts/manage-vds.sh deploy@192.168.1.100 shell
+./scripts/build.sh wscore-game-server latest
+./scripts/deploy.sh deploy@192.168.1.100 ~/gameserver
 ```
 
 ---
@@ -249,11 +268,12 @@ scripts/
 
 | Issue | Solution |
 |-------|----------|
-| Containers not starting | `./scripts/manage-vds.sh <vds> logs` |
+| Containers not starting | `ssh <vds> 'cd <dir> && docker compose logs'` |
 | SSL certificate error | `ssh <vds> 'docker compose logs certbot'` |
 | Port already in use | `ssh <vds> 'sudo lsof -i :80'` |
-| Game server not responding | `./scripts/manage-vds.sh <vds> logs game-server` |
-| Full restart needed | `ssh <vds> 'cd ~/gameserver && docker compose down -v && docker compose up -d'` |
+| Game server not responding | `ssh <vds> 'cd <dir> && docker compose logs game-server'` |
+| Room navigation issues | Check browser console for WebSocket errors |
+| Full restart needed | `ssh <vds> 'cd <dir> && docker compose down -v && docker compose up -d'` |
 
 See [DEPLOYMENT_GUIDE.md#troubleshooting](DEPLOYMENT_GUIDE.md#troubleshooting) for more.
 
@@ -265,8 +285,8 @@ See [DEPLOYMENT_GUIDE.md#troubleshooting](DEPLOYMENT_GUIDE.md#troubleshooting) f
 |------|------|
 | 📖 Quick Start | [QUICKSTART.md](QUICKSTART.md) |
 | 📚 Full Guide | [DEPLOYMENT_GUIDE.md](DEPLOYMENT_GUIDE.md) |
+| 🏗️ Room System | [ROOM_ARCHITECTURE.md](ROOM_ARCHITECTURE.md) |
 | ⚙️ Advanced Config | [CONFIG_EXAMPLES.md](CONFIG_EXAMPLES.md) |
-| 📋 Summary | [DOCKER_SETUP_SUMMARY.txt](DOCKER_SETUP_SUMMARY.txt) |
 | 🛠️ Scripts Ref | [scripts/README.md](scripts/README.md) |
 
 ---
@@ -275,24 +295,26 @@ See [DEPLOYMENT_GUIDE.md#troubleshooting](DEPLOYMENT_GUIDE.md#troubleshooting) f
 
 1. **Read** [QUICKSTART.md](QUICKSTART.md) (5 min)
 2. **Make scripts executable**: `chmod +x scripts/*.sh`
-3. **Deploy**: `./scripts/deploy-vds.sh deploy@your-vds-ip ~/gameserver`
-4. **Setup HTTPS**: `./scripts/setup-ssl.sh deploy@your-vds-ip your-domain.com admin@example.com`
-5. **Manage**: `./scripts/manage-vds.sh deploy@your-vds-ip status`
+3. **Deploy**: `./scripts/deploy.sh deploy@your-vds-ip ~/gameserver`
+4. **Test**: Access `https://your-domain.com` and navigate rooms
+5. **Verify**: Check lobby → 2d-game → 3d-game room transitions
 
 **Ready?** Start with [QUICKSTART.md](QUICKSTART.md) now! 🚀
 
 ---
 
-## 📞 Support
+## 🌐 Room Navigation Guide
 
-- 🚀 Deployment issues? → [DEPLOYMENT_GUIDE.md#troubleshooting](DEPLOYMENT_GUIDE.md#troubleshooting)
-- ⚙️ Configuration help? → [CONFIG_EXAMPLES.md](CONFIG_EXAMPLES.md)
-- 🛠️ Script help? → [scripts/README.md](scripts/README.md)
-- 📚 Full overview? → [DOCKER_SETUP_SUMMARY.txt](DOCKER_SETUP_SUMMARY.txt)
+After deployment, test the room system:
+
+1. **Lobby** (`/`) - Text chat interface (Discord-style)
+2. **2D Game** (`/?mode=2d`) - 2D Phaser gameplay with chat
+3. **3D Game** (`/?mode=3d`) - 3D Three.js gameplay with chat
+
+Each room maintains persistent text chat while providing different gameplay modes.
 
 ---
 
-**Created**: 2025-11-13  
-**Technologies**: Docker, Docker Compose, .NET 8, Node.js 20, nginx, Let's Encrypt  
-**Status**: ✅ Ready for deployment
-
+**Created**: 2025-11-15  
+**Technologies**: Docker, Docker Compose, .NET 10, Node.js 20, nginx, Let's Encrypt, MemoryPack  
+**Status**: ✅ Ready for deployment with room-based architecture
