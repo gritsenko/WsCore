@@ -103,9 +103,19 @@ export default class WsConnection {
     this.overrideUrl = overrideUrl || null;
     this.ws = this.createSocket();
     this.ws.onmessage = e => this.processServerMessage(e.data);
-    this.ws.onerror = e => console.error('WebSocket error:', e);
-    this.ws.onclose = e => console.log('WebSocket closed:', e);
-    this.ws.onopen = () => console.log('WebSocket connected');
+    this.ws.onerror = e => {
+      console.error('WebSocket error:', e);
+      console.error('Failed to connect to:', this.serverUrl);
+    };
+    this.ws.onclose = e => {
+      console.log('WebSocket closed:', e);
+      if (e.code === 1006) {
+        console.warn(
+          'Connection closed abnormally (code 1006). Check if server is running and accessible.'
+        );
+      }
+    };
+    this.ws.onopen = () => console.log('WebSocket connected to:', this.serverUrl);
   }
 
   /**

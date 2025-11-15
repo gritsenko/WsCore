@@ -1,3 +1,5 @@
+import styles from './LobbyUI.css?inline';
+
 /**
  * Discord-style Lobby UI with chat and user list
  */
@@ -26,13 +28,12 @@ export default class LobbyUI {
   }
 
   /**
-   * Load the lobby CSS file
+   * Load the lobby CSS styles
    */
   private static loadCSS(): void {
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = '/src/lobby/LobbyUI.css';
-    document.head.appendChild(link);
+    const styleElement = document.createElement('style');
+    styleElement.textContent = styles;
+    document.head.appendChild(styleElement);
   }
 
   /**

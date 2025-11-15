@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 export default class MyApp3D {
-  serverUrl = '';
+  serverUrl: string;
   socket: WebSocket;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
@@ -23,8 +23,9 @@ export default class MyApp3D {
   gameClient = new WsClient<Player3D>();
   chatUI: ChatUI;
 
-  constructor() {
+  constructor(serverUrl: string) {
     console.log('App3D instance created');
+    this.serverUrl = serverUrl;
     this.chatUI = new ChatUI();
     this.initThree();
 
@@ -70,7 +71,7 @@ export default class MyApp3D {
       this.chatUI.addMessage(playerName, message);
     };
 
-    this.gameClient.connect('ws://127.0.0.1:5000/ws');
+    this.gameClient.connect(this.serverUrl);
   }
 
   onGameInit() {

@@ -8,7 +8,7 @@ import ChatUI from '../utils/ChatUI';
 import Phaser from 'phaser';
 
 export default class MyApp {
-  serverUrl = '';
+  serverUrl: string;
   socket: WebSocket;
   phaserGame: Phaser.Game;
   currentScene: Phaser.Scene;
@@ -19,8 +19,9 @@ export default class MyApp {
   gameClient = new WsClient();
   chatUI: ChatUI;
 
-  constructor() {
+  constructor(serverUrl: string) {
     console.log('App instance created');
+    this.serverUrl = serverUrl;
     this.chatUI = new ChatUI();
     this.initPhaser();
 
@@ -65,7 +66,7 @@ export default class MyApp {
       this.chatUI.addMessage(playerName, message);
     };
 
-    this.gameClient.connect('ws://127.0.0.1:5000/ws');
+    this.gameClient.connect(this.serverUrl);
   }
 
   onGameInit() {

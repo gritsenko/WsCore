@@ -7,15 +7,16 @@ import { PlayerLeftEvent } from '../network/protocol/PlayerLeftEvent';
 import { RoomUsersUpdateEvent } from '../network/protocol/RoomUsersUpdateEvent';
 
 export default class LobbyApp {
-  serverUrl = '';
+  serverUrl: string;
   socket: WebSocket;
   playerName: string = 'User';
   private lobbyUI: LobbyUI;
   private gameClient: WsClient<LobbyPlayer>;
   private initialized: boolean = false;
 
-  constructor() {
+  constructor(serverUrl: string) {
     console.log('LobbyApp instance created');
+    this.serverUrl = serverUrl;
     this.lobbyUI = new LobbyUI();
     this.gameClient = new WsClient<LobbyPlayer>();
   }
@@ -103,7 +104,7 @@ export default class LobbyApp {
     });
 
     // Connect to server
-    this.gameClient.connect('ws://127.0.0.1:5000/ws');
+    this.gameClient.connect(this.serverUrl);
   }
 
   /**
