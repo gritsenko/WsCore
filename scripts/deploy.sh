@@ -184,6 +184,10 @@ ssh "${VDS_TARGET}" "
     mkdir -p ssl certbot/conf certbot/www
     echo 'Directories created'
     
+    # Update nginx.conf to use actual domain BEFORE starting containers
+    sed -i 's/DOMAIN_PLACEHOLDER/${DOMAIN}/g' nginx.conf
+    echo 'nginx.conf updated with domain: ${DOMAIN}'
+    
     # Create a docker-compose override file to use the image instead of building
     cat > docker-compose.override.yml << 'COMPOSE_EOF'
 services:
@@ -209,6 +213,10 @@ echo -e "${YELLOW}[8/7] Setting up SSL certificate with Let's Encrypt...${NC}"
 ssh "${VDS_TARGET}" "
     cd ${DEPLOY_DIR}
     
+    # Wait for nginx to be ready for ACME challenges
+    echo 'Waiting for nginx to handle ACME challenges...'
+    sleep 5
+    
     # Try to get certificate from Let's Encrypt
     echo 'Requesting SSL certificate from Let'\''s Encrypt...'
     if docker compose exec -T certbot certbot certonly \
@@ -218,26 +226,36 @@ ssh "${VDS_TARGET}" "
         --non-interactive \
         --agree-tos \
         --email ${EMAIL} \
-        --quiet 2>/dev/null; then
-        echo 'Let'\''s Encrypt certificate acquired successfully'
+        --rsa-key-size 4096 \
+        2>&1 | tee /tmp/certbot.log; then
+        
+        # Extract certificate path from certbot output
+        CERT_PATH=\$(grep -oP 'live/[^/]+' /tmp/certbot.log | head -1 | sed 's|live/||')
+        if [ -z \"\${CERT_PATH}\" ]; then
+            CERT_PATH=\"${DOMAIN}\"
+        fi
+        
+        echo \"Let's Encrypt certificate acquired at: \${CERT_PATH}\"
+        
+        # Update nginx.conf to use the correct certificate path
+        sed -i \"s|/etc/letsencrypt/live/${DOMAIN}/|/etc/letsencrypt/live/\${CERT_PATH}/|g\" nginx.conf
+        
+        # Reload nginx to use the new certificate
+        docker compose exec -T nginx nginx -s reload
+        sleep 2
+        echo 'nginx reloaded with Let'\''s Encrypt certificate'
     else
-        echo 'Let'\''s Encrypt certificate request failed, creating self-signed certificate...'
+        echo 'Let'\''s Encrypt certificate request failed'
+        echo 'Creating temporary self-signed certificate for initial setup...'
         mkdir -p ./certbot/conf/live/${DOMAIN}
         cd ./certbot/conf/live/${DOMAIN}
-        openssl req -x509 -newkey rsa:4096 -keyout privkey.pem -out fullchain.pem -days 365 -nodes -subj \"/CN=${DOMAIN}\" 2>/dev/null || true
+        openssl req -x509 -newkey rsa:4096 -keyout privkey.pem -out fullchain.pem -days 90 -nodes -subj \"/CN=${DOMAIN}\" 2>/dev/null || true
         cd -
+        echo 'WARNING: Using self-signed certificate. Run this to get a real certificate:'
+        echo \"  ssh ${VDS_TARGET} 'cd ${DEPLOY_DIR} && docker compose exec -T certbot certbot certonly --webroot -w /var/www/certbot -d ${DOMAIN} --non-interactive --agree-tos --email ${EMAIL}'\"
     fi
     
-    echo 'SSL certificate ready'
-    
-    # Update nginx.conf to use actual domain (replace placeholder)
-    sed -i 's/DOMAIN_PLACEHOLDER/${DOMAIN}/g' nginx.conf
-    
-    # Restart nginx container to pick up updated nginx.conf from the volume
-    docker compose restart nginx
-    
-    sleep 2
-    echo 'HTTPS configured and nginx restarted'
+    echo 'SSL certificate setup completed'
 "
 echo ""
 echo -e "${GREEN}✓ SSL certificate setup completed!${NC}"
@@ -254,11 +272,15 @@ echo -e "${YELLOW}Your app is now available at:${NC}"
 echo "  🌐 https://${DOMAIN}"
 echo "  🔄 HTTP redirects to HTTPS automatically"
 echo ""
+echo -e "${YELLOW}Certificate Status:${NC}"
+ssh "${VDS_TARGET}" "cd ${DEPLOY_DIR} && echo 'Checking certificate...' && openssl x509 -in certbot/conf/live/*/fullchain.pem -noout -dates 2>/dev/null | head -2 || echo 'Self-signed certificate in use'"
+echo ""
 echo -e "${YELLOW}Management commands:${NC}"
-echo "  Check status:   ssh ${VDS_TARGET} 'cd ${DEPLOY_DIR} && docker compose ps'"
-echo "  View logs:      ssh ${VDS_TARGET} 'cd ${DEPLOY_DIR} && docker compose logs -f game-server'"
-echo "  Restart app:    ssh ${VDS_TARGET} 'cd ${DEPLOY_DIR} && docker compose restart'"
-echo "  View nginx logs: ssh ${VDS_TARGET} 'cd ${DEPLOY_DIR} && docker compose logs -f nginx'"
+echo "  Check status:      ssh ${VDS_TARGET} 'cd ${DEPLOY_DIR} && docker compose ps'"
+echo "  View logs:         ssh ${VDS_TARGET} 'cd ${DEPLOY_DIR} && docker compose logs -f game-server'"
+echo "  Restart app:       ssh ${VDS_TARGET} 'cd ${DEPLOY_DIR} && docker compose restart'"
+echo "  View nginx logs:   ssh ${VDS_TARGET} 'cd ${DEPLOY_DIR} && docker compose logs -f nginx'"
+echo "  Renew certificate: ssh ${VDS_TARGET} 'cd ${DEPLOY_DIR} && docker compose exec -T certbot certbot renew'"
 echo ""
 echo -e "${YELLOW}To update the app later:${NC}"
 echo "  1. Make changes to code"

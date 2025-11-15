@@ -7,17 +7,25 @@ let app: MyApp | MyApp3D | LobbyApp;
 
 /**
  * Get the WebSocket server URL
- * Uses current domain and port, or can be overridden with a custom URL
+ * Uses port 5000 in development, current port in production
  */
 function getWebSocketUrl(customUrl?: string): string {
   if (customUrl) {
     return customUrl;
   }
 
-  // Use current domain with current port (if any), matching WsConnection logic
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const hostname = window.location.hostname;
-  const port = window.location.port ? ':' + window.location.port : '';
+
+  // In development, use port 5000; in production, use current port
+  let port = '';
+  const isDev = import.meta.env.DEV;
+  if (isDev) {
+    port = ':5000';
+  } else if (window.location.port) {
+    port = ':' + window.location.port;
+  }
+
   return `${protocol}//${hostname}${port}/ws`;
 }
 

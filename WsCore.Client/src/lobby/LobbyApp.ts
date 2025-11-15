@@ -143,23 +143,15 @@ export default class LobbyApp {
   }
 
   /**
-   * Update room user counts based on server data
+   * Update room user counts based on actual room data
    */
   private updateRoomUserCounts(): void {
-    // This would typically come from server
-    // For now, we'll update based on current client data
-    const rooms = [
-      { id: 'lobby', name: 'Lobby' },
-      { id: 'voice', name: 'Voice Room' },
-      { id: '2d-game', name: '2D Game Room' },
-      { id: '3d-game', name: '3D Game Room' },
-    ];
+    const roomIds = ['lobby', 'voice', '2d-game', '3d-game'];
 
-    for (const room of rooms) {
-      // Get user count from server or estimate
-      // This is a placeholder - real implementation would query server
-      const userCount = Math.floor(Math.random() * 10); // Temporary placeholder
-      this.lobbyUI.updateRoomUserCount(room.id, userCount);
+    for (const roomId of roomIds) {
+      // Get actual user count from room manager
+      const userCount = this.gameClient.roomManager.getRoomClientIds(roomId).length;
+      this.lobbyUI.updateRoomUserCount(roomId, userCount);
     }
   }
 
@@ -220,6 +212,9 @@ export default class LobbyApp {
         console.log(`Player joined: ${playerName}`);
       }
     }
+
+    // Update room user counts
+    this.updateRoomUserCounts();
   }
 
   /**
@@ -235,6 +230,9 @@ export default class LobbyApp {
 
     // Clean up cached data
     delete this.gameClient.playerNames[playerId];
+
+    // Update room user counts
+    this.updateRoomUserCounts();
   }
 
   /**
