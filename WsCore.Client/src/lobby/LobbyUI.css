@@ -71,6 +71,37 @@
   white-space: nowrap;
 }
 
+/* Room content container for name and play button */
+.lobby-room-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.lobby-play-btn {
+  background: linear-gradient(135deg, #43b581, #3a9950);
+  border: none;
+  border-radius: 4px;
+  padding: 4px 8px;
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.lobby-play-btn:hover {
+  background: linear-gradient(135deg, #3aa06f, #2f8443);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(67, 181, 129, 0.4);
+}
+
+.lobby-play-btn:active {
+  transform: translateY(0);
+}
+
 .lobby-room-count {
   background: #7289da;
   color: white;

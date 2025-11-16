@@ -316,11 +316,33 @@ export default class Player3D implements IPlayer {
   }
 
   destroy() {
-    if (this.sprite) {
-      this.sprite.removeFromParent();
+    try {
+      if (this.sprite) {
+        // Three.js sprites don't have removeFromParent method, use scene.remove
+        if (this.sprite.parent) {
+          this.sprite.parent.remove(this.sprite);
+        }
+        if (this.sprite.material) {
+          this.sprite.material.dispose();
+        }
+        this.sprite = undefined as any;
+      }
+    } catch (error) {
+      console.warn('Error destroying sprite:', error);
     }
-    if (this.nickText) {
-      this.nickText.removeFromParent();
+
+    try {
+      if (this.nickText) {
+        if (this.nickText.parent) {
+          this.nickText.parent.remove(this.nickText);
+        }
+        if (this.nickText.material) {
+          this.nickText.material.dispose();
+        }
+        this.nickText = undefined as any;
+      }
+    } catch (error) {
+      console.warn('Error destroying nickText:', error);
     }
   }
 }

@@ -190,6 +190,63 @@ export default class MyApp {
     logo.alpha = 0.7;
     logo.depth = 100000;
     logo.setScrollFactor(0);
+
+    // Add Back to Lobby button
+    this.createBackToLobbyButton(p);
+  }
+
+  createBackToLobbyButton(scene: Phaser.Scene) {
+    // Create a button container
+    const buttonContainer = scene.add.container(200, 50);
+    buttonContainer.depth = 100001;
+    buttonContainer.setScrollFactor(0);
+
+    // Button background
+    const buttonBg = scene.add.rectangle(0, 0, 120, 30, 0x2c2f33, 0.8);
+    buttonBg.setStrokeStyle(2, 0x4a9eff);
+    buttonBg.setInteractive({ useHandCursor: true });
+
+    // Button text
+    const buttonText = scene.add.text(0, 0, 'Back to Lobby', {
+      fontSize: '12px',
+      color: '#4a9eff',
+      fontFamily: 'Arial, sans-serif'
+    });
+    buttonText.setOrigin(0.5);
+
+    // Add hover effects
+    buttonBg.on('pointerover', () => {
+      buttonBg.setFillStyle(0x40444b, 0.9);
+    });
+
+    buttonBg.on('pointerout', () => {
+      buttonBg.setFillStyle(0x2c2f33, 0.8);
+    });
+
+    buttonBg.on('pointerdown', () => {
+      this.backToLobby();
+    });
+
+    buttonContainer.add([buttonBg, buttonText]);
+  }
+
+  backToLobby() {
+    console.log('Returning to lobby');
+    
+    // Clean up Phaser game
+    if (this.phaserGame) {
+      this.phaserGame.destroy(true);
+    }
+    
+    // Clear game container
+    const gameContainer = document.getElementById('game');
+    if (gameContainer) {
+      gameContainer.innerHTML = '';
+    }
+    
+    // Dispatch event to return to lobby
+    const event = new CustomEvent('gameReturnToLobby');
+    document.dispatchEvent(event);
   }
 
   fitView(view) {

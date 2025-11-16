@@ -146,6 +146,7 @@ export default class MyApp3D {
       this.worldMap.create(this.scene);
       this.initGameClient();
       this.animate();
+      this.createBackToLobbyButton();
     });
 
     // Handle window resize
@@ -252,5 +253,67 @@ export default class MyApp3D {
     this.camera.updateProjectionMatrix();
 
     this.renderer.setSize(width, height);
+  }
+  createBackToLobbyButton() {
+    // Create a button container
+    const buttonContainer = document.createElement('div');
+    buttonContainer.style.position = 'fixed';
+    buttonContainer.style.top = '20px';
+    buttonContainer.style.left = '20px';
+    buttonContainer.style.zIndex = '10000';
+    buttonContainer.style.pointerEvents = 'auto';
+
+    // Button background
+    const buttonBg = document.createElement('div');
+    buttonBg.style.background = 'rgba(44, 47, 51, 0.8)';
+    buttonBg.style.border = '2px solid #4a9eff';
+    buttonBg.style.borderRadius = '4px';
+    buttonBg.style.padding = '8px 16px';
+    buttonBg.style.cursor = 'pointer';
+    buttonBg.style.transition = 'all 0.2s';
+    buttonBg.style.fontFamily = 'Arial, sans-serif';
+    buttonBg.style.fontSize = '12px';
+    buttonBg.style.color = '#4a9eff';
+    buttonBg.style.fontWeight = '600';
+    buttonBg.textContent = 'Back to Lobby';
+
+    // Add hover effects
+    buttonBg.addEventListener('mouseenter', () => {
+      buttonBg.style.background = 'rgba(64, 68, 75, 0.9)';
+    });
+
+    buttonBg.addEventListener('mouseleave', () => {
+      buttonBg.style.background = 'rgba(44, 47, 51, 0.8)';
+    });
+
+    buttonBg.addEventListener('click', () => {
+      this.backToLobby();
+    });
+
+    buttonContainer.appendChild(buttonBg);
+    document.body.appendChild(buttonContainer);
+  }
+
+  backToLobby() {
+    console.log('Returning to lobby');
+    
+    // Clean up Three.js renderer
+    if (this.renderer) {
+      this.renderer.dispose();
+    }
+    
+    // Clear game container
+    const gameContainer = document.getElementById('game');
+    if (gameContainer) {
+      gameContainer.innerHTML = '';
+    }
+    
+    // Remove the back to lobby button
+    const buttons = document.querySelectorAll('div[style*="Back to Lobby"]');
+    buttons.forEach(btn => btn.remove());
+    
+    // Dispatch event to return to lobby
+    const event = new CustomEvent('gameReturnToLobby');
+    document.dispatchEvent(event);
   }
 }

@@ -169,20 +169,43 @@ export default class LobbyUI {
         roomElement.classList.add('lobby-room-current');
       }
 
-      // Room name
+      // Room name and Play button container
+      const roomContent = document.createElement('div');
+      roomContent.className = 'lobby-room-content';
+
       const nameSpan = document.createElement('span');
       nameSpan.className = 'lobby-room-name';
       nameSpan.textContent = room.name;
-      roomElement.appendChild(nameSpan);
+      roomContent.appendChild(nameSpan);
 
-      // User count badge
+      // Add Play button for game rooms
+      if (roomId === '2d-game' || roomId === '3d-game') {
+        const playButton = document.createElement('button');
+        playButton.className = 'lobby-play-btn';
+        playButton.textContent = 'Play';
+        playButton.onclick = (e) => {
+          e.stopPropagation(); // Prevent triggering room join
+          this.handlePlayButtonClick(roomId);
+        };
+        roomContent.appendChild(playButton);
+      }
+
+      roomElement.appendChild(roomContent);
+
+      // User count badge for all rooms
       const countBadge = document.createElement('span');
       countBadge.className = 'lobby-room-count';
       countBadge.textContent = room.userCount.toString();
       roomElement.appendChild(countBadge);
 
-      // Click handler
-      roomElement.onclick = () => {
+      // Click handler for room join (for all rooms to join as chat)
+      roomElement.onclick = (e) => {
+        // Don't trigger if Play button was clicked
+        if ((e.target as HTMLElement).classList.contains('lobby-play-btn')) {
+          return;
+        }
+        
+        // Join room as chat for all rooms
         if (this.roomJoinCallback && roomId !== this.currentRoomId) {
           this.roomJoinCallback(roomId);
         }
@@ -190,6 +213,16 @@ export default class LobbyUI {
 
       this.roomsList.appendChild(roomElement);
     }
+  }
+
+  /**
+   * Handle Play button click
+   */
+  private handlePlayButtonClick(roomId: string): void {
+    console.log(`Play button clicked for room: ${roomId}`);
+    // Dispatch a custom event that the main app can listen to
+    const event = new CustomEvent('lobbyPlayGame', { detail: { roomId } });
+    document.dispatchEvent(event);
   }
 
   /**

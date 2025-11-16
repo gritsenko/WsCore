@@ -189,10 +189,22 @@ export default class Player implements IPlayer {
   }
 
   destroy() {
-    const sprite = this.sprite as Phaser.GameObjects.Sprite;
-    sprite.destroy();
+    try {
+      if (this.sprite) {
+        this.sprite.destroy();
+        this.sprite = undefined as any;
+      }
+    } catch (error) {
+      console.warn('Error destroying sprite:', error);
+    }
 
-    const nick = this.nickText as Phaser.GameObjects.Text;
-    nick.destroy();
+    try {
+      if (this.nickText) {
+        this.nickText.destroy();
+        this.nickText = undefined as any;
+      }
+    } catch (error) {
+      console.warn('Error destroying nickText:', error);
+    }
   }
 }
