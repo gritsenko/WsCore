@@ -256,6 +256,13 @@ export default class LobbyApp {
   }
 
   /**
+   * Get the game client (for passing to game apps)
+   */
+  public getGameClient(): WsClient<LobbyPlayer> {
+    return this.gameClient;
+  }
+
+  /**
    * Send a chat message
    */
   sendMessage(message: string): void {
@@ -265,9 +272,13 @@ export default class LobbyApp {
   /**
    * Cleanup
    */
-  destroy(): void {
+  destroy(closeConnection: boolean = true): void {
+    // Clear lobby-specific event handlers if connection is being kept alive
+    if (!closeConnection && this.gameClient) {
+      this.gameClient.onRoomUsersUpdateCallback = undefined;
+    }
     this.lobbyUI.destroy();
-    if (this.gameClient) {
+    if (closeConnection && this.gameClient) {
       this.gameClient.ws?.close();
     }
   }

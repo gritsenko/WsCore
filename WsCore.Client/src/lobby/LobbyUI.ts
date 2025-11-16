@@ -183,7 +183,7 @@ export default class LobbyUI {
         const playButton = document.createElement('button');
         playButton.className = 'lobby-play-btn';
         playButton.textContent = 'Play';
-        playButton.onclick = (e) => {
+        playButton.onclick = e => {
           e.stopPropagation(); // Prevent triggering room join
           this.handlePlayButtonClick(roomId);
         };
@@ -199,12 +199,12 @@ export default class LobbyUI {
       roomElement.appendChild(countBadge);
 
       // Click handler for room join (for all rooms to join as chat)
-      roomElement.onclick = (e) => {
+      roomElement.onclick = e => {
         // Don't trigger if Play button was clicked
         if ((e.target as HTMLElement).classList.contains('lobby-play-btn')) {
           return;
         }
-        
+
         // Join room as chat for all rooms
         if (this.roomJoinCallback && roomId !== this.currentRoomId) {
           this.roomJoinCallback(roomId);

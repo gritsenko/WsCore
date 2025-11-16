@@ -57,6 +57,8 @@ export default class Player3D implements IPlayer {
     this.name = 'bot';
     this.speed = { x: 0, y: 0 };
 
+    console.log(`[Player3D.constructor] Creating player ${id}`);
+
     const fsm = this.fsm;
     fsm.fromAny(PlayerState).toAny(PlayerState);
 
@@ -125,6 +127,9 @@ export default class Player3D implements IPlayer {
 
   init(scene: THREE.Scene, isMyPlayer: boolean) {
     this.isMyPlayer = isMyPlayer;
+    console.log(
+      `[Player3D.init] Player ${this.id} ${this.name}, isMyPlayer=${isMyPlayer}, pos=(${this.x}, ${this.y})`
+    );
 
     // Load initial sprite texture
     const initialTexture =
@@ -292,6 +297,13 @@ export default class Player3D implements IPlayer {
 
     if (this.targetX < this.sprite.position.x && this.sprite.scale.x > 0) {
       this.sprite.scale.x = -this.scaleFactor;
+    }
+
+    // Debug logging every 30 frames to reduce console spam
+    if (this.frameCounter++ % 30 === 0) {
+      console.log(
+        `[Player3D.update] Player ${this.id}: sprite=(${this.sprite.position.x.toFixed(1)}, ${this.sprite.position.z.toFixed(1)}), target=(${this.x}, ${this.y}), vel=(${this.speed.x.toFixed(1)}, ${this.speed.y.toFixed(1)})`
+      );
     }
   }
 

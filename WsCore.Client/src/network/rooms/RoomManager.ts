@@ -40,11 +40,15 @@ export class RoomManager {
     }
 
     // If client is already in a room, remove them first (room switching)
+    let previousMode: CommunicationMode | undefined;
     if (this.clientRoomMap.has(clientId)) {
+      const currentRoom = this.getClientRoom(clientId);
+      const currentClient = currentRoom?.getClient(clientId);
+      previousMode = currentClient?.currentMode;
       this.leaveRoom(clientId);
     }
 
-    if (room.addClient(clientId, clientName)) {
+    if (room.addClient(clientId, clientName, previousMode)) {
       this.clientRoomMap.set(clientId, roomId);
       return true;
     }

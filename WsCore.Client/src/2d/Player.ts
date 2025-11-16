@@ -28,6 +28,7 @@ export default class Player implements IPlayer {
   animationState: number;
 
   runPressed = false;
+  private frameCount = 0;
 
   xDir = 0;
 
@@ -51,6 +52,8 @@ export default class Player implements IPlayer {
     this.id = id;
     this.name = 'bot';
     this.speed = { x: 0, y: 0 };
+
+    console.log(`[Player.constructor] Creating player ${id}`);
 
     var fsm = this.fsm;
 
@@ -116,6 +119,9 @@ export default class Player implements IPlayer {
 
   init(currentScene: Phaser.Scene, isMyPlayer: boolean) {
     this.isMyPlayer = isMyPlayer;
+    console.log(
+      `[Player.init] Player ${this.id} ${this.name}, isMyPlayer=${isMyPlayer}, pos=(${this.x}, ${this.y})`
+    );
     Player.initAnimations(currentScene);
 
     const sprite = currentScene.add.sprite(this.x, this.y, 'knight_idle');
@@ -153,6 +159,13 @@ export default class Player implements IPlayer {
     this.nickText.depth = sprite.depth;
     this.nickText.x = sprite.x - this.nickText.width / 2;
     this.nickText.y = sprite.y + Player.nickOffset;
+
+    // Debug logging every 30 frames to reduce console spam
+    if (this.frameCount++ % 30 === 0) {
+      console.log(
+        `[Player.update] Player ${this.id}: sprite=(${sprite.x.toFixed(1)}, ${sprite.y.toFixed(1)}), target=(${this.x}, ${this.y}), vel=(${this.speed.x.toFixed(1)}, ${this.speed.y.toFixed(1)})`
+      );
+    }
   }
 
   onStateUpdatedFromServer() {

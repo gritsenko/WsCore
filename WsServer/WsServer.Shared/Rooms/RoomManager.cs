@@ -55,10 +55,11 @@ public class RoomManager : IDisposable
             return false;
         }
         
-        // Set client to first supported spatial mode, or TextChat if no spatial modes
+        // Set client mode: prioritize spatial modes for game rooms, then fall back to text/voice for chat rooms
         var room_client = room.GetClient(clientId);
         if (room_client != null)
         {
+            // For game rooms with spatial modes, prefer spatial mode
             if (room.SupportsMode(CommunicationMode.Spatial2D))
             {
                 room_client.CurrentMode = CommunicationMode.Spatial2D;
@@ -67,10 +68,12 @@ public class RoomManager : IDisposable
             {
                 room_client.CurrentMode = CommunicationMode.Spatial3D;
             }
+            // For chat-only rooms, default to TextChat
             else if (room.SupportsMode(CommunicationMode.TextChat))
             {
                 room_client.CurrentMode = CommunicationMode.TextChat;
             }
+            // For voice rooms, default to VoiceChat
             else if (room.SupportsMode(CommunicationMode.VoiceChat))
             {
                 room_client.CurrentMode = CommunicationMode.VoiceChat;

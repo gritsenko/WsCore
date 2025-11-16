@@ -38,9 +38,13 @@ export class Room {
   /**
    * Add a client to the room
    */
-  public addClient(clientId: number, clientName: string): boolean {
+  public addClient(clientId: number, clientName: string, mode?: CommunicationMode): boolean {
     if (!this.clients.has(clientId)) {
-      this.clients.set(clientId, new RoomClient(clientId, clientName));
+      const client = new RoomClient(clientId, clientName);
+      if (mode && this.supportsMode(mode)) {
+        client.currentMode = mode;
+      }
+      this.clients.set(clientId, client);
       return true;
     }
     return false;

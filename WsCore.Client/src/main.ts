@@ -20,8 +20,13 @@ function getWebSocketUrl(customUrl?: string): string {
   // In development, use port 5000; in production, use current port
   let port = '';
   const isDev = import.meta.env.DEV;
-  console.log('Environment check:', { isDev, protocol: window.location.protocol, hostname: window.location.hostname, port: window.location.port });
-  
+  console.log('Environment check:', {
+    isDev,
+    protocol: window.location.protocol,
+    hostname: window.location.hostname,
+    port: window.location.port,
+  });
+
   if (isDev) {
     port = ':5000';
   } else if (window.location.port) {
@@ -50,7 +55,7 @@ function runGame() {
 
   // Listen for Play button clicks
   setupLobbyEventListeners(userName);
-  
+
   // Listen for Back to Lobby button clicks
   setupBackToLobbyListener();
 }
@@ -61,17 +66,17 @@ function runGame() {
 function setupBackToLobbyListener() {
   // Remove existing listener first
   document.removeEventListener('gameReturnToLobby', handleGameReturnToLobby as any);
-  
+
   handleGameReturnToLobby = () => {
     console.log('Returning to lobby from game');
-    
+
     // Clean up current app
     cleanupCurrentApp();
-    
+
     // Return to lobby
     startLobby();
   };
-  
+
   document.addEventListener('gameReturnToLobby', handleGameReturnToLobby);
 }
 
@@ -80,7 +85,7 @@ function setupBackToLobbyListener() {
  */
 function startLobby(playerName?: string) {
   const nameToUse = playerName || 'User';
-  
+
   const gameContainer = document.getElementById('game');
   if (gameContainer) {
     gameContainer.innerHTML = ''; // Clear any existing content
@@ -101,11 +106,11 @@ function startLobby(playerName?: string) {
 function setupLobbyEventListeners(playerName: string) {
   // Remove existing listener first
   document.removeEventListener('lobbyPlayGame', handleLobbyPlayGame as any);
-  
+
   handleLobbyPlayGame = (event: any) => {
     const { roomId } = event.detail;
     console.log(`Switching to game mode: ${roomId}`);
-    
+
     // Clean up current app based on type
     cleanupCurrentApp();
 
@@ -116,7 +121,7 @@ function setupLobbyEventListeners(playerName: string) {
       start3DGame(playerName);
     }
   };
-  
+
   document.addEventListener('lobbyPlayGame', handleLobbyPlayGame);
 }
 
@@ -156,18 +161,17 @@ function cleanupCurrentApp() {
         gameContainer.innerHTML = '';
       }
     }
-    
+
     // Clear any remaining Back to Lobby buttons
     const backButtons = document.querySelectorAll('div[style*="Back to Lobby"]');
     backButtons.forEach(btn => btn.remove());
-    
+
     // Clear any game-related event listeners
     document.removeEventListener('lobbyPlayGame', handleLobbyPlayGame as any);
     document.removeEventListener('gameReturnToLobby', handleGameReturnToLobby as any);
-    
+
     // Reset app reference
     app = undefined as any;
-    
   } catch (error) {
     console.error('Error during cleanup:', error);
   }

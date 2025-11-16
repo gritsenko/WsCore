@@ -39,18 +39,19 @@ public class GetRoomListRequestHandler : RequestHandlerBase<GetRoomListRequest>
             var roomInfoList = new List<RoomInfo>();
             foreach (var room in rooms)
             {
+                // Convert CommunicationMode enums to string list
+                var modeStrings = new List<string>();
+                foreach (var mode in room.SupportedModes)
+                {
+                    modeStrings.Add(mode.ToString());
+                }
+
                 roomInfoList.Add(new RoomInfo
                 {
                     Id = room.Id,
                     Name = room.Name,
                     UserCount = room.ClientCount,
-                    SupportedModes = new List<string>
-                    {
-                        "TextChat",
-                        "VoiceChat",
-                        "Spatial2D", 
-                        "Spatial3D"
-                    }
+                    SupportedModes = modeStrings
                 });
             }
             

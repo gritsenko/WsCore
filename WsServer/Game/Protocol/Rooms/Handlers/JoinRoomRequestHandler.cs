@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Game.Core;
+using Game.ServerLogic.GameState.Events;
 using Game.ServerLogic.Rooms.Requests;
 using Game.ServerLogic.Rooms.Events;
 using Microsoft.Extensions.Logging;
@@ -14,15 +16,18 @@ public class JoinRoomRequestHandler : RequestHandlerBase<JoinRoomRequest>
 {
     private readonly IGameMessenger _messenger;
     private readonly RoomManager _roomManager;
+    private readonly GameModel _gameModel;
     private readonly ILogger<JoinRoomRequestHandler> _logger;
 
     public JoinRoomRequestHandler(
         IGameMessenger messenger,
         RoomManager roomManager,
+        GameModel gameModel,
         ILogger<JoinRoomRequestHandler> logger)
     {
         _messenger = messenger;
         _roomManager = roomManager;
+        _gameModel = gameModel;
         _logger = logger;
     }
 
@@ -40,6 +45,14 @@ public class JoinRoomRequestHandler : RequestHandlerBase<JoinRoomRequest>
             {
                 _logger.LogWarning($"Failed to join room: {request.RoomId}");
                 return;
+            }
+
+            // If joining a spatial game room, send game state to the client
+            var newRoom = _roomManager.GetRoom(request.RoomId);
+            if (newRoom != null && (newRoom.SupportsMode(CommunicationMode.Spatial2D) || newRoom.SupportsMode(CommunicationMode.Spatial3D)))
+            {
+                _logger.LogInformation($"Sending game state to client {clientId} joining spatial room {request.RoomId}");
+                _messenger.Send(clientId, new GameStateUpdateEvent(_gameModel));
             }
 
             // Broadcast updated user list to old room members (if there was an old room)

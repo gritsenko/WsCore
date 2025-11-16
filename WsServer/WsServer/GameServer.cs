@@ -21,9 +21,10 @@ public class GameServer : GameServerBase<GameModel>
         IGameMessenger messenger,
         IClientConnectionManager connectionManager,
         IServerLogicProvider serverLogicProvider,
+        RoomManager roomManager,
         ILogger<GameServer> logger) : base(gameModel, messenger, connectionManager, serverLogicProvider, logger)
     {
-        _roomManager = new RoomManager();
+        _roomManager = roomManager;
         _roomAwareMessenger = new GameMessengerRoomAware(connectionManager, serverLogicProvider, _roomManager);
         
         OnPlayerAdded += GameServer_OnPlayerAdded;

@@ -20,12 +20,13 @@ export default class MyApp3D {
 
   worldMap = new World3D();
 
-  gameClient = new WsClient<Player3D>();
+  gameClient: WsClient<Player3D>;
   chatUI: ChatUI;
 
-  constructor(serverUrl: string) {
+  constructor(serverUrl: string, existingClient?: WsClient<Player3D>) {
     console.log('App3D instance created');
     this.serverUrl = serverUrl;
+    this.gameClient = existingClient || new WsClient<Player3D>();
     this.chatUI = new ChatUI();
     this.initThree();
 
@@ -37,7 +38,14 @@ export default class MyApp3D {
 
   // Called after Three.js is initialized
   initGameClient() {
+    // Set player factory to create Player3D instances (not LobbyPlayer)
     this.gameClient.playerFactory = (id: number) => new Player3D(id);
+
+    // Clear existing players from lobby so they get recreated as Player3D instances
+    this.gameClient.players = {};
+    this.gameClient.playersCount = 0;
+    this.gameClient.myPlayer = null;
+
     this.gameClient.myPlayerName = this.playerName;
     this.gameClient.onPlayerCreateCallback = p => this.addPlayerCreateCallback(p);
     this.gameClient.onGameInitCallback = () => this.onGameInit();
@@ -71,7 +79,22 @@ export default class MyApp3D {
       this.chatUI.addMessage(playerName, message);
     };
 
-    this.gameClient.connect(this.serverUrl);
+    // Only connect if this is a new client (not reusing from lobby)
+    if (!this.gameClient.ws) {
+      this.gameClient.connect(this.serverUrl);
+
+      // For new connections, wrap the callback to join room on init
+      const originalGameInit = this.gameClient.onGameInitCallback;
+      this.gameClient.onGameInitCallback = () => {
+        // Join 3d-game room after player initialization
+        this.gameClient.joinRoom('3d-game', this.playerName);
+        originalGameInit?.();
+      };
+    } else {
+      // For existing connections, directly join room and init game
+      this.gameClient.joinRoom('3d-game', this.playerName);
+      this.onGameInit();
+    }
   }
 
   onGameInit() {
@@ -296,22 +319,22 @@ export default class MyApp3D {
 
   backToLobby() {
     console.log('Returning to lobby');
-    
+
     // Clean up Three.js renderer
     if (this.renderer) {
       this.renderer.dispose();
     }
-    
+
     // Clear game container
     const gameContainer = document.getElementById('game');
     if (gameContainer) {
       gameContainer.innerHTML = '';
     }
-    
+
     // Remove the back to lobby button
     const buttons = document.querySelectorAll('div[style*="Back to Lobby"]');
     buttons.forEach(btn => btn.remove());
-    
+
     // Dispatch event to return to lobby
     const event = new CustomEvent('gameReturnToLobby');
     document.dispatchEvent(event);

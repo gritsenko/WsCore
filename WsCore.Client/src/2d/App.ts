@@ -16,12 +16,13 @@ export default class MyApp {
 
   worldMap = new WorldMap();
 
-  gameClient = new WsClient();
+  gameClient: WsClient;
   chatUI: ChatUI;
 
-  constructor(serverUrl: string) {
+  constructor(serverUrl: string, existingClient?: WsClient) {
     console.log('App instance created');
     this.serverUrl = serverUrl;
+    this.gameClient = existingClient || new WsClient();
     this.chatUI = new ChatUI();
     this.initPhaser();
 
@@ -33,6 +34,14 @@ export default class MyApp {
 
   // Called after Phaser is initialized
   initGameClient() {
+    // Set player factory to create Player instances (not LobbyPlayer)
+    this.gameClient.playerFactory = (id: number) => new Player(id);
+
+    // Clear existing players from lobby so they get recreated as Player instances
+    this.gameClient.players = {};
+    this.gameClient.playersCount = 0;
+    this.gameClient.myPlayer = null;
+
     this.gameClient.myPlayerName = this.playerName;
     this.gameClient.onPlayerCreateCallback = p => this.addPlayerCreateCallback(p);
     this.gameClient.onGameInitCallback = () => this.onGameInit();
@@ -66,7 +75,22 @@ export default class MyApp {
       this.chatUI.addMessage(playerName, message);
     };
 
-    this.gameClient.connect(this.serverUrl);
+    // Only connect if this is a new client (not reusing from lobby)
+    if (!this.gameClient.ws) {
+      this.gameClient.connect(this.serverUrl);
+
+      // For new connections, wrap the callback to join room on init
+      const originalGameInit = this.gameClient.onGameInitCallback;
+      this.gameClient.onGameInitCallback = () => {
+        // Join 2d-game room after player initialization
+        this.gameClient.joinRoom('2d-game', this.playerName);
+        originalGameInit?.();
+      };
+    } else {
+      // For existing connections, directly join room and init game
+      this.gameClient.joinRoom('2d-game', this.playerName);
+      this.onGameInit();
+    }
   }
 
   onGameInit() {
@@ -210,7 +234,7 @@ export default class MyApp {
     const buttonText = scene.add.text(0, 0, 'Back to Lobby', {
       fontSize: '12px',
       color: '#4a9eff',
-      fontFamily: 'Arial, sans-serif'
+      fontFamily: 'Arial, sans-serif',
     });
     buttonText.setOrigin(0.5);
 
@@ -232,18 +256,18 @@ export default class MyApp {
 
   backToLobby() {
     console.log('Returning to lobby');
-    
+
     // Clean up Phaser game
     if (this.phaserGame) {
       this.phaserGame.destroy(true);
     }
-    
+
     // Clear game container
     const gameContainer = document.getElementById('game');
     if (gameContainer) {
       gameContainer.innerHTML = '';
     }
-    
+
     // Dispatch event to return to lobby
     const event = new CustomEvent('gameReturnToLobby');
     document.dispatchEvent(event);
