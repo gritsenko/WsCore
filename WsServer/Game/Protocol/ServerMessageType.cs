@@ -14,6 +14,7 @@ public enum ServerMessageType
     PlayerShooting = 103,
     UpdatePlayerSlots = 102,
     ChatMessage = 200,
+    RoomUsersUpdate = 251,
 
     MapTiles = 51,
     MapObjects = 52,

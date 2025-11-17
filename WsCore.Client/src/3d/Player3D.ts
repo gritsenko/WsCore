@@ -57,6 +57,8 @@ export default class Player3D implements IPlayer {
     this.name = 'bot';
     this.speed = { x: 0, y: 0 };
 
+    console.log(`[Player3D.constructor] Creating player ${id}`);
+
     const fsm = this.fsm;
     fsm.fromAny(PlayerState).toAny(PlayerState);
 
@@ -125,6 +127,9 @@ export default class Player3D implements IPlayer {
 
   init(scene: THREE.Scene, isMyPlayer: boolean) {
     this.isMyPlayer = isMyPlayer;
+    console.log(
+      `[Player3D.init] Player ${this.id} ${this.name}, isMyPlayer=${isMyPlayer}, pos=(${this.x}, ${this.y})`
+    );
 
     // Load initial sprite texture
     const initialTexture =
@@ -293,6 +298,13 @@ export default class Player3D implements IPlayer {
     if (this.targetX < this.sprite.position.x && this.sprite.scale.x > 0) {
       this.sprite.scale.x = -this.scaleFactor;
     }
+
+    // Debug logging every 30 frames to reduce console spam
+    if (this.frameCounter++ % 30 === 0) {
+      console.log(
+        `[Player3D.update] Player ${this.id}: sprite=(${this.sprite.position.x.toFixed(1)}, ${this.sprite.position.z.toFixed(1)}), target=(${this.x}, ${this.y}), vel=(${this.speed.x.toFixed(1)}, ${this.speed.y.toFixed(1)})`
+      );
+    }
   }
 
   onStateUpdatedFromServer() {
@@ -316,11 +328,33 @@ export default class Player3D implements IPlayer {
   }
 
   destroy() {
-    if (this.sprite) {
-      this.sprite.removeFromParent();
+    try {
+      if (this.sprite) {
+        // Three.js sprites don't have removeFromParent method, use scene.remove
+        if (this.sprite.parent) {
+          this.sprite.parent.remove(this.sprite);
+        }
+        if (this.sprite.material) {
+          this.sprite.material.dispose();
+        }
+        this.sprite = undefined as any;
+      }
+    } catch (error) {
+      console.warn('Error destroying sprite:', error);
     }
-    if (this.nickText) {
-      this.nickText.removeFromParent();
+
+    try {
+      if (this.nickText) {
+        if (this.nickText.parent) {
+          this.nickText.parent.remove(this.nickText);
+        }
+        if (this.nickText.material) {
+          this.nickText.material.dispose();
+        }
+        this.nickText = undefined as any;
+      }
+    } catch (error) {
+      console.warn('Error destroying nickText:', error);
     }
   }
 }

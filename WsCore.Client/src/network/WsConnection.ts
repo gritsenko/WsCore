@@ -13,6 +13,8 @@ export enum ServerEventType {
   UpdateMapObjectsEvent = 52,
   InitPlayerEvent = 255,
   ChatMessageEvent = 200,
+  RoomListEvent = 250,
+  RoomUsersUpdateEvent = 251,
 }
 
 export enum ClientMessageType {
@@ -27,6 +29,8 @@ export enum ClientMessageType {
   PlayerRespawnRequest = 105,
   UpdatePlayerTargetRequest = 106,
   ChatMessageRequest = 200,
+  GetRoomListRequest = 250,
+  JoinRoomRequest = 251,
 }
 
 // Import all MemoryPack generated types
@@ -43,6 +47,8 @@ import { UpdateMapObjectsEvent } from './protocol/UpdateMapObjectsEvent';
 import { GameStateUpdateEvent } from './protocol/GameStateUpdateEvent';
 import { GameTickUpdateEvent } from './protocol/GameTickUpdateEvent';
 import { ChatMessageEvent } from './protocol/ChatMessageEvent';
+import { RoomListEvent } from './protocol/RoomListEvent';
+import { RoomUsersUpdateEvent } from './protocol/RoomUsersUpdateEvent';
 
 import { GetTilesRequest } from './protocol/GetTilesRequest';
 import { GetMapObjectsRequest } from './protocol/GetMapObjectsRequest';
@@ -55,6 +61,8 @@ import { PlayerShootingRequest } from './protocol/PlayerShootingRequest';
 import { PlayerRespawnRequest } from './protocol/PlayerRespawnRequest';
 import { UpdatePlayerTargetRequest } from './protocol/UpdatePlayerTargetRequest';
 import { ChatMessageRequest } from './protocol/ChatMessageRequest';
+import { GetRoomListRequest } from './protocol/GetRoomListRequest';
+import { JoinRoomRequest } from './protocol/JoinRoomRequest';
 
 import { MemoryPackReader } from './protocol/MemoryPackReader';
 import { MemoryPackWriter } from './protocol/MemoryPackWriter';
@@ -82,6 +90,8 @@ export default class WsConnection {
   onGameStateUpdateEvent(msg: GameStateUpdateEvent): void {}
   onGameTickUpdateEvent(msg: GameTickUpdateEvent): void {}
   onChatMessageEvent(msg: ChatMessageEvent): void {}
+  onRoomListEvent(msg: RoomListEvent): void {}
+  onRoomUsersUpdateEvent(msg: RoomUsersUpdateEvent): void {}
 
   constructor() {}
 
@@ -93,9 +103,19 @@ export default class WsConnection {
     this.overrideUrl = overrideUrl || null;
     this.ws = this.createSocket();
     this.ws.onmessage = e => this.processServerMessage(e.data);
-    this.ws.onerror = e => console.error('WebSocket error:', e);
-    this.ws.onclose = e => console.log('WebSocket closed:', e);
-    this.ws.onopen = () => console.log('WebSocket connected');
+    this.ws.onerror = e => {
+      console.error('WebSocket error:', e);
+      console.error('Failed to connect to:', this.serverUrl);
+    };
+    this.ws.onclose = e => {
+      console.log('WebSocket closed:', e);
+      if (e.code === 1006) {
+        console.warn(
+          'Connection closed abnormally (code 1006). Check if server is running and accessible.'
+        );
+      }
+    };
+    this.ws.onopen = () => console.log('WebSocket connected to:', this.serverUrl);
   }
 
   /**
@@ -162,6 +182,12 @@ export default class WsConnection {
           break;
         case ServerEventType.ChatMessageEvent:
           this.onChatMessageEvent(ChatMessageEvent.deserializeCore(reader)!);
+          break;
+        case ServerEventType.RoomListEvent:
+          this.onRoomListEvent(RoomListEvent.deserializeCore(reader)!);
+          break;
+        case ServerEventType.RoomUsersUpdateEvent:
+          this.onRoomUsersUpdateEvent(RoomUsersUpdateEvent.deserializeCore(reader)!);
           break;
         default:
           console.warn(`Unknown server message type: ${messageType}`);
@@ -274,6 +300,19 @@ export default class WsConnection {
     request.message = message;
     const data = ChatMessageRequest.serialize(request);
     this.sendMessage(ClientMessageType.ChatMessageRequest, data);
+  }
+
+  sendGetRoomListRequest(): void {
+    const request = new GetRoomListRequest();
+    const data = GetRoomListRequest.serialize(request);
+    this.sendMessage(ClientMessageType.GetRoomListRequest, data);
+  }
+
+  sendJoinRoomRequest(roomId: string): void {
+    const request = new JoinRoomRequest();
+    request.roomId = roomId;
+    const data = JoinRoomRequest.serialize(request);
+    this.sendMessage(ClientMessageType.JoinRoomRequest, data);
   }
 
   /**

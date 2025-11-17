@@ -29,6 +29,9 @@ builder.Services.AddSingleton<IGameMessenger, GameMessenger>();
 // server info provider for dashboard
 builder.Services.AddSingleton<ServerInfoProvider>();
 
+// Add RoomManager to DI container
+builder.Services.AddSingleton<WsServer.Rooms.RoomManager>();
+
 builder.Services.AddSingleton<GameModel>();
 builder.Services.AddSingleton<IGameServer, GameServer>();
 

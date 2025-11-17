@@ -10,7 +10,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 
 export default class MyApp3D {
-  serverUrl = '';
+  serverUrl: string;
   socket: WebSocket;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
@@ -20,11 +20,13 @@ export default class MyApp3D {
 
   worldMap = new World3D();
 
-  gameClient = new WsClient<Player3D>();
+  gameClient: WsClient<Player3D>;
   chatUI: ChatUI;
 
-  constructor() {
+  constructor(serverUrl: string, existingClient?: WsClient<Player3D>) {
     console.log('App3D instance created');
+    this.serverUrl = serverUrl;
+    this.gameClient = existingClient || new WsClient<Player3D>();
     this.chatUI = new ChatUI();
     this.initThree();
 
@@ -36,21 +38,28 @@ export default class MyApp3D {
 
   // Called after Three.js is initialized
   initGameClient() {
+    // Set player factory to create Player3D instances (not LobbyPlayer)
     this.gameClient.playerFactory = (id: number) => new Player3D(id);
+
+    // Clear existing players from lobby so they get recreated as Player3D instances
+    this.gameClient.players = {};
+    this.gameClient.playersCount = 0;
+    this.gameClient.myPlayer = null;
+
     this.gameClient.myPlayerName = this.playerName;
     this.gameClient.onPlayerCreateCallback = p => this.addPlayerCreateCallback(p);
     this.gameClient.onGameInitCallback = () => this.onGameInit();
     this.gameClient.onMapObjectsCallback = data => this.worldMap.updateMapObjects(data);
-    
+
     // Set up chat message callback
     this.chatUI.setOnMessageCallback(message => {
       this.gameClient.sendChatMessageRequest(message);
     });
-    
+
     // Override writeToChat to display messages in UI
     this.gameClient.writeToChat = (id: number, message: string) => {
       let playerName = `Player ${id}`;
-      
+
       // First, check if this is our own message
       if (this.gameClient.myPlayer && id === this.gameClient.myPlayer.id) {
         playerName = this.playerName;
@@ -66,11 +75,26 @@ export default class MyApp3D {
           playerName = player.name;
         }
       }
-      
+
       this.chatUI.addMessage(playerName, message);
     };
-    
-    this.gameClient.connect('ws://127.0.0.1:5000/ws');
+
+    // Only connect if this is a new client (not reusing from lobby)
+    if (!this.gameClient.ws) {
+      this.gameClient.connect(this.serverUrl);
+
+      // For new connections, wrap the callback to join room on init
+      const originalGameInit = this.gameClient.onGameInitCallback;
+      this.gameClient.onGameInitCallback = () => {
+        // Join 3d-game room after player initialization
+        this.gameClient.joinRoom('3d-game', this.playerName);
+        originalGameInit?.();
+      };
+    } else {
+      // For existing connections, directly join room and init game
+      this.gameClient.joinRoom('3d-game', this.playerName);
+      this.onGameInit();
+    }
   }
 
   onGameInit() {
@@ -145,6 +169,7 @@ export default class MyApp3D {
       this.worldMap.create(this.scene);
       this.initGameClient();
       this.animate();
+      this.createBackToLobbyButton();
     });
 
     // Handle window resize
@@ -251,5 +276,67 @@ export default class MyApp3D {
     this.camera.updateProjectionMatrix();
 
     this.renderer.setSize(width, height);
+  }
+  createBackToLobbyButton() {
+    // Create a button container
+    const buttonContainer = document.createElement('div');
+    buttonContainer.style.position = 'fixed';
+    buttonContainer.style.top = '20px';
+    buttonContainer.style.left = '20px';
+    buttonContainer.style.zIndex = '10000';
+    buttonContainer.style.pointerEvents = 'auto';
+
+    // Button background
+    const buttonBg = document.createElement('div');
+    buttonBg.style.background = 'rgba(44, 47, 51, 0.8)';
+    buttonBg.style.border = '2px solid #4a9eff';
+    buttonBg.style.borderRadius = '4px';
+    buttonBg.style.padding = '8px 16px';
+    buttonBg.style.cursor = 'pointer';
+    buttonBg.style.transition = 'all 0.2s';
+    buttonBg.style.fontFamily = 'Arial, sans-serif';
+    buttonBg.style.fontSize = '12px';
+    buttonBg.style.color = '#4a9eff';
+    buttonBg.style.fontWeight = '600';
+    buttonBg.textContent = 'Back to Lobby';
+
+    // Add hover effects
+    buttonBg.addEventListener('mouseenter', () => {
+      buttonBg.style.background = 'rgba(64, 68, 75, 0.9)';
+    });
+
+    buttonBg.addEventListener('mouseleave', () => {
+      buttonBg.style.background = 'rgba(44, 47, 51, 0.8)';
+    });
+
+    buttonBg.addEventListener('click', () => {
+      this.backToLobby();
+    });
+
+    buttonContainer.appendChild(buttonBg);
+    document.body.appendChild(buttonContainer);
+  }
+
+  backToLobby() {
+    console.log('Returning to lobby');
+
+    // Clean up Three.js renderer
+    if (this.renderer) {
+      this.renderer.dispose();
+    }
+
+    // Clear game container
+    const gameContainer = document.getElementById('game');
+    if (gameContainer) {
+      gameContainer.innerHTML = '';
+    }
+
+    // Remove the back to lobby button
+    const buttons = document.querySelectorAll('div[style*="Back to Lobby"]');
+    buttons.forEach(btn => btn.remove());
+
+    // Dispatch event to return to lobby
+    const event = new CustomEvent('gameReturnToLobby');
+    document.dispatchEvent(event);
   }
 }

@@ -1,6 +1,6 @@
 # WsCore
 
-A high-performance, real-time game server built with .NET 10 and WebSocket, designed for multiplayer game development with an efficient MemoryPack-based binary protocol. Features both 2D (Phaser) and 3D (Three.js) client samples for flexible gameplay experiences.
+A high-performance, real-time multiplayer game server built with .NET 10 and WebSocket, designed for flexible gameplay experiences with room-based communication and dual client support (2D Phaser and 3D Three.js).
 
 **🚀 Production Ready:** Docker setup with automated deployment scripts for VDS. See [docs/](docs/) for deployment guides.
 
@@ -21,41 +21,58 @@ A high-performance, real-time game server built with .NET 10 and WebSocket, desi
 
 ## Architecture Overview
 
-WsCore implements a modular, scalable architecture that separates concerns across multiple layers:
+WsCore implements a modular, scalable architecture with room-based communication supporting multiple interaction modes:
 
 ### Core Components
 
 #### 1. **WebSocket Server (`WsServer/`)**
 - **ASP.NET Core 10 WebSocket handler** for real-time bidirectional communication
+- **Room-based communication system** supporting TextChat, VoiceChat, Spatial2D, and Spatial3D modes
 - **Dependency injection** for loose coupling and testability
 - **Static file serving** for web-based game clients
 - **Connection lifecycle management** with proper cleanup and error handling
 
-#### 2. **Game Engine (`GameServerBase`)**
+#### 2. **Game Engine (`GameServer`)**
 - **Fixed 30 FPS game loop** using `PeriodicTimer` for consistent updates
-- **Abstract game model** pattern allowing custom game logic implementation
+- **Room manager** with persistent rooms for different communication modes
 - **Event-driven architecture** with player join/leave and tick events
 - **Automatic player management** with unique ID assignment
+- **Room-aware messaging** for spatial communication filtering
 
 #### 3. **Serialization Protocol (MemoryPack)**
 - **MemoryPack** for ultra-fast, low-allocation serialization across server and client
 - **1-byte message header**: leading TypeId followed by MemoryPack payload
 - **TypeScript codegen**: MemoryPack generates TS reader/writer and models into `WsCore.Client/src/network/protocol`
-- Legacy DataBuffer layer is deprecated and removed from runtime
+- **Type-safe client API** matching server-side message contracts
 
 #### 4. **Message System (`WsServer.Shared/`)**
 - **Reflection-based message discovery** automatically scanning assemblies for message types
 - **Type-safe message handling** with compile-time verification
 - **Request/Response pattern** for client-server communication
 - **Message serialization** via MemoryPack with automatic type mapping
+- **Room-aware broadcasting** for efficient spatial updates
 
-#### 5. **Client Code (Dual Client Support)**
+#### 5. **Client Code (Multi-Mode Support)**
 - **2D Client (Phaser)**: Traditional 2D rendering and input handling
 - **3D Client (Three.js)**: Modern WebGL-based isometric 3D rendering
-- **Auto-generated TS models** produced by MemoryPack source generator during server build (see `WsServer/Game/Game.csproj`)
-- **Type-safe client API** matching server-side message contracts
+- **Lobby Interface**: Discord-style chat room for text communication
+- **Auto-generated TS models** produced by MemoryPack source generator during server build
+- **Room-based navigation** allowing seamless transitions between modes
 - **Binary protocol**: reads 1-byte TypeId then MemoryPack payload using generated `MemoryPackReader`
-- **Real-time message handling** with event callbacks
+
+## Communication Modes & Room System
+
+### Available Rooms
+- **Lobby**: Text chat only (default starting point)
+- **Voice Room**: Voice + Text chat
+- **2D Game Room**: 2D spatial gameplay + Text chat
+- **3D Game Room**: 3D spatial gameplay + Text chat
+
+### Communication Modes
+- **TextChat**: Text-based messaging between room members
+- **VoiceChat**: Voice communication (future implementation)
+- **Spatial2D**: 2D position-based updates (players see relevant 2D game state)
+- **Spatial3D**: 3D position-based updates (players see relevant 3D game state)
 
 ## Base Concepts and Principles
 
@@ -64,30 +81,55 @@ WsCore implements a modular, scalable architecture that separates concerns acros
 - **Fixed timestep game loop** ensures consistent simulation
 - **Minimal allocations** through MemoryPack + pooling where appropriate
 - **Connection lifecycle optimizations** and resource management
+- **Room-aware filtering** reduces unnecessary network traffic
 
 ### 2. **Type Safety**
 - **Compile-time message verification** through reflection
 - **Strongly-typed game models** preventing runtime errors
 - **Interface-based architecture** enabling proper dependency injection
 - **Generic constraints** ensuring type compatibility
+- **Generated TypeScript types** for client-side type safety
 
-### 3. **Extensibility**
+### 3. **Room-Based Architecture**
+- **Persistent rooms** for different communication modes
+- **Automatic room joining** for new players (default: lobby)
+- **Spatial communication filtering** for game-specific updates
+- **Room-aware messaging** reducing bandwidth usage
+- **Multi-mode support** allowing seamless transitions
+
+### 4. **Extensibility**
 - **Plugin-based message handlers** for easy feature addition
 - **Abstract base classes** allowing custom game logic
 - **Modular component design** for flexible architecture
 - **Assembly scanning** for automatic feature discovery
 
-### 4. **Real-Time Communication**
+### 5. **Real-Time Communication**
 - **WebSocket-based** full-duplex communication
-- **Broadcast messaging** for efficient state synchronization
+- **Room-aware broadcasting** for efficient state synchronization
 - **Connection state management** with automatic cleanup
 - **Binary message framing**: `[TypeId:byte][MemoryPack payload]`
 
 ## Working Principles
 
+### Room Management
+```csharp
+// Create persistent rooms with different communication modes
+_roomManager.CreateRoom(
+    "lobby", 
+    "Lobby", 
+    new[] { CommunicationMode.TextChat }, 
+    isPersistent: true);
+
+_roomManager.CreateRoom(
+    "2d-game", 
+    "2D Game Room", 
+    new[] { CommunicationMode.Spatial2D, CommunicationMode.TextChat }, 
+    isPersistent: true);
+```
+
 ### Game Loop
 ```csharp
-// 30 FPS fixed timestep
+// 30 FPS fixed timestep with room-aware updates
 private async Task RunGameLoopAsync()
 {
     var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(33));
@@ -99,27 +141,35 @@ private async Task RunGameLoopAsync()
 ```
 
 ### Message Processing
-1. **Client sends binary message** via WebSocket as `[TypeId][MemoryPack payload]`
-2. **Server reads header** to determine message type, then MemoryPack-deserializes payload
-3. **Reflection system** finds appropriate handler (request handlers and event registrations)
-4. **Handler processes** request and updates game state
-5. **Server broadcasts** state changes to relevant clients using the same header + MemoryPack format
+1. **Client connects** to WebSocket and joins default lobby room
+2. **Client navigates** to different rooms based on desired communication mode
+3. **Server routes messages** to appropriate room members based on spatial relevance
+4. **Room-aware messenger** filters updates for optimal performance
 
-### Client Code Generation (MemoryPack)
-1. **Assembly scanning** discovers all `[MemoryPackable]` message types
-2. **MemoryPack source generator** outputs TypeScript classes/readers/writers
-3. **Client uses generated reader/writer** to serialize/deserialize payloads
-4. **Client API** provides type-safe message sending/receiving
+### Room-Based Communication Flow
+```
+Client Connection
+    ↓
+Join Default Lobby Room (TextChat)
+    ↓
+Navigate to Game Room (Spatial2D/Spatial3D + TextChat)
+    ↓
+Receive Spatial Updates (filtered by proximity)
+    ↓
+Receive Text Messages (all room members)
+```
 
 ## Project Structure
 
 ```
 WsCore/
-├── WsCore.Client/               # Dual client TypeScript (Vite)
+├── WsCore.Client/               # Multi-mode client TypeScript (Vite)
 │   ├── src/
-│   │   ├── 2d/                 # 2D Phaser client
-│   │   ├── 3d/                 # 3D Three.js client
-│   │   └── network/protocol    # Auto-generated MemoryPack TS files
+│   │   ├── 2d/                 # 2D Phaser client (Spatial2D mode)
+│   │   ├── 3d/                 # 3D Three.js client (Spatial3D mode)
+│   │   ├── lobby/              # Discord-style lobby (TextChat mode)
+│   │   ├── network/protocol    # Auto-generated MemoryPack TS files
+│   │   └── main.ts             # Entry point with mode routing
 ├── WsServer/
 │   ├── WsServer/               # ASP.NET Core 10 WebSocket host
 │   ├── Game/                   # Game logic and protocol definitions
@@ -141,11 +191,16 @@ npm install
 npm start
 ```
 
-### Client Access
-- **2D Version**: `http://localhost:5173/`
-- **3D Version**: `http://localhost:5173/?mode=3d`
+### Client Access & Room Navigation
+- **Lobby Interface**: `http://localhost:5173/` (default - Discord-style chat)
+- **2D Game**: `http://localhost:5173/?mode=2d` (2D Phaser gameplay)
+- **3D Game**: `http://localhost:5173/?mode=3d` (3D Three.js gameplay)
 
-Both clients share the same game logic, assets, and network protocol while providing different visual experiences.
+**Room Navigation Flow:**
+1. Start in Lobby (text chat only)
+2. Navigate to game rooms for spatial gameplay
+3. Switch between 2D and 3D modes seamlessly
+4. All rooms maintain text chat functionality
 
 Note: The server and client are intentionally started manually (no auto-run from tools). MemoryPack-generated TS files will appear under `WsCore.Client/src/network/protocol` after building the server.
 
@@ -156,17 +211,22 @@ Note: The server and client are intentionally started manually (no auto-run from
 - **`IGameMessenger`**: Message broadcasting
 - **`IMessageSerializer`**: MemoryPack header + payload serialization/deserialization
 - **`IClientConnection`**: WebSocket connection abstraction
+- **`RoomManager`**: Room creation and management
+- **`GameMessengerRoomAware`**: Room-aware message filtering
 
 ## Usage Example
 
-The server automatically discovers game logic from assemblies containing message and handler definitions, making it easy to extend with new features without modifying core server code.
+The server automatically discovers game logic from assemblies and manages rooms for different communication modes:
 
 ```csharp
-// Server automatically discovers and registers
-// all IClientRequest and IServerEvent implementations
+// Server automatically discovers and registers all message types
 builder.Services.AddSingleton<IServerLogicProvider, ReflectionServerLogicProvider>(
     sc => new ReflectionServerLogicProvider(typeof(ChatMessageEvent).Assembly,
     new ClientRequestHandlerFactory(sc)));
+
+// Room-based communication with spatial filtering
+var roomAwareMessenger = new GameMessengerRoomAware(connectionManager, serverLogicProvider, roomManager);
+roomAwareMessenger.BroadcastSpatialUpdates(gameStateEvent);
 ```
 
 ### Development: Run server and client
@@ -184,16 +244,17 @@ Note: In development, the server and client are started separately. Automated to
 
 ## Client Features Comparison
 
-| Feature | 2D (Phaser) | 3D (Three.js) |
-|---------|-------------|---------------|
-| Rendering | Traditional 2D sprites | WebGL 3D isometric |
-| Camera | Following camera | Orthographic isometric |
-| Performance | GPU-accelerated | GPU-accelerated |
-| Assets | Shared across both clients | Shared across both clients |
-| Controls | Arrow keys + mouse | Arrow keys + mouse |
-| Multiplayer | ✅ Full support | ✅ Full support |
+| Feature | 2D (Phaser) | 3D (Three.js) | Lobby |
+|---------|-------------|---------------|-------|
+| Rendering | Traditional 2D sprites | WebGL 3D isometric | Web UI |
+| Communication | Spatial2D + TextChat | Spatial3D + TextChat | TextChat only |
+| Camera | Following camera | Orthographic isometric | N/A |
+| Performance | GPU-accelerated | GPU-accelerated | Minimal |
+| Controls | Arrow keys + mouse | Arrow keys + mouse | Text input |
+| Room Support | ✅ 2D Game Room | ✅ 3D Game Room | ✅ All Rooms |
+| Multiplayer | ✅ Full support | ✅ Full support | ✅ Full support |
 
-The dual-client approach allows developers to choose the visual style that best fits their game concept while maintaining the same core gameplay mechanics and server infrastructure.
+The multi-client approach allows developers to choose the visual style that best fits their game concept while maintaining the same core gameplay mechanics, room system, and server infrastructure.
 
 ## 🐳 Docker & Deployment
 
@@ -278,8 +339,3 @@ ssh <user>@<your-vds-host> 'cd <deploy-dir> && docker compose exec certbot certb
 - `<your-vds-host>` - Server hostname/IP (e.g., `example.com`)
 - `<deploy-dir>` - Deployment directory (default: `~/WsCoreServer`)
 - `<domain>` - Your domain name (e.g., `example.com`)
-
-**Placeholders:**
-- `<user>` - SSH user (e.g., `root` or `deploy`)
-- `<your-vds-host>` - Server hostname/IP (e.g., `example.com`)
-- `<deploy-dir>` - Deployment directory (e.g., `~/WsCoreServer`)

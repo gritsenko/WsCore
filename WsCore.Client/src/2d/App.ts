@@ -8,7 +8,7 @@ import ChatUI from '../utils/ChatUI';
 import Phaser from 'phaser';
 
 export default class MyApp {
-  serverUrl = '';
+  serverUrl: string;
   socket: WebSocket;
   phaserGame: Phaser.Game;
   currentScene: Phaser.Scene;
@@ -16,11 +16,13 @@ export default class MyApp {
 
   worldMap = new WorldMap();
 
-  gameClient = new WsClient();
+  gameClient: WsClient;
   chatUI: ChatUI;
 
-  constructor() {
+  constructor(serverUrl: string, existingClient?: WsClient) {
     console.log('App instance created');
+    this.serverUrl = serverUrl;
+    this.gameClient = existingClient || new WsClient();
     this.chatUI = new ChatUI();
     this.initPhaser();
 
@@ -32,20 +34,28 @@ export default class MyApp {
 
   // Called after Phaser is initialized
   initGameClient() {
+    // Set player factory to create Player instances (not LobbyPlayer)
+    this.gameClient.playerFactory = (id: number) => new Player(id);
+
+    // Clear existing players from lobby so they get recreated as Player instances
+    this.gameClient.players = {};
+    this.gameClient.playersCount = 0;
+    this.gameClient.myPlayer = null;
+
     this.gameClient.myPlayerName = this.playerName;
     this.gameClient.onPlayerCreateCallback = p => this.addPlayerCreateCallback(p);
     this.gameClient.onGameInitCallback = () => this.onGameInit();
     this.gameClient.onMapObjectsCallback = data => this.worldMap.updateMapObjects(data);
-    
+
     // Set up chat message callback
     this.chatUI.setOnMessageCallback(message => {
       this.gameClient.sendChatMessageRequest(message);
     });
-    
+
     // Override writeToChat to display messages in UI
     this.gameClient.writeToChat = (id: number, message: string) => {
       let playerName = `Player ${id}`;
-      
+
       // First, check if this is our own message
       if (this.gameClient.myPlayer && id === this.gameClient.myPlayer.id) {
         playerName = this.playerName;
@@ -61,11 +71,26 @@ export default class MyApp {
           playerName = player.name;
         }
       }
-      
+
       this.chatUI.addMessage(playerName, message);
     };
-    
-    this.gameClient.connect('ws://127.0.0.1:5000/ws');
+
+    // Only connect if this is a new client (not reusing from lobby)
+    if (!this.gameClient.ws) {
+      this.gameClient.connect(this.serverUrl);
+
+      // For new connections, wrap the callback to join room on init
+      const originalGameInit = this.gameClient.onGameInitCallback;
+      this.gameClient.onGameInitCallback = () => {
+        // Join 2d-game room after player initialization
+        this.gameClient.joinRoom('2d-game', this.playerName);
+        originalGameInit?.();
+      };
+    } else {
+      // For existing connections, directly join room and init game
+      this.gameClient.joinRoom('2d-game', this.playerName);
+      this.onGameInit();
+    }
   }
 
   onGameInit() {
@@ -189,6 +214,63 @@ export default class MyApp {
     logo.alpha = 0.7;
     logo.depth = 100000;
     logo.setScrollFactor(0);
+
+    // Add Back to Lobby button
+    this.createBackToLobbyButton(p);
+  }
+
+  createBackToLobbyButton(scene: Phaser.Scene) {
+    // Create a button container
+    const buttonContainer = scene.add.container(200, 50);
+    buttonContainer.depth = 100001;
+    buttonContainer.setScrollFactor(0);
+
+    // Button background
+    const buttonBg = scene.add.rectangle(0, 0, 120, 30, 0x2c2f33, 0.8);
+    buttonBg.setStrokeStyle(2, 0x4a9eff);
+    buttonBg.setInteractive({ useHandCursor: true });
+
+    // Button text
+    const buttonText = scene.add.text(0, 0, 'Back to Lobby', {
+      fontSize: '12px',
+      color: '#4a9eff',
+      fontFamily: 'Arial, sans-serif',
+    });
+    buttonText.setOrigin(0.5);
+
+    // Add hover effects
+    buttonBg.on('pointerover', () => {
+      buttonBg.setFillStyle(0x40444b, 0.9);
+    });
+
+    buttonBg.on('pointerout', () => {
+      buttonBg.setFillStyle(0x2c2f33, 0.8);
+    });
+
+    buttonBg.on('pointerdown', () => {
+      this.backToLobby();
+    });
+
+    buttonContainer.add([buttonBg, buttonText]);
+  }
+
+  backToLobby() {
+    console.log('Returning to lobby');
+
+    // Clean up Phaser game
+    if (this.phaserGame) {
+      this.phaserGame.destroy(true);
+    }
+
+    // Clear game container
+    const gameContainer = document.getElementById('game');
+    if (gameContainer) {
+      gameContainer.innerHTML = '';
+    }
+
+    // Dispatch event to return to lobby
+    const event = new CustomEvent('gameReturnToLobby');
+    document.dispatchEvent(event);
   }
 
   fitView(view) {

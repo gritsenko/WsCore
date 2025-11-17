@@ -1,45 +1,60 @@
 # WsCore Docker Deployment Guide
 
-Complete guide for building, deploying, and managing your WsCore game server on a remote VDS.
+Complete guide for building, deploying, and managing your WsCore room-based multiplayer game server on a remote VDS.
 
-## Architecture
+## Architecture Overview
 
+### Core System Architecture
 ```
-┌─────────────────────────────────────────────────────────┐
-│                        Your VDS                          │
-├─────────────────────────────────────────────────────────┤
-│                                                          │
-│  ┌──────────────────┐    ┌──────────────────────────┐   │
-│  │     nginx        │◄──►│    game-server           │   │
-│  │  (Reverse Proxy) │    │  (dotnet WsServer +      │   │
-│  │                  │    │   built web client)      │   │
-│  │ • TLS/SSL        │    │                          │   │
-│  │ • Static files   │    │ • WebSocket support      │   │
-│  │ • Load balance   │    │ • Game logic             │   │
-│  └──────────────────┘    └──────────────────────────┘   │
-│         │                                                │
-│         └────────────────────────┬────────────────────┘  │
-│                                  │                       │
-│  ┌──────────────────────────────┴────────────────────┐  │
-│  │          certbot (SSL auto-renewal)              │  │
-│  │     (Let's Encrypt certificate management)      │  │
-│  └─────────────────────────────────────────────────┘  │
-│                                                         │
-└─────────────────────────────────────────────────────────┘
-         ▲
-         │ (80, 443)
-    ┌────┴─────┐
-    │  Internet │
-    └──────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                     WsCore Architecture                      │
+├─────────────────────────────────────────────────────────────┤
+│  WsServer (ASP.NET Core 10)                               │
+│  ├── WebSocket Handler (/ws)                              │
+│  ├── Room Manager (4 persistent rooms)                     │
+│  │   ├── lobby (TextChat only)                             │
+│  │   ├── voice (VoiceChat + TextChat)                      │
+│  │   ├── 2d-game (Spatial2D + TextChat)                    │
+│  │   └── 3d-game (Spatial3D + TextChat)                    │
+│  ├── Game Loop (30 FPS)                                   │
+│  ├── MemoryPack Protocol (1-byte header)                   │
+│  └── Message Discovery (Reflection-based)                  │
+├─────────────────────────────────────────────────────────────┤
+│  Client Applications (TypeScript)                         │
+│  ├── Lobby Interface (Discord-style chat)                  │
+│  ├── 2D Client (Phaser) - Spatial2D mode                   │
+│  └── 3D Client (Three.js) - Spatial3D mode                 │
+├─────────────────────────────────────────────────────────────┤
+│  Deployment Stack (VDS)                                   │
+│  ├── Nginx (Reverse Proxy + SSL)                          │
+│  ├── Game Server (Single container)                       │
+│  └── Certbot (Auto SSL renewal)                           │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Room-Based Communication Flow
+```
+Client Connection
+    ↓
+WebSocket (/ws)
+    ↓
+Join Default Lobby (TextChat)
+    ↓
+Navigate Rooms (Spatial + TextChat)
+    ↓
+Receive Room-Aware Updates
+    ├── Spatial Updates (filtered by proximity)
+    └── Text Messages (all room members)
 ```
 
 ## Prerequisites
 
-### Local Machine (Mac)
+### Local Machine (Mac/Windows)
 - Docker Desktop installed
 - Docker CLI available
 - `git` for version control
 - SSH key for VDS access
+- PowerShell (Windows, optional for PS1 scripts)
 
 ### Remote VDS
 - Linux (Ubuntu 20.04+ or similar)
@@ -59,18 +74,23 @@ chmod +x scripts/*.sh
 
 ### Option A: Build Locally and Test ✅
 ```bash
+# Shell script (Mac/Linux)
 ./scripts/build.sh wscore-game-server latest
+
+# PowerShell (Windows)
+.\scripts\build.ps1 wscore-game-server latest
 
 # Expected output:
 # ✓ Vite built 56 modules into single 2,071.75 kB HTML file
-# ✓ .NET 10 compiled successfully
+# ✓ .NET 10 compiled successfully with room system
 # ✓ Docker image: ~379 MB
+# ✓ MemoryPack TypeScript generation complete
 # Build time: ~2-3 minutes on first run (downloads SDKs)
 ```
 
 This builds a multi-stage Docker image that:
-1. **Stage 1**: Node.js 20-alpine → builds TypeScript client with Vite (single index.html)
-2. **Stage 2**: .NET 10 SDK → builds server with WsServer, Game, WsServer.Shared projects
+1. **Stage 1**: Node.js 20-alpine → builds TypeScript client with Vite (single index.html with room routing)
+2. **Stage 2**: .NET 10 SDK → builds server with WsServer, Game, WsServer.Shared projects (room system included)
 3. **Stage 3**: .NET 10 aspnet runtime → combines both into single production image
 
 ### Option B: Let docker-compose Build
@@ -81,7 +101,9 @@ docker-compose up --build
 
 ### Build Details
 - **Client build output**: WsCore.Client/dist/index.html (2,071.75 KB uncompressed, 481.48 KB gzipped)
-- **Server projects**: WsServer (main), Game (logic), WsServer.Shared (messaging), WsServer.DataBuffer (skipped in restore)
+- **Room routing**: All three modes (lobby, 2d, 3d) in single HTML file
+- **Server projects**: WsServer (main + room manager), Game (logic), WsServer.Shared (messaging)
+- **MemoryPack**: Auto-generated TypeScript types in WsCore.Client/src/network/protocol
 - **Runtime base**: mcr.microsoft.com/dotnet/aspnet:10.0
 - **Non-root user**: gameserver (UID 1001)
 
@@ -99,11 +121,18 @@ curl http://localhost | head -c 200
 # Check game server logs
 docker-compose logs game-server | tail -20
 
+# Test room system (WebSocket)
+curl -i -N -H "Connection: Upgrade" \
+  -H "Upgrade: websocket" \
+  -H "Sec-WebSocket-Key: test" \
+  -H "Sec-WebSocket-Version: 13" \
+  http://localhost/ws
+
 # Cleanup
 docker-compose down
 ```
 
-**Expected**: All 3 containers running (game-server, nginx, certbot), HTTP response from localhost shows HTML client.
+**Expected**: All 3 containers running (game-server, nginx, certbot), HTTP response from localhost shows HTML client with room navigation.
 
 You should see:
 ```
@@ -112,6 +141,8 @@ certbot       certbot/certbot      Up
 game-server   wscore-game-server   Up (health: starting)
 nginx-proxy   nginx:alpine         Up
 ```
+
+## Step 4: Optional - Push to Registry
 
 ### Docker Hub
 ```bash
@@ -142,7 +173,11 @@ su - deploy
 ### Deploy Application
 
 ```bash
-./scripts/deploy-vds.sh deploy@your-vds-ip ~/gameserver
+# Shell script (Mac/Linux)
+./scripts/deploy.sh deploy@your-vds-ip ~/gameserver
+
+# PowerShell (Windows)
+.\scripts\deploy.ps1 deploy@your-vds-ip ~/gameserver
 ```
 
 This script:
@@ -150,6 +185,7 @@ This script:
 2. Copies `docker-compose.yml` and `nginx.conf`
 3. Creates SSL/certbot directories
 4. Pulls and starts containers
+5. Sets up room-based communication system
 
 ### What Gets Deployed
 
@@ -163,10 +199,25 @@ This script:
     └── www/              (ACME challenge validation)
 ```
 
+### Room System Verification
+After deployment, verify the room system is working:
+```bash
+# Check WebSocket endpoint
+curl -i -N -H "Connection: Upgrade" \
+  -H "Upgrade: websocket" \
+  -H "Sec-WebSocket-Key: test" \
+  -H "Sec-WebSocket-Version: 13" \
+  https://your-domain.com/ws
+```
+
 ## Step 6: Verify Deployment
 
 ```bash
+# Shell script
 ./scripts/manage-vds.sh deploy@your-vds-ip status
+
+# Direct SSH
+ssh deploy@your-vds-ip 'cd ~/gameserver && docker compose ps'
 ```
 
 Output should show:
@@ -186,7 +237,11 @@ xxxxx          certbot/certbot                Up 2 minutes
 ### Run SSL Setup Script
 
 ```bash
-./scripts/setup-ssl.sh deploy@your-vds-ip msk.gritsenko.biz admin@example.com ~/gameserver
+# Shell script
+./scripts/setup-ssl.sh deploy@your-vds-ip your-domain.com admin@email.com
+
+# PowerShell alternative
+ssh deploy@your-vds-ip 'cd ~/gameserver && ./setup-ssl.sh your-domain.com admin@email.com'
 ```
 
 This script:
@@ -199,70 +254,181 @@ This script:
 ### Verify HTTPS
 
 ```bash
-curl -I https://msk.gritsenko.biz
+curl -I https://your-domain.com
 ```
 
 Should show `HTTP/1.1 200 OK` with SSL certificate info.
 
-## Step 8: Ongoing Management
+## Step 8: Test Room Navigation
+
+### Verify Room System
+After HTTPS setup, test all room modes:
+
+1. **Lobby Interface**:
+   ```
+   https://your-domain.com/
+   ```
+   - Discord-style chat interface
+   - Text chat with lobby members
+   - Room navigation buttons
+
+2. **2D Game Room**:
+   ```
+   https://your-domain.com/?mode=2d
+   ```
+   - 2D Phaser gameplay
+   - Spatial updates for nearby players
+   - Integrated text chat
+
+3. **3D Game Room**:
+   ```
+   https://your-domain.com/?mode=3d
+   ```
+   - 3D Three.js isometric view
+   - Spatial updates for nearby players
+   - Integrated text chat
+
+## Step 9: Ongoing Management
 
 ### Check Status
 ```bash
+# Shell script
 ./scripts/manage-vds.sh deploy@your-vds-ip status
+
+# Direct SSH
+ssh deploy@your-vds-ip 'cd ~/gameserver && docker compose ps'
 ```
 
 ### View Logs
 ```bash
+# Shell script
 ./scripts/manage-vds.sh deploy@your-vds-ip logs
+
+# Game server logs only
+ssh deploy@your-vds-ip 'cd ~/gameserver && docker compose logs -f game-server'
+
+# Room system logs
+ssh deploy@your-vds-ip 'cd ~/gameserver && docker compose logs game-server | grep -i room'
 ```
 
 ### Restart Services
 ```bash
+# Shell script
 ./scripts/manage-vds.sh deploy@your-vds-ip restart
+
+# Direct SSH
+ssh deploy@your-vds-ip 'cd ~/gameserver && docker compose restart'
 ```
 
 ### Update to Latest Image
 ```bash
-./scripts/manage-vds.sh deploy@your-vds-ip update ~/gameserver
+# Rebuild locally first
+./scripts/build.sh wscore-game-server latest
+
+# Deploy update
+./scripts/deploy.sh deploy@your-vds-ip ~/gameserver
+
+# Or pull from registry (if you pushed)
+ssh deploy@your-vds-ip 'cd ~/gameserver && docker pull yourusername/wscore-game-server:latest && docker compose up -d'
 ```
 
 ### SSH into VDS
 ```bash
-./scripts/manage-vds.sh deploy@your-vds-ip shell ~/gameserver
+# Shell script
+./scripts/manage-vds.sh deploy@your-vds-ip shell
+
+# Direct SSH
+ssh deploy@your-vds-ip
+cd ~/gameserver
 ```
 
-## Maintenance Tasks
+## Room System Maintenance
 
-### Check Certificate Expiration
+### Check Room Statistics
 ```bash
-ssh deploy@your-vds-ip 'docker compose exec certbot certbot certificates'
+# Check active connections
+ssh deploy@your-vds-ip 'cd ~/gameserver && docker compose exec game-server dotnet /app/WsServer.dll --check-rooms'
+
+# Monitor room traffic
+ssh deploy@your-vds-ip 'cd ~/gameserver && docker compose logs -f game-server | grep -E "(JoinRoom|LeaveRoom|Broadcast)"'
 ```
 
-### View Certificate Renewal Logs
+### Room System Debugging
 ```bash
-./scripts/manage-vds.sh deploy@your-vds-ip logs certbot
+# Enable verbose room logging
+ssh deploy@your-vds-ip 'cd ~/gameserver && docker compose exec game-server dotnet /app/WsServer.dll --room-logging'
+
+# Check WebSocket connections
+ssh deploy@your-vds-ip 'cd ~/gameserver && docker compose exec game-server netstat -an | grep :80'
 ```
 
-### Restart nginx After Config Change
-```bash
-ssh deploy@your-vds-ip 'cd ~/gameserver && docker compose restart nginx'
+## MemoryPack Protocol Details
+
+### Message Structure
+```
+[TypeId: byte][MemoryPack payload]
 ```
 
-### View nginx Error Logs
-```bash
-ssh deploy@your-vds-ip 'docker logs nginx-proxy'
+### Generated TypeScript Types
+After building the server, TypeScript types are auto-generated:
+```
+WsCore.Client/src/network/protocol/
+├── MemoryPackReader.ts
+├── MemoryPackWriter.ts
+├── ChatMessageEvent.ts
+├── JoinRoomRequest.ts
+├── RoomUsersUpdateEvent.ts
+└── [other auto-generated types]
+```
+
+### Room-Aware Broadcasting
+The server uses `GameMessengerRoomAware` to filter spatial updates:
+```csharp
+// Only send spatial updates to relevant room members
+_roomAwareMessenger.BroadcastSpatialUpdates(gameStateEvent);
 ```
 
 ## Troubleshooting
 
 ### Containers Not Starting
 ```bash
+# Check all logs
 ./scripts/manage-vds.sh deploy@your-vds-ip logs
+
+# Specific service
+ssh deploy@your-vds-ip 'cd ~/gameserver && docker compose logs game-server'
+```
+
+### Room System Issues
+```bash
+# Check WebSocket endpoint
+curl -i -N -H "Connection: Upgrade" \
+  -H "Upgrade: websocket" \
+  -H "Sec-WebSocket-Key: test" \
+  -H "Sec-WebSocket-Version: 13" \
+  https://your-domain.com/ws
+
+# Check room manager logs
+ssh deploy@your-vds-ip 'cd ~/gameserver && docker compose logs game-server | grep -i "room\|lobby"'
 ```
 
 ### SSL Certificate Issues
 ```bash
+# Check certbot logs
 ssh deploy@your-vds-ip 'docker compose logs certbot'
+
+# Manual certificate renewal
+ssh deploy@your-vds-ip 'docker compose exec certbot certbot renew --dry-run'
+```
+
+### MemoryPack Type Generation Issues
+```bash
+# Check if TypeScript types were generated
+ssh deploy@your-vds-ip 'docker compose exec game-server ls -la /app/wwwroot/network/protocol/'
+
+# Regenerate types (rebuild server)
+./scripts/build.sh wscore-game-server latest
+./scripts/deploy.sh deploy@your-vds-ip ~/gameserver
 ```
 
 ### Game Server Not Responding
@@ -273,6 +439,18 @@ ssh deploy@your-vds-ip 'docker compose logs game-server'
 ### Port Already in Use
 ```bash
 ssh deploy@your-vds-ip 'sudo lsof -i :80 -i :443'
+```
+
+### Client Not Loading Room Interface
+```bash
+# Check nginx logs
+ssh deploy@your-vds-ip 'docker compose logs nginx'
+
+# Check static files
+ssh deploy@your-vds-ip 'docker compose exec game-server ls -la /app/wwwroot/'
+
+# Test client files
+curl https://your-domain.com/ | head -50
 ```
 
 ### Rebuild From Scratch
@@ -307,6 +485,12 @@ proxy_cache_path /var/cache/nginx levels=1:2 keys_zone=game_cache:10m;
 ssh deploy@your-vds-ip 'docker stats'
 ```
 
+4. **Room System Optimization**:
+```bash
+# Monitor room traffic
+ssh deploy@your-vds-ip 'cd ~/gameserver && docker compose exec game-server dotnet /app/WsServer.dll --room-stats'
+```
+
 ## Backup Strategy
 
 ### Backup Configuration Files
@@ -319,9 +503,15 @@ ssh deploy@your-vds-ip 'cd ~/gameserver && tar czf backup-config-$(date +%Y%m%d)
 ssh deploy@your-vds-ip 'sudo tar czf backup-ssl-$(date +%Y%m%d).tar.gz /etc/letsencrypt'
 ```
 
+### Backup Room State (if needed)
+```bash
+# Room state is ephemeral, but you can backup configuration
+ssh deploy@your-vds-ip 'cd ~/gameserver && tar czf backup-room-config-$(date +%Y%m%d).tar.gz .'
+```
+
 ## Scaling
 
-### Multiple Game Server Instances
+### Multiple Game Server Instances with Room Affinity
 
 Update docker-compose.yml:
 ```yaml
@@ -330,10 +520,13 @@ game-server:
     replicas: 3
 ```
 
-Then use nginx upstream for load balancing:
+For room-based scaling, use nginx upstream with sticky sessions:
 ```nginx
 upstream game_backend {
-    server game-server:80;
+    ip_hash;  # Ensure same client always hits same server (for room consistency)
+    server game-server-1:80;
+    server game-server-2:80;
+    server game-server-3:80;
 }
 ```
 
@@ -341,19 +534,29 @@ upstream game_backend {
 
 ```
 WsCore/
-├── Dockerfile                 # Multi-stage build
+├── Dockerfile                 # Multi-stage build (client + server + room system)
 ├── docker-compose.yml         # Service orchestration
-├── nginx.conf                 # Reverse proxy config
+├── nginx.conf                 # Reverse proxy config (WebSocket support)
 ├── .dockerignore              # Build optimization
 ├── scripts/
-│   ├── build.sh              # Build image locally
+│   ├── build.sh              # Build image locally (shell)
+│   ├── build.ps1             # Build image locally (PowerShell)
+│   ├── deploy.sh             # Deploy to remote VDS (shell) ⭐
+│   ├── deploy.ps1            # Deploy to remote VDS (PowerShell)
+│   ├── setup-ssl.sh          # Setup Let's Encrypt HTTPS
 │   ├── push.sh               # Push to registry
-│   ├── deploy-vds.sh         # Deploy to remote VDS
-│   ├── manage-vds.sh         # Manage running services
-│   ├── setup-ssl.sh          # Setup Let's Encrypt
 │   └── README.md             # Script reference
-├── WsCore.Client/            # Web client (TypeScript + Vite)
-└── WsServer/                 # .NET game server
+├── WsCore.Client/            # Multi-mode web client (TypeScript + Vite)
+│   ├── src/
+│   │   ├── lobby/            # Discord-style lobby interface
+│   │   ├── 2d/               # 2D Phaser client (Spatial2D)
+│   │   ├── 3d/               # 3D Three.js client (Spatial3D)
+│   │   └── network/protocol  # Auto-generated MemoryPack types
+│   └── dist/                 # Built single HTML with room routing
+└── WsServer/                 # .NET 10 game server with room system
+    ├── WsServer/             # ASP.NET Core WebSocket host
+    ├── Game/                 # Game logic and room management
+    └── WsServer.Shared/      # MemoryPack messaging system
 ```
 
 ## Security Considerations
@@ -378,6 +581,11 @@ WsCore/
 5. **Network Security**
    - Only necessary ports exposed
    - Private docker network for inter-container communication
+
+6. **WebSocket Security**
+   - Rate limiting for room joins
+   - Input validation for room names
+   - Message size limits
 
 ## CI/CD Integration
 
@@ -412,8 +620,16 @@ jobs:
           script: |
             cd ~/gameserver
             docker pull yourusername/wscore:${{ github.sha }}
-            docker tag yourusername/wscore:${{ github.sha }} wscore:latest
+            docker tag yourusername/wscore:${{ github.sha }} wscore-game-server:latest
             docker compose up -d
+```
+
+### Room System Integration Testing
+```bash
+# Test room navigation in CI
+curl -f https://your-domain.com/ || exit 1
+curl -f "https://your-domain.com/?mode=2d" || exit 1
+curl -f "https://your-domain.com/?mode=3d" || exit 1
 ```
 
 ## Support & Debugging
@@ -421,22 +637,43 @@ jobs:
 ### Build Troubleshooting
 
 **Error: "The current .NET SDK does not support targeting .NET 10.0"**
-- ✅ **Fixed**: Dockerfile now uses `.NET 10.0` SDK and runtime (was 9.0)
+- ✅ **Fixed**: Dockerfile now uses `.NET 10.0` SDK and runtime
 - Check Dockerfile lines:
   - Line 20: `FROM mcr.microsoft.com/dotnet/sdk:10.0`
   - Line 36: `FROM mcr.microsoft.com/dotnet/aspnet:10.0`
 
 **Error: "UID 1000 is not unique"**
-- ✅ **Fixed**: Changed user UID to 1001 (was 1000, conflicts with base image)
+- ✅ **Fixed**: Changed user UID to 1001
 - Verify line 47 in Dockerfile: `useradd -m -u 1001 gameserver`
 
 **Error: "project file was not found" (BenchmarkSuite1)**
 - ✅ **Fixed**: Restoring specific project instead of solution
 - Verify Dockerfile line 33: `RUN dotnet restore WsServer/WsServer.csproj`
 
-**Error: dist folder not found during Docker build**
+**Error: "dist folder not found during Docker build"**
 - ✅ **Fixed**: Vite config outputs to correct path `./dist`
 - Check WsCore.Client/vite.config.ts: `outDir: './dist'`
+
+**Error: "Room manager not found"**
+- ✅ **Verified**: Room manager is properly integrated in GameServer.cs
+- Check server logs for room initialization messages
+
+### Room System Troubleshooting
+
+**Issue: "Room navigation not working"**
+- Check browser console for JavaScript errors
+- Verify WebSocket connection: `ws://your-domain.com/ws`
+- Check room names: lobby, voice, 2d-game, 3d-game
+
+**Issue: "Players not appearing in rooms"**
+- Check server logs for player join events
+- Verify room-aware broadcasting is working
+- Check WebSocket connection state
+
+**Issue: "MemoryPack types not generated"**
+- Rebuild server with TypeScript generation
+- Check WsServer/Game/Game.csproj for MemoryPack settings
+- Verify generated files in WsCore.Client/src/network/protocol/
 
 ### Common Issues
 
@@ -454,7 +691,7 @@ jobs:
 - Verify domain resolves to VDS IP
 - Check nginx is running and responsive
 
-**Issue: Game client not loading**
+**Issue: Game client not loading room interface**
 - Verify nginx logs: `docker-compose logs nginx`
 - Check static files copied: `docker exec game-server ls /app/wwwroot/`
 - Verify Vite built single index.html: `ls -lh WsCore.Client/dist/`
@@ -463,9 +700,10 @@ jobs:
 
 1. Check script output for error messages
 2. View container logs: `docker-compose logs`
-3. SSH into VDS and inspect manually
-4. Check VDS system logs: `sudo journalctl -xe`
+3. Test room system: Check all three modes (lobby, 2d, 3d)
+4. SSH into VDS and inspect manually
+5. Check VDS system logs: `sudo journalctl -xe`
 
 ---
 
-**Ready to deploy?** Start with Step 1 and follow in order. Happy gaming!
+**Ready to deploy with room-based architecture?** Start with Step 1 and follow in order. Happy multiplayer gaming!

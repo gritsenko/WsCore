@@ -10,6 +10,10 @@ import { ChatMessageEvent } from './protocol/ChatMessageEvent';
 import { UpdateMapObjectsEvent } from './protocol/UpdateMapObjectsEvent';
 import { PlayerStateData } from './protocol/PlayerStateData';
 import { MapObjectData } from './protocol/MapObjectData';
+import { RoomManager } from './rooms/RoomManager.js';
+import { CommunicationMode } from './rooms/CommunicationMode.js';
+import { RoomListEvent } from './protocol/RoomListEvent';
+import { RoomUsersUpdateEvent } from './protocol/RoomUsersUpdateEvent';
 
 export interface IPlayer {
   id: number;
@@ -39,23 +43,61 @@ export interface IPlayer {
 export default class WsClient<T extends IPlayer = Player> extends WsConnection {
   static MapObjectData = MapObjectData;
 
+  constructor() {
+    super();
+    this.roomManager = new RoomManager();
+    this.initializeDefaultRooms();
+  }
+
+  private initializeDefaultRooms(): void {
+    // Create default rooms - mark them as persistent so they don't get deleted when empty
+    this.roomManager.createRoom('lobby', 'Lobby', [CommunicationMode.TextChat], true);
+    this.roomManager.createRoom(
+      'voice',
+      'Voice Room',
+      [CommunicationMode.VoiceChat, CommunicationMode.TextChat],
+      true
+    );
+    this.roomManager.createRoom(
+      '2d-game',
+      '2D Game Room',
+      [CommunicationMode.Spatial2D, CommunicationMode.TextChat],
+      true
+    );
+    this.roomManager.createRoom(
+      '3d-game',
+      '3D Game Room',
+      [CommunicationMode.Spatial3D, CommunicationMode.TextChat],
+      true
+    );
+  }
+
   myPlayer: T | null = null;
   myPlayerName = 'John Smith';
   playersCount = 0;
   players: { [id: number]: T } = {};
   playerNames: { [id: number]: string } = {}; // Cache player names
   playerFactory?: (id: number) => T;
+  roomManager: RoomManager;
+
+  // Room-aware properties
+  currentCommunicationMode: CommunicationMode = CommunicationMode.TextChat;
+  isInSpatialRoom: boolean = false;
 
   onPlayerCreateCallback?: (player: T) => void;
   onGameInitCallback?: () => void;
   onMapObjectsCallback?: (objects: (MapObjectData | null)[] | null) => void;
   onPlayerRemovedCallback?: (player: T) => void;
+  onRoomUsersUpdateCallback?: (msg: RoomUsersUpdateEvent) => void;
 
   override onInitPlayerEvent(msg: InitPlayerEvent): void {
     this.clientId = msg.clientId;
     console.log('Player initialized', this.clientId);
     this.sendSetPlayerNameRequest(this.myPlayerName);
     this.sendUpdatePlayerSlotsRequest(0, 0, 0);
+
+    // Auto-join default lobby room
+    this.roomManager.joinRoom(this.clientId, this.myPlayerName, 'lobby');
 
     this.onGameInitCallback?.();
   }
@@ -81,6 +123,10 @@ export default class WsClient<T extends IPlayer = Player> extends WsConnection {
   }
 
   override onPlayerLeftEvent(msg: PlayerLeftEvent): void {
+    // Leave room if this was our player
+    if (msg.clientId === this.clientId) {
+      this.roomManager.leaveRoom(this.clientId);
+    }
     this.removePlayer(msg.clientId);
   }
 
@@ -97,6 +143,11 @@ export default class WsClient<T extends IPlayer = Player> extends WsConnection {
   }
 
   override onGameTickUpdateEvent(msg: GameTickUpdateEvent): void {
+    // Only process spatial updates if we're in a spatial room
+    if (!this.roomManager.shouldReceiveSpatialUpdates(this.clientId)) {
+      return; // Ignore spatial updates in non-spatial rooms
+    }
+
     if (!msg.movementStates) return;
 
     const playersCount = msg.movementStates.length;
@@ -127,6 +178,37 @@ export default class WsClient<T extends IPlayer = Player> extends WsConnection {
 
   override onUpdateMapObjectsEvent(msg: UpdateMapObjectsEvent): void {
     this.onMapObjectsCallback?.(msg.mapObjects);
+  }
+
+  override onRoomListEvent(msg: RoomListEvent): void {
+    console.log('Room list received:', msg.rooms);
+
+    if (msg.rooms) {
+      // Update room user counts
+      for (const room of msg.rooms) {
+        this.roomManager.updateRoomUserCount(room.id, room.userCount);
+      }
+    }
+  }
+
+  override onRoomUsersUpdateEvent(msg: RoomUsersUpdateEvent): void {
+    console.log(`Room users update for ${msg.roomId}:`, msg.users);
+
+    if (msg.roomId && msg.users) {
+      const room = this.roomManager.getRoom(msg.roomId);
+      if (room) {
+        // Clear existing clients and rebuild from update
+        room.clients.clear();
+        for (const userInfo of msg.users) {
+          if (userInfo) {
+            room.addClient(userInfo.clientId, userInfo.name || '');
+          }
+        }
+      }
+    }
+
+    // Call callback if provided (for UI updates, etc.)
+    this.onRoomUsersUpdateCallback?.(msg);
   }
 
   writeToChat(id: number, message: string): void {
@@ -194,5 +276,67 @@ export default class WsClient<T extends IPlayer = Player> extends WsConnection {
       p.speed.x = ms.velocityX;
       p.speed.y = ms.velocityY;
     }
+  }
+
+  /**
+   * Room management methods
+   */
+
+  /**
+   * Join a room
+   */
+  joinRoom(roomId: string, playerName?: string): boolean {
+    const name = playerName || this.myPlayerName;
+    const success = this.roomManager.joinRoom(this.clientId, name, roomId);
+
+    if (success) {
+      const room = this.roomManager.getRoom(roomId);
+      if (room) {
+        this.isInSpatialRoom =
+          room.supportsMode(CommunicationMode.Spatial2D) ||
+          room.supportsMode(CommunicationMode.Spatial3D);
+      }
+
+      // Send join room request to server
+      this.sendJoinRoomRequest(roomId);
+    }
+
+    return success;
+  }
+
+  /**
+   * Leave current room
+   */
+  leaveRoom(): boolean {
+    const success = this.roomManager.leaveRoom(this.clientId);
+    if (success) {
+      this.isInSpatialRoom = false;
+    }
+    return success;
+  }
+
+  /**
+   * Switch communication mode within current room
+   */
+  setCommunicationMode(mode: CommunicationMode): boolean {
+    const success = this.roomManager.setClientMode(this.clientId, mode);
+    if (success) {
+      this.currentCommunicationMode = mode;
+    }
+    return success;
+  }
+
+  /**
+   * Get current room info
+   */
+  getCurrentRoom() {
+    return this.roomManager.getClientRoom(this.clientId);
+  }
+
+  /**
+   * Check if should receive spatial updates
+   */
+  shouldReceiveSpatialUpdates(): boolean {
+    return this.roomManager.shouldReceiveSpatialUpdates(this.clientId);
   }
 }

@@ -4,30 +4,46 @@ import LobbyPlayer from './LobbyPlayer';
 import { SetPlayerNameEvent } from '../network/protocol/SetPlayerNameEvent';
 import { PlayerJoinedEvent } from '../network/protocol/PlayerJoinedEvent';
 import { PlayerLeftEvent } from '../network/protocol/PlayerLeftEvent';
+import { RoomUsersUpdateEvent } from '../network/protocol/RoomUsersUpdateEvent';
 
 export default class LobbyApp {
-  serverUrl = '';
+  serverUrl: string;
   socket: WebSocket;
   playerName: string = 'User';
   private lobbyUI: LobbyUI;
   private gameClient: WsClient<LobbyPlayer>;
+  private initialized: boolean = false;
 
-  constructor() {
+  constructor(serverUrl: string) {
     console.log('LobbyApp instance created');
+    this.serverUrl = serverUrl;
     this.lobbyUI = new LobbyUI();
     this.gameClient = new WsClient<LobbyPlayer>();
-    this.initGameClient();
+  }
+
+  /**
+   * Set player name (must be called before connect)
+   */
+  public setPlayerName(name: string): void {
+    this.playerName = name;
+    this.gameClient.myPlayerName = name;
+
+    // Initialize on first setPlayerName call if not already initialized
+    if (!this.initialized) {
+      this.initGameClient();
+    }
   }
 
   /**
    * Initialize game client for lobby
    */
   private initGameClient(): void {
+    this.initialized = true;
     this.gameClient.myPlayerName = this.playerName;
-    
+
     // Use LobbyPlayer factory for creating players in lobby mode
     this.gameClient.playerFactory = (id: number) => new LobbyPlayer(id);
-    
+
     // Callback when player name is set
     this.gameClient.onSetPlayerNameEvent = (msg: SetPlayerNameEvent) => {
       this.handlePlayerNameSet(msg);
@@ -43,6 +59,11 @@ export default class LobbyApp {
       this.handlePlayerLeft(msg);
     };
 
+    // Callback when room users list is updated
+    this.gameClient.onRoomUsersUpdateCallback = (msg: RoomUsersUpdateEvent) => {
+      this.handleRoomUsersUpdate(msg);
+    };
+
     // Set initial game init callback
     this.gameClient.onGameInitCallback = () => {
       this.onGameInit();
@@ -51,7 +72,7 @@ export default class LobbyApp {
     // Override writeToChat to display messages in UI with proper name resolution
     this.gameClient.writeToChat = (id: number, message: string) => {
       let playerName = `Player ${id}`;
-      
+
       // First, check if this is our own player
       if (this.gameClient.myPlayer && id === this.gameClient.myPlayer.id) {
         playerName = this.playerName;
@@ -67,7 +88,7 @@ export default class LobbyApp {
           playerName = player.name;
         }
       }
-      
+
       const isOwnMessage = id === this.gameClient.clientId;
       this.lobbyUI.addMessage(playerName, message, isOwnMessage);
     };
@@ -77,8 +98,61 @@ export default class LobbyApp {
       this.gameClient.sendChatMessageRequest(message);
     });
 
+    // Set room join callback
+    this.lobbyUI.setOnRoomJoinCallback(roomId => {
+      this.joinRoom(roomId);
+    });
+
     // Connect to server
-    this.gameClient.connect('ws://127.0.0.1:5000/ws');
+    this.gameClient.connect(this.serverUrl);
+  }
+
+  /**
+   * Join a specific room
+   */
+  private joinRoom(roomId: string): void {
+    console.log(`Joining room: ${roomId}`);
+
+    // Leave current room first
+    this.gameClient.leaveRoom();
+
+    // Clear current messages and users list
+    this.lobbyUI.clearMessages();
+
+    // Clear all users from UI to rebuild with room members only
+    this.lobbyUI.clearAllUsers();
+
+    // Join new room
+    if (this.gameClient.joinRoom(roomId, this.playerName)) {
+      this.lobbyUI.setCurrentRoom(roomId);
+
+      // Get room members from roomManager and add only those users
+      const currentRoom = this.gameClient.getCurrentRoom();
+      if (currentRoom) {
+        for (const clientId of currentRoom.getClientIds()) {
+          const clientName = currentRoom.getClient(clientId)?.name || `Player ${clientId}`;
+          this.lobbyUI.addUser(clientId, clientName);
+        }
+      }
+
+      // Update room user counts for all rooms
+      this.updateRoomUserCounts();
+    } else {
+      console.error(`Failed to join room: ${roomId}`);
+    }
+  }
+
+  /**
+   * Update room user counts based on actual room data
+   */
+  private updateRoomUserCounts(): void {
+    const roomIds = ['lobby', 'voice', '2d-game', '3d-game'];
+
+    for (const roomId of roomIds) {
+      // Get actual user count from room manager
+      const userCount = this.gameClient.roomManager.getRoomClientIds(roomId).length;
+      this.lobbyUI.updateRoomUserCount(roomId, userCount);
+    }
   }
 
   /**
@@ -87,15 +161,21 @@ export default class LobbyApp {
   private onGameInit(): void {
     console.log('Lobby initialized, client ID:', this.gameClient.clientId);
     this.lobbyUI.setCurrentUserId(this.gameClient.clientId);
+    this.lobbyUI.setCurrentRoom('lobby');
 
-    // Add current player to UI
-    this.lobbyUI.addUser(this.gameClient.clientId, this.playerName);
+    // Join default lobby room first
+    this.gameClient.joinRoom('lobby', this.playerName);
 
-    // Add existing players from gameClient
-    for (const playerId in this.gameClient.players) {
-      const playerName = this.gameClient.playerNames[playerId] || `Player ${playerId}`;
-      this.lobbyUI.addUser(parseInt(playerId), playerName);
+    // Get room members from roomManager and add only those users
+    const currentRoom = this.gameClient.getCurrentRoom();
+    if (currentRoom) {
+      for (const clientId of currentRoom.getClientIds()) {
+        const clientName = currentRoom.getClient(clientId)?.name || `Player ${clientId}`;
+        this.lobbyUI.addUser(clientId, clientName);
+      }
     }
+
+    this.updateRoomUserCounts();
   }
 
   /**
@@ -124,10 +204,17 @@ export default class LobbyApp {
     if (msg.playerStateData) {
       const playerId = msg.playerStateData.id;
       const playerName = this.gameClient.playerNames[playerId] || `Player ${playerId}`;
-      
-      this.lobbyUI.addUser(playerId, playerName);
-      console.log(`Player joined: ${playerName}`);
+
+      // Only add user if they're in the current room
+      const currentRoom = this.gameClient.getCurrentRoom();
+      if (currentRoom && currentRoom.getClient(playerId)) {
+        this.lobbyUI.addUser(playerId, playerName);
+        console.log(`Player joined: ${playerName}`);
+      }
     }
+
+    // Update room user counts
+    this.updateRoomUserCounts();
   }
 
   /**
@@ -136,12 +223,43 @@ export default class LobbyApp {
   private handlePlayerLeft(msg: PlayerLeftEvent): void {
     const playerId = msg.clientId;
     const playerName = this.gameClient.playerNames[playerId] || `Player ${playerId}`;
-    
+
+    // Only remove user if they're currently shown in the UI (i.e., in current room)
     this.lobbyUI.removeUser(playerId);
     console.log(`Player left: ${playerName}`);
 
     // Clean up cached data
     delete this.gameClient.playerNames[playerId];
+
+    // Update room user counts
+    this.updateRoomUserCounts();
+  }
+
+  /**
+   * Handle when room users list is updated
+   */
+  private handleRoomUsersUpdate(msg: RoomUsersUpdateEvent): void {
+    console.log(`Room users updated for room: ${msg.roomId}`, msg.users);
+
+    // Only update UI if this is the current room
+    const currentRoom = this.gameClient.getCurrentRoom();
+    if (currentRoom && currentRoom.id === msg.roomId && msg.users) {
+      // Clear existing users and rebuild
+      this.lobbyUI.clearAllUsers();
+
+      for (const userInfo of msg.users) {
+        if (userInfo) {
+          this.lobbyUI.addUser(userInfo.clientId, userInfo.name || `Player ${userInfo.clientId}`);
+        }
+      }
+    }
+  }
+
+  /**
+   * Get the game client (for passing to game apps)
+   */
+  public getGameClient(): WsClient<LobbyPlayer> {
+    return this.gameClient;
   }
 
   /**
@@ -154,9 +272,13 @@ export default class LobbyApp {
   /**
    * Cleanup
    */
-  destroy(): void {
+  destroy(closeConnection: boolean = true): void {
+    // Clear lobby-specific event handlers if connection is being kept alive
+    if (!closeConnection && this.gameClient) {
+      this.gameClient.onRoomUsersUpdateCallback = undefined;
+    }
     this.lobbyUI.destroy();
-    if (this.gameClient) {
+    if (closeConnection && this.gameClient) {
       this.gameClient.ws?.close();
     }
   }

@@ -70,7 +70,7 @@ export default class ChatUI {
     this.chatInput.type = 'text';
     this.chatInput.className = 'chat-input';
     this.chatInput.placeholder = 'Type message...';
-    this.chatInput.onkeypress = (e) => {
+    this.chatInput.onkeypress = e => {
       if (e.key === 'Enter') {
         this.sendMessage();
       }

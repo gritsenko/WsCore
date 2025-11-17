@@ -19,12 +19,15 @@ fi
 IMAGE_NAME="${1:-wscore-game-server}"
 IMAGE_TAG="${2:-latest}"
 FULL_IMAGE="${IMAGE_NAME}:${IMAGE_TAG}"
+PLATFORM="${3:-amd64}"
 
 echo -e "${YELLOW}Building Docker image: ${FULL_IMAGE}${NC}"
+echo -e "${YELLOW}Platform: linux/${PLATFORM}${NC}"
 
 # Build the image
 docker build \
     --tag "${FULL_IMAGE}" \
+    --platform "linux/${PLATFORM}" \
     --file Dockerfile \
     --progress=plain \
     .
