@@ -26,12 +26,17 @@ builder.Services.AddSingleton<IServerLogicProvider, ReflectionServerLogicProvide
 
 //init game server
 builder.Services.AddSingleton<IClientConnectionManager, ConnectionManager>();
-builder.Services.AddSingleton<IGameMessenger, GameMessenger>();
-// server info provider for dashboard
-builder.Services.AddSingleton<ServerInfoProvider>();
-
+builder.Services.AddSingleton<IMessageSerializer, MessageSerializer>();
 // Add RoomManager to DI container
 builder.Services.AddSingleton<WsServer.Rooms.RoomManager>();
+// Register unified GameMessenger with room awareness
+builder.Services.AddSingleton<IGameMessenger>(sp =>
+    new GameMessenger(
+        sp.GetRequiredService<IClientConnectionManager>(),
+        sp.GetRequiredService<IMessageSerializer>(),
+        sp.GetRequiredService<WsServer.Rooms.RoomManager>()));
+// server info provider for dashboard
+builder.Services.AddSingleton<ServerInfoProvider>();
 
 builder.Services.AddSingleton<GameModel>();
 builder.Services.AddSingleton<IGameServer, GameServer>();

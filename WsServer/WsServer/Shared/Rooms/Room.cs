@@ -22,7 +22,7 @@ public class Room
     {
         Id = id;
         Name = name;
-        SupportedModes = new HashSet<RoomCompatibility>(supportedModes);
+        SupportedModes = [.. supportedModes];
         Clients = new ConcurrentDictionary<uint, RoomClient>();
         CreatedAt = DateTime.UtcNow;
         IsPersistent = isPersistent;

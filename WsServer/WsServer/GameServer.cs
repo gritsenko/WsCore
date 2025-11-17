@@ -2,8 +2,6 @@
 using Game.ServerLogic.GameState.Events;
 using Game.ServerLogic.Player.Events;
 using Game.ServerLogic.Rooms.Events;
-using Microsoft.Extensions.Logging;
-using System.Linq;
 using WsServer.Abstract;
 using WsServer.Rooms;
 
@@ -13,7 +11,6 @@ public class GameServer : GameServerBase<GameModel>
 {
     private readonly GameTickUpdateEvent _gameStateEvent;
     private readonly RoomManager _roomManager;
-    private readonly GameMessengerRoomAware _roomAwareMessenger;
 
     public GameServer(
         GameModel gameModel,
@@ -24,7 +21,6 @@ public class GameServer : GameServerBase<GameModel>
         ILogger<GameServer> logger) : base(gameModel, messenger, connectionManager, serverLogicProvider, logger)
     {
         _roomManager = roomManager;
-        _roomAwareMessenger = new GameMessengerRoomAware(connectionManager, serverLogicProvider, _roomManager);
         
         OnPlayerAdded += GameServer_OnPlayerAdded;
         OnPlayerRemoved += GameServer_OnPlayerRemoved;
@@ -66,8 +62,9 @@ public class GameServer : GameServerBase<GameModel>
     private void GameServer_OnTick()
     {
         _gameStateEvent.BuildTickSnapshot();
-        // Use room-aware messenger to filter spatial updates
-        _roomAwareMessenger.BroadcastSpatialUpdates(_gameStateEvent);
+        // Use unified messenger to broadcast spatial updates (filters by room)
+        var messenger = (GameMessenger)Messenger;
+        messenger.BroadcastSpatialUpdates(_gameStateEvent);
 
         //if (GameModel.TopChanged)
         //    BroadCastTop();
@@ -137,9 +134,4 @@ public class GameServer : GameServerBase<GameModel>
     /// Get the room manager for external access
     /// </summary>
     public RoomManager GetRoomManager() => _roomManager;
-    
-    /// <summary>
-    /// Get the room-aware messenger for external access
-    /// </summary>
-    public GameMessengerRoomAware GetRoomAwareMessenger() => _roomAwareMessenger;
 }

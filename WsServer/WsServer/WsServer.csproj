@@ -4,6 +4,8 @@
 		<TargetFramework>net10.0</TargetFramework>
 		<UserSecretsId>aspnet-WsServer-2670D944-BCB8-41AB-B27E-24D82E676C94</UserSecretsId>
 		<LangVersion>latest</LangVersion>
+		<Nullable>enable</Nullable>
+		<ImplicitUsings>enable</ImplicitUsings>
 	</PropertyGroup>
 
 	<ItemGroup>

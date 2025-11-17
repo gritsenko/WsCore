@@ -7,6 +7,7 @@ public interface IServerLogicProvider
 {
     void Initialize();
     Type FindClientRequestTypeById(byte messageTypeId);
+    byte FindClientRequestIdByType(Type type);
     byte FindServerEventIdByType(Type type);
     bool TryGetRequestHandler(Type type, out IRequestHandler? handler);
 }

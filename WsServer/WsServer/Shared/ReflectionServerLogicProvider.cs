@@ -1,6 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Reflection;
 using WsServer.Abstract;
 using WsServer.Abstract.Messages;
@@ -108,6 +105,7 @@ public class ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFac
     // No-op: Legacy DataBuffer writer support removed.
 
     public Type FindClientRequestTypeById(byte messageTypeId) => _requestRegistry.FindTypeById(messageTypeId);
+    public byte FindClientRequestIdByType(Type type) => _requestRegistry.FindIdByType(type);
 
     public byte FindServerEventIdByType(Type type) => _eventRegistry.FindIdByType(type);
 

@@ -1,5 +1,4 @@
-﻿using System;
-using System.Buffers;
+﻿using System.Buffers;
 using MemoryPack;
 using WsServer.Abstract;
 using WsServer.Abstract.Messages;
@@ -46,5 +45,18 @@ public class MessageSerializer : IMessageSerializer
         if (obj is not IClientRequest req)
             throw new InvalidCastException($"Deserialized type is not IClientRequest: {messageType}");
         return req;
+    }
+
+    public ArraySegment<byte> SerializeClientRequest<TRequest>(TRequest request) where TRequest : IClientRequest
+    {
+        var messageType = _serverLogicProvider.FindClientRequestIdByType(typeof(TRequest));
+        var writer = new ArrayBufferWriter<byte>(1024);
+        writer.GetSpan(1)[0] = messageType; // header
+        writer.Advance(1);
+        MemoryPackSerializer.Serialize(writer, request);
+        var buffer = writer.WrittenSpan;
+        var pooled = ArrayPool<byte>.Shared.Rent(buffer.Length);
+        buffer.CopyTo(pooled);
+        return new ArraySegment<byte>(pooled, 0, buffer.Length);
     }
 }
