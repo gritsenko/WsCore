@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Prototype WS Client</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 1rem; background:#0f172a; color:#e2e8f0; }
+    #log { white-space: pre-wrap; border:1px solid #334155; padding:.5rem; height:260px; overflow-y:auto; background:#1e293b; }
+    input, textarea { background:#1e293b; color:#e2e8f0; border:1px solid #334155; border-radius:4px; padding:.4rem; }
+    button { background:#3b82f6; border:none; color:#fff; padding:.45rem .9rem; border-radius:4px; cursor:pointer; }
+    button:hover { background:#1d4ed8; }
+    .row { margin-bottom:.5rem; }
+    .small { font-size:.75rem; opacity:.7; }
+    .flex { display:flex; gap:.5rem; }
+    textarea { width:100%; height:90px; }
+  </style>
+</head>
+<body>
+  <h2>WebSocket Prototype Client</h2>
+  <div class="row flex">
+    <div>
+      <label>Host:</label>
+      <input id="host" value="" placeholder="ws://localhost:5000/ws" style="width:220px" />
+    </div>
+    <div style="align-self:flex-end">
+      <button id="connectBtn">Connect</button>
+      <button id="closeBtn">Close</button>
+    </div>
+  </div>
+
+  <div class="row">
+    <label>Quick Send (raw JSON request)</label>
+    <textarea id="rawJson">{ "typeId": 200, "Message": "Hello world!" }</textarea>
+    <button id="sendRaw">Send Raw JSON</button>
+  </div>
+
+  <div class="row flex">
+    <div style="flex:1">
+      <label>Set Name:</label>
+      <input id="playerName" placeholder="PlayerName" />
+      <button id="setNameBtn">Set Name</button>
+    </div>
+    <div style="flex:1">
+      <label>Join Room:</label>
+      <input id="roomId" placeholder="lobby" value="lobby" />
+      <button id="joinRoomBtn">Join</button>
+    </div>
+  </div>
+
+  <div class="row">
+    <label>Chat:</label>
+    <input id="chatInput" placeholder="Message" style="width:60%" />
+    <button id="chatSendBtn">Send Chat</button>
+  </div>
+
+  <div id="log"></div>
+  <div class="small">Binary events shown as [binary len=N]. Text frames show JSON. Incoming events attempt light decode of first byte -> eventId.</div>
+
+<script>
+(function(){
+  const logEl = document.getElementById('log');
+  function log(m){ logEl.textContent += m + '\n'; logEl.scrollTop = logEl.scrollHeight; }
+
+  let ws = null;
+
+  function connect(){
+    const hostInput = document.getElementById('host');
+    let url = hostInput.value.trim();
+    if(!url) {
+      const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+      url = proto + '://' + location.host + '/ws';
+      hostInput.value = url;
+    }
+    ws = new WebSocket(url);
+    ws.binaryType = 'arraybuffer';
+    ws.onopen = ()=> log('[open]');
+    ws.onclose = e=> log('[close] code=' + e.code);
+    ws.onerror = e=> log('[error] ' + (e.message||'err'));
+    ws.onmessage = e=> {
+      if (typeof e.data === 'string') {
+        log('[text] ' + e.data);
+        return;
+      }
+      // Binary frame -> first byte is message type id
+      const buf = new Uint8Array(e.data);
+      const typeId = buf[0];
+      log(`[binary] typeId=${typeId} len=${buf.length}`);
+    };
+  }
+
+  document.getElementById('connectBtn').onclick = connect;
+  document.getElementById('closeBtn').onclick = ()=> { if(ws){ ws.close(); } };
+
+  document.getElementById('sendRaw').onclick = ()=> {
+    if(!ws || ws.readyState!==1) return log('! not connected');
+    const raw = document.getElementById('rawJson').value.trim();
+    try { JSON.parse(raw); ws.send(raw); log('[sent text] ' + raw); } catch { log('[invalid json]'); }
+  };
+
+  document.getElementById('setNameBtn').onclick = ()=> {
+    if(!ws || ws.readyState!==1) return log('! not connected');
+    const name = document.getElementById('playerName').value.trim() || 'Player';
+    // SetPlayerNameRequest -> TypeId 100
+    const payload = { typeId:100, Name:name };
+    ws.send(JSON.stringify(payload));
+    log('[sent setName] ' + JSON.stringify(payload));
+  };
+
+  document.getElementById('joinRoomBtn').onclick = ()=> {
+    if(!ws || ws.readyState!==1) return log('! not connected');
+    const roomId = document.getElementById('roomId').value.trim()||'lobby';
+    // JoinRoomRequest -> TypeId 251
+    const payload = { typeId:251, RoomId:roomId };
+    ws.send(JSON.stringify(payload));
+    log('[sent joinRoom] ' + JSON.stringify(payload));
+  };
+
+  document.getElementById('chatSendBtn').onclick = ()=> {
+    if(!ws || ws.readyState!==1) return log('! not connected');
+    const msg = document.getElementById('chatInput').value.trim();
+    if(!msg) return;
+    // ChatMessageRequest -> TypeId 200
+    const payload = { typeId:200, Message:msg };
+    ws.send(JSON.stringify(payload));
+    log('[sent chat] ' + JSON.stringify(payload));
+    document.getElementById('chatInput').value='';
+  };
+})();
+</script>
+</body>
+</html>

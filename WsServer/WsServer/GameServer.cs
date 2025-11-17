@@ -3,7 +3,6 @@ using Game.ServerLogic.GameState.Events;
 using Game.ServerLogic.Player.Events;
 using Game.ServerLogic.Rooms.Events;
 using Microsoft.Extensions.Logging;
-using System.Collections.Generic;
 using System.Linq;
 using WsServer.Abstract;
 using WsServer.Rooms;
@@ -46,28 +45,21 @@ public class GameServer : GameServerBase<GameModel>
         _roomManager.CreateRoom(
             "lobby",
             "Lobby",
-            new[] { CommunicationMode.TextChat },
+            new[] { RoomCompatibility.TextChat },
             isPersistent: true);
         
         // Voice room - voice chat only (persistent)
         _roomManager.CreateRoom(
             "voice",
             "Voice Room",
-            new[] { CommunicationMode.VoiceChat, CommunicationMode.TextChat },
+            new[] { RoomCompatibility.VoiceChat, RoomCompatibility.TextChat },
             isPersistent: true);
         
         // 2D Game room (persistent)
         _roomManager.CreateRoom(
             "2d-game",
             "2D Game Room",
-            new[] { CommunicationMode.Spatial2D, CommunicationMode.TextChat },
-            isPersistent: true);
-            
-        // 3D Game room (persistent)
-        _roomManager.CreateRoom(
-            "3d-game",
-            "3D Game Room",
-            new[] { CommunicationMode.Spatial3D, CommunicationMode.TextChat },
+            new[] { RoomCompatibility.Spatial, RoomCompatibility.TextChat },
             isPersistent: true);
     }
 

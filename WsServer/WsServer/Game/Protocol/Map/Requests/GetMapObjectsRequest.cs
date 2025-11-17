@@ -1,0 +1,14 @@
+﻿using MemoryPack;
+using WsServer.Abstract.Messages;
+
+namespace Game.ServerLogic.Map.Requests;
+
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class GetMapObjectsRequest : IClientRequest
+{
+    public static byte TypeId => 51;
+
+    public int MapX;
+    public int MapY;
+}

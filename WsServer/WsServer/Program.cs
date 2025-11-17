@@ -9,6 +9,7 @@ using Game.Core;
 using WsServer;
 using WsServer.Abstract;
 using WsServer.ServerInfo;
+using WsServer.Prototype; // added for prototype
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddLogging(b =>
@@ -37,6 +38,8 @@ builder.Services.AddSingleton<IGameServer, GameServer>();
 
 builder.Services.AddTransient<WebSocketHandlerFactory>();
 
+// Prototype synthetic client (disabled unless WS_PROTO_CLIENT=1)
+builder.Services.AddHostedService<PrototypeClientHostedService>();
 
 var app = builder.Build();
 
