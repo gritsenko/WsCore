@@ -1,0 +1,25 @@
+@using RazorConsole.Components
+@using WsServer.TestClient.Services
+
+<Panel Title="⌨️ Command Input">
+    <Rows>
+        <TextInput Placeholder="Enter command (join lobby, name Player1, exit...)" 
+                   OnSubmit="@HandleSubmit" />
+    </Rows>
+</Panel>
+
+@code {
+    [Parameter]
+    public WebSocketClientService ClientService { get; set; } = null!;
+
+    [Parameter]
+    public EventCallback<string> OnCommand { get; set; }
+
+    private async Task HandleSubmit(string value)
+    {
+        if (!string.IsNullOrWhiteSpace(value))
+        {
+            await OnCommand.InvokeAsync(value);
+        }
+    }
+}

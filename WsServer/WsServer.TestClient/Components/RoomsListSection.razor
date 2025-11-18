@@ -1,0 +1,38 @@
+@using RazorConsole.Components
+@using WsServer.TestClient.Services
+
+<Panel Title="🏠 Rooms">
+    <Rows>
+        @foreach (var room in ServerState.GetServerInfo().Rooms)
+        {
+            <Border Padding="new Spectre.Console.Padding(1, 1)">
+                <Rows>
+                    <Columns>
+                        <Markup Content="@room.Name" Foreground="Color.Blue" />
+                        <Markup Content="@(room.IsPersistent ? "(Persistent)" : "")" Foreground="Color.Grey" />
+                    </Columns>
+                    
+                    <Columns>
+                        <Markup Content="ID:" />
+                        <Markup Content="@room.Id" Foreground="Color.Cyan1" />
+                    </Columns>
+                    
+                    <Columns>
+                        <Markup Content="Clients:" />
+                        <Markup Content="@room.ClientCount.ToString()" Foreground="Color.Yellow" />
+                    </Columns>
+                    
+                    <Columns>
+                        <Markup Content="Modes:" />
+                        <Markup Content="@string.Join(", ", room.Modes)" Foreground="Color.Green" />
+                    </Columns>
+                </Rows>
+            </Border>
+        }
+    </Rows>
+</Panel>
+
+@code {
+    [Parameter]
+    public ServerStateService ServerState { get; set; } = null!;
+}

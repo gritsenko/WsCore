@@ -1,0 +1,23 @@
+@using RazorConsole.Components
+@using WsServer.TestClient.Services
+
+<Panel Title="💬 Message History">
+    <Rows>
+        @if (ClientService.MessageHistory.Count == 0)
+        {
+            <Markup Content="Waiting for messages..." />
+        }
+        else
+        {
+            @foreach (var message in ClientService.MessageHistory.TakeLast(10))
+            {
+                <Markup Content="@message" />
+            }
+        }
+    </Rows>
+</Panel>
+
+@code {
+    [Parameter]
+    public WebSocketClientService ClientService { get; set; } = null!;
+}

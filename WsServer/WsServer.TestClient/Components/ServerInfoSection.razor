@@ -1,0 +1,31 @@
+@using RazorConsole.Components
+@using WsServer.TestClient.Services
+
+<Panel Title="ℹ️ Server Info">
+    <Rows>
+        <Columns>
+            <Markup Content="Status:" />
+            <Markup Content="@ServerState.GetServerInfo().Status" Foreground="Color.Green" />
+        </Columns>
+        
+        <Columns>
+            <Markup Content="Connections:" />
+            <Markup Content="@ServerState.GetServerInfo().ActiveConnections.ToString()" Foreground="Color.Blue" />
+        </Columns>
+        
+        <Columns>
+            <Markup Content="Rooms:" />
+            <Markup Content="@ServerState.GetServerInfo().ActiveRooms.ToString()" Foreground="Color.Yellow" />
+        </Columns>
+        
+        <Columns>
+            <Markup Content="Started:" />
+            <Markup Content="@ServerState.GetServerInfo().StartTime.ToString("HH:mm:ss")" Foreground="Color.Grey" />
+        </Columns>
+    </Rows>
+</Panel>
+
+@code {
+    [Parameter]
+    public ServerStateService ServerState { get; set; } = null!;
+}
