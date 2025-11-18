@@ -27,7 +27,6 @@ var hostBuilder = Host.CreateDefaultBuilder(args)
     .UseRazorConsole<App>();
 
 var host = hostBuilder.Build();
-Console.Clear();
 await host.RunAsync();
 
 // ============ Helper Functions ============
@@ -36,11 +35,11 @@ async Task<WebApplication> StartEmbeddedServer()
 {
     var builder = WebApplication.CreateBuilder();
     
-    builder.Services.AddLogging(b =>
-    {
-        b.AddConsole()
-            .AddFilter(level => level >= LogLevel.Information);
-    });
+    //builder.Services.AddLogging(b =>
+    //{
+    //    b.AddConsole()
+    //        .AddFilter(level => level >= LogLevel.Information);
+    //});
 
     builder.Services.AddSingleton<IServerLogicProvider, ReflectionServerLogicProvider>(sc =>
         new ReflectionServerLogicProvider(typeof(ChatMessageEvent).Assembly, new ClientRequestHandlerFactory(sc)));

@@ -2,69 +2,58 @@
 @using RazorConsole.Components
 @using WsServer.TestClient.Services
 
-<Rows>
-    <Panel Title="💻 WebSocket Test Client">
-        <Rows>
-            <Markup Content="Connected to embedded server on ws://localhost:5000/ws" />
-        </Rows>
-    </Panel>
+<Columns>
+	<Rows>
+		<RoomsListSection ServerState="@serverState" />
+		<ServerInfoSection ServerState="@serverState" />
+	</Rows>
 
-    <Newline />
+	<Panel Title="Chat">
+		<Rows>
+			<ChatSection ClientService="@clientService" />
+			<CommandInputSection ClientService="@clientService" OnCommand="@HandleCommand" />
+		</Rows>
+	</Panel>
 
-    <Grid Columns="2">
-        <ServerInfoSection ServerState="@serverState" />
-        <RoomsListSection ServerState="@serverState" />
-    </Grid>
-
-    <Newline />
-
-    <ChatSection ClientService="@clientService" />
-
-    <Newline />
-
-    <CommandInputSection ClientService="@clientService" OnCommand="@HandleCommand" />
-
-    <Newline />
-
-    <Panel Title="💡 Usage Tips">
-        <Rows>
-            <Markup Content="• [bold]join [cyan]roomId[/] - Join a room (e.g., join lobby)" />
-            <Markup Content="• [bold]name [cyan]name[/] - Set player name (e.g., name Player1)" />
-            <Markup Content="• [bold]chat [cyan]message[/] - Send chat message" />
-            <Markup Content="• [bold]send [cyan]text[/] - Send raw text message" />
-            <Markup Content="• [bold]exit[/] - Disconnect and exit" />
-        </Rows>
-    </Panel>
-</Rows>
+	<Panel Title="💡 Usage Tips">
+		<Rows>
+			<Markup Content="• join roomId - Join a room (e.g., join lobby)" />
+			<Markup Content="• name name - Set player name (e.g., name Player1)" />
+			<Markup Content="• chat message - Send chat message" />
+			<Markup Content="• send text - Send raw text message" />
+			<Markup Content="• exit - Disconnect and exit" />
+		</Rows>
+	</Panel>
+</Columns>
 
 @code {
-    private WebSocketClientService clientService = null!;
-    private ServerStateService serverState = null!;
+	private WebSocketClientService clientService = null!;
+	private ServerStateService serverState = null!;
 
-    protected override async Task OnInitializedAsync()
-    {
-        clientService = new WebSocketClientService();
-        serverState = new ServerStateService();
-        serverState.Initialize();
+	protected override async Task OnInitializedAsync()
+	{
+		clientService = new WebSocketClientService();
+		serverState = new ServerStateService();
+		serverState.Initialize();
 
-        // Connect to server
-        bool connected = await clientService.ConnectAsync("ws://localhost:5000/ws");
-        if (connected)
-        {
-            serverState.UpdateStatus("Connected");
-        }
-    }
+		// Connect to server
+		bool connected = await clientService.ConnectAsync("ws://localhost:5000/ws");
+		if (connected)
+		{
+			serverState.UpdateStatus("Connected");
+		}
+	}
 
-    private async Task HandleCommand(string command)
-    {
-        if (command.Equals("exit", StringComparison.OrdinalIgnoreCase))
-        {
-            await clientService.DisconnectAsync();
-            Environment.Exit(0);
-        }
-        else
-        {
-            await clientService.SendTextAsync(command);
-        }
-    }
+	private async Task HandleCommand(string command)
+	{
+		if (command.Equals("exit", StringComparison.OrdinalIgnoreCase))
+		{
+			await clientService.DisconnectAsync();
+			Environment.Exit(0);
+		}
+		else
+		{
+			await clientService.SendTextAsync(command);
+		}
+	}
 }

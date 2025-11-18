@@ -3,6 +3,7 @@
 
 <Panel Title="ℹ️ Server Info">
     <Rows>
+        <Markup Content="ws://localhost:5000/ws" />
         <Columns>
             <Markup Content="Status:" />
             <Markup Content="@ServerState.GetServerInfo().Status" Foreground="Color.Green" />
