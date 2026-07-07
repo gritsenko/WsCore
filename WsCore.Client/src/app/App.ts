@@ -92,6 +92,7 @@ export default class App {
 
   private createBanner(): HTMLDivElement {
     const banner = document.createElement('div');
+    banner.id = 'connection-banner';
     banner.style.position = 'fixed';
     banner.style.top = '0';
     banner.style.left = '0';
