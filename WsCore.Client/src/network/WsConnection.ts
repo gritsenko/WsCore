@@ -150,7 +150,7 @@ export default class WsConnection {
     ws.onmessage = e => this.processServerMessage(e.data);
     ws.onerror = () => {
       // Fires just before onclose on failure; reconnect is scheduled from onclose.
-      console.warn('WebSocket error (will reconnect if not intentional):', this.serverUrl);
+      console.warn('WebSocket error (will reconnect if not intentional):', ws.url);
     };
     ws.onclose = e => {
       if (this.intentionalClose) {
@@ -163,7 +163,7 @@ export default class WsConnection {
       this.scheduleReconnect();
     };
     ws.onopen = () => {
-      console.log('WebSocket connected to:', this.serverUrl);
+      console.log('WebSocket connected to:', ws.url);
       this.reconnectAttempt = 0;
       this.setStatus('open');
     };

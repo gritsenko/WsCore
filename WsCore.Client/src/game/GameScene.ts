@@ -56,6 +56,10 @@ export default class GameScene {
 
     // Assets load async; the RAF loop and world start once they're ready.
     this.loadAssets(() => {
+      // Back-to-lobby before textures finish would otherwise build the world / start
+      // RAF on an already-disposed scene. renderer is nulled in exit(), so use it as
+      // the "still alive" sentinel and no-op the late callback.
+      if (!this.renderer) return;
       PlayerView.preload(new THREE.TextureLoader());
       this.world.create(this.scene);
       this.running = true;
