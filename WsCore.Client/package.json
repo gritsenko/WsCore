@@ -10,11 +10,8 @@
     "format:check": "prettier --check \"src/**/*.{ts,js,json,css,md}\""
   },
   "dependencies": {
-    "base64-arraybuffer": "^1.0.2",
-    "jszip": "^3.10.1",
     "phaser": "^3.90.0",
-    "three": "^0.128.0",
-    "typestate": "^1.0.6"
+    "three": "^0.128.0"
   },
   "devDependencies": {
     "prettier": "^3.0.0",

@@ -1,5 +1,7 @@
-﻿using System.Diagnostics;
+﻿using System.Collections.Concurrent;
+using System.Diagnostics;
 using WsServer.Abstract;
+using WsServer.Abstract.Messages;
 
 namespace WsServer;
 
@@ -19,6 +21,10 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>, IDis
 
     private readonly PeriodicTimer _timer;
     private CancellationTokenSource _cts = new();
+
+    // Client requests are deserialized on socket threads but their handlers run here,
+    // drained on the tick thread, so all model mutation is single-threaded (audit §1.4).
+    private readonly ConcurrentQueue<Action> _commandQueue = new();
 
     protected GameServerBase(
         TGameModel gameModel,
@@ -44,6 +50,7 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>, IDis
         {
             while (await _timer.WaitForNextTickAsync(_cts.Token))
             {
+                DrainCommandQueue();
                 var time = DateTime.Now;
                 GameModel.UpdateGameState(time, () => OnTick?.Invoke());
             }
@@ -75,9 +82,36 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>, IDis
 
     public void ProcessClientMessageData(uint clientId, byte[] data)
     {
+        // Deserialize on the caller's (socket) thread — read-only, safe — then defer the
+        // handler to the tick thread via the command queue (audit §1.4).
         var message = Messenger.Deserialize(ref data, out var type);
-        if (_serverLogicProvider.TryGetRequestHandler(type, out var handler))
-            handler!.Handle(clientId, message);
+        EnqueueClientRequest(clientId, type, message);
+    }
+
+    // Entry point for already-deserialized requests (e.g. the JSON debug fallback).
+    public void ProcessClientRequest(uint clientId, IClientRequest request)
+        => EnqueueClientRequest(clientId, request.GetType(), request);
+
+    private void EnqueueClientRequest(uint clientId, Type type, IClientRequest request)
+    {
+        if (_serverLogicProvider.TryGetRequestHandler(type, out var handler) && handler != null)
+            _commandQueue.Enqueue(() => handler.Handle(clientId, request));
+    }
+
+    private void DrainCommandQueue()
+    {
+        while (_commandQueue.TryDequeue(out var command))
+        {
+            try
+            {
+                command();
+            }
+            catch (Exception e)
+            {
+                // Isolate a buggy handler so it can't break the tick loop for everyone.
+                _logger.LogError(e, "Error executing queued client command");
+            }
+        }
     }
 
     public void OnClientConnected(IClientConnection connection, Action<uint> onIdCreated)

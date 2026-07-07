@@ -8,6 +8,10 @@ public class UpdatePlayerTargetRequestHandler(GameModel gameModel) : RequestHand
 {
     protected override void Handle(uint clientId, UpdatePlayerTargetRequest request)
     {
-        var p = gameModel.SetPlayerTarget(clientId, request.AimX, request.AimY);
+        // Reject NaN/Inf so Vector2.Normalize can't spread NaN across the physics (audit §2).
+        if (!float.IsFinite(request.AimX) || !float.IsFinite(request.AimY))
+            return;
+
+        gameModel.SetPlayerTarget(clientId, request.AimX, request.AimY);
     }
 }

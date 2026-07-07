@@ -298,13 +298,6 @@ export default class Player3D implements IPlayer {
     if (this.targetX < this.sprite.position.x && this.sprite.scale.x > 0) {
       this.sprite.scale.x = -this.scaleFactor;
     }
-
-    // Debug logging every 30 frames to reduce console spam
-    if (this.frameCounter++ % 30 === 0) {
-      console.log(
-        `[Player3D.update] Player ${this.id}: sprite=(${this.sprite.position.x.toFixed(1)}, ${this.sprite.position.z.toFixed(1)}), target=(${this.x}, ${this.y}), vel=(${this.speed.x.toFixed(1)}, ${this.speed.y.toFixed(1)})`
-      );
-    }
   }
 
   onStateUpdatedFromServer() {

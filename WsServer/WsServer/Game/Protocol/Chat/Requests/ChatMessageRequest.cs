@@ -1,5 +1,4 @@
-﻿using System.Runtime.InteropServices;
-using MemoryPack;
+﻿using MemoryPack;
 using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.Chat.Requests;
@@ -10,7 +9,7 @@ public partial class ChatMessageRequest : IClientRequest
 {
     public static byte TypeId => 200;
 
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)]
+    // Length is enforced server-side in the handler; MemoryPack ignores [MarshalAs].
     public string Message;
 
 }
