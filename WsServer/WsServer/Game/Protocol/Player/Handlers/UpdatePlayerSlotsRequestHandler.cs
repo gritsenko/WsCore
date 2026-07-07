@@ -11,6 +11,7 @@ public class UpdatePlayerSlotsRequestHandler(GameModel gameModel, IGameMessenger
     protected override void Handle(uint clientId, UpdatePlayerSlotsRequest request)
     {
         var player = gameModel.GetPlayer(clientId);
+        if (player == null) return;
 
         player.BodyIndex = request.Body;
         player.WeaponIndex = request.Gun;

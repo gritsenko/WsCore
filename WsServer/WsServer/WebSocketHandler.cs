@@ -69,8 +69,17 @@ public class WebSocketHandler(
                         messageBuffer.Write(buffer.AsSpan(0, result.Count));
                     }
 
-                    // Pass the written buffer to the game server
-                    gameServer.ProcessClientMessageData(Id, messageBuffer.WrittenSpan.ToArray());
+                    // Pass the written buffer to the game server. Isolate per-message
+                    // failures (unknown TypeId, deserialization error, handler NRE) so one
+                    // bad frame is logged and skipped instead of tearing down the connection.
+                    try
+                    {
+                        gameServer.ProcessClientMessageData(Id, messageBuffer.WrittenSpan.ToArray());
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, "Failed to process client message from {ClientId}", Id);
+                    }
                 }
                 else if (result.MessageType == WebSocketMessageType.Text)
                 {

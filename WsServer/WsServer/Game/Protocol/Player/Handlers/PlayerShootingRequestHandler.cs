@@ -11,6 +11,8 @@ public class PlayerShootingRequestHandler(GameModel gameModel, IGameMessenger me
     protected override void Handle(uint clientId, PlayerShootingRequest request)
     {
         var player = gameModel.GetPlayer(clientId);
+        if (player == null) return;
+
         var bulletIds = gameModel.SpawnBullet(player.MovementState.Pos, player.MovementState.AimPos, clientId);
         messenger.Broadcast(new PlayerShootingEvent(clientId, request.Weapon, bulletIds));
     }
