@@ -2,6 +2,9 @@ import * as THREE from 'three';
 import MapObject from './MapObject';
 import { MapObjectData } from '../network/protocol/MapObjectData';
 
+/** Anything that optionally exposes a dispose() — used to guard three.js teardown. */
+type Disposable = { dispose?: () => void };
+
 export default class World {
   static cellSize = 50;
 
@@ -145,7 +148,7 @@ export default class World {
     // Could be used for ground updates if needed
   }
 
-  posToCell(x) {
+  posToCell(x: number): number {
     return Math.floor(x / World.cellSize) * World.cellSize;
   }
 
@@ -171,10 +174,12 @@ export default class World {
     for (const light of this.lights) {
       light.parent?.remove(light);
       // DirectionalLight's 2048×2048 shadow map is a real GPU render target.
+      // These dispose() calls are guarded because not every member exists at
+      // three r128 runtime (LightShadow.dispose landed later); @types omits them too.
       const shadow = (light as THREE.DirectionalLight).shadow;
-      shadow?.map?.dispose();
-      shadow?.dispose?.();
-      light.dispose?.();
+      (shadow?.map as Disposable | undefined)?.dispose?.();
+      (shadow as Disposable | undefined)?.dispose?.();
+      (light as Disposable).dispose?.();
     }
     this.lights = [];
 

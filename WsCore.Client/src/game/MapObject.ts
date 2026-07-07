@@ -6,7 +6,7 @@ export default class MapObject {
   x = 0;
   y = 0;
   sprite: THREE.Sprite;
-  mesh: THREE.Group;
+  mesh: THREE.Mesh;
 
   static cellSize = 50; // Mirrors World.cellSize
   static textures: Map<string, THREE.Texture> = new Map();
