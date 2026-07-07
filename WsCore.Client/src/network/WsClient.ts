@@ -1,5 +1,5 @@
-﻿import Player from '../2d/Player';
-import WsConnection from './WsConnection';
+﻿import WsConnection, { ConnectionStatus } from './WsConnection';
+import { Unsubscribe } from '../utils/Emitter';
 import { InitPlayerEvent } from './protocol/InitPlayerEvent';
 import { PlayerJoinedEvent } from './protocol/PlayerJoinedEvent';
 import { PlayerLeftEvent } from './protocol/PlayerLeftEvent';
@@ -40,7 +40,7 @@ export interface IPlayer {
   destroy(): void;
 }
 
-export default class WsClient<T extends IPlayer = Player> extends WsConnection {
+export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection {
   static MapObjectData = MapObjectData;
 
   constructor() {
@@ -50,7 +50,8 @@ export default class WsClient<T extends IPlayer = Player> extends WsConnection {
   }
 
   private initializeDefaultRooms(): void {
-    // Create default rooms - mark them as persistent so they don't get deleted when empty
+    // Create default rooms - mark them as persistent so they don't get deleted when empty.
+    // Must mirror the server's GameServer.InitializeDefaultRooms: lobby / voice / game.
     this.roomManager.createRoom('lobby', 'Lobby', [CommunicationMode.TextChat], true);
     this.roomManager.createRoom(
       'voice',
@@ -59,17 +60,26 @@ export default class WsClient<T extends IPlayer = Player> extends WsConnection {
       true
     );
     this.roomManager.createRoom(
-      '2d-game',
-      '2D Game Room',
-      [CommunicationMode.Spatial2D, CommunicationMode.TextChat],
+      'game',
+      'Game Room',
+      [CommunicationMode.Spatial, CommunicationMode.TextChat],
       true
     );
-    this.roomManager.createRoom(
-      '3d-game',
-      '3D Game Room',
-      [CommunicationMode.Spatial3D, CommunicationMode.TextChat],
-      true
-    );
+  }
+
+  /**
+   * Subscribe to a client event. Returns an unsubscribe handle so lobby/game
+   * states can detach on teardown instead of the client being recreated.
+   */
+  on(event: 'connectionStatus', fn: (status: ConnectionStatus) => void): Unsubscribe;
+  on(event: 'sessionInit', fn: () => void): Unsubscribe;
+  on(event: 'playerCreate' | 'playerRemove' | 'playerJoined', fn: (player: T) => void): Unsubscribe;
+  on(event: 'playerName', fn: (id: number, name: string) => void): Unsubscribe;
+  on(event: 'roomUsers', fn: (msg: RoomUsersUpdateEvent) => void): Unsubscribe;
+  on(event: 'mapObjects', fn: (objects: (MapObjectData | null)[] | null) => void): Unsubscribe;
+  on(event: 'chat', fn: (name: string, text: string, isOwn: boolean) => void): Unsubscribe;
+  on(event: string, fn: (...args: any[]) => void): Unsubscribe {
+    return super.on(event, fn);
   }
 
   myPlayer: T | null = null;
@@ -84,22 +94,19 @@ export default class WsClient<T extends IPlayer = Player> extends WsConnection {
   currentCommunicationMode: CommunicationMode = CommunicationMode.TextChat;
   isInSpatialRoom: boolean = false;
 
-  onPlayerCreateCallback?: (player: T) => void;
-  onGameInitCallback?: () => void;
-  onMapObjectsCallback?: (objects: (MapObjectData | null)[] | null) => void;
-  onPlayerRemovedCallback?: (player: T) => void;
-  onRoomUsersUpdateCallback?: (msg: RoomUsersUpdateEvent) => void;
-
   override onInitPlayerEvent(msg: InitPlayerEvent): void {
+    // Every InitPlayerEvent (first connect OR reconnect) starts a fresh session:
+    // the server assigns a new clientId and knows nothing about the previous one.
+    this.resetSession();
+
     this.clientId = msg.clientId;
     console.log('Player initialized', this.clientId);
     this.sendSetPlayerNameRequest(this.myPlayerName);
     this.sendUpdatePlayerSlotsRequest(0, 0, 0);
 
-    // Auto-join default lobby room
-    this.roomManager.joinRoom(this.clientId, this.myPlayerName, 'lobby');
-
-    this.onGameInitCallback?.();
+    // Room choice is driven by the active state (lobby vs game) via sessionInit,
+    // so a reconnect while in-game rejoins the game room, not the lobby.
+    this.emitter.emit('sessionInit');
   }
 
   override onSetPlayerNameEvent(msg: SetPlayerNameEvent): void {
@@ -110,15 +117,19 @@ export default class WsClient<T extends IPlayer = Player> extends WsConnection {
     if (this.players[clientId] != null) {
       this.players[clientId].updateName(playerName);
     }
+    this.emitter.emit('playerName', clientId, playerName);
   }
 
   override onChatMessageEvent(msg: ChatMessageEvent): void {
-    this.writeToChat(msg.clientId, msg.message || '');
+    const id = msg.clientId;
+    this.emitter.emit('chat', this.resolveName(id), msg.message || '', id === this.clientId);
   }
 
   override onPlayerJoinedEvent(msg: PlayerJoinedEvent): void {
     if (msg.playerStateData) {
       this.updatePlayer(msg.playerStateData);
+      const player = this.players[msg.playerStateData.id];
+      if (player) this.emitter.emit('playerJoined', player);
     }
   }
 
@@ -177,7 +188,7 @@ export default class WsClient<T extends IPlayer = Player> extends WsConnection {
   }
 
   override onUpdateMapObjectsEvent(msg: UpdateMapObjectsEvent): void {
-    this.onMapObjectsCallback?.(msg.mapObjects);
+    this.emitter.emit('mapObjects', msg.mapObjects);
   }
 
   override onRoomListEvent(msg: RoomListEvent): void {
@@ -207,12 +218,19 @@ export default class WsClient<T extends IPlayer = Player> extends WsConnection {
       }
     }
 
-    // Call callback if provided (for UI updates, etc.)
-    this.onRoomUsersUpdateCallback?.(msg);
+    this.emitter.emit('roomUsers', msg);
   }
 
-  writeToChat(id: number, message: string): void {
-    console.log(`Message to chat from client ${id}: ${message}`);
+  /**
+   * Resolve a display name for a client id, preferring our own name, then the
+   * name cache, then the player object. Used for chat labelling.
+   */
+  private resolveName(id: number): string {
+    if (this.myPlayer && id === this.myPlayer.id) return this.myPlayerName;
+    if (this.playerNames[id]) return this.playerNames[id];
+    const player = this.players[id];
+    if (player?.name && player.name.length > 0) return player.name;
+    return `Player ${id}`;
   }
 
   removePlayer(clientId: number): void {
@@ -221,9 +239,29 @@ export default class WsClient<T extends IPlayer = Player> extends WsConnection {
 
     delete this.players[clientId];
     this.playersCount--;
-    this.onPlayerRemovedCallback?.(player);
+    if (this.myPlayer === player) this.myPlayer = null;
+    this.emitter.emit('playerRemove', player);
 
     player.destroy();
+  }
+
+  /**
+   * Tear down all per-session state so a reconnect (with a new clientId) rebuilds
+   * cleanly. removePlayer() per entry so subscribers (e.g. the game scene) dispose
+   * their visuals — a bare `players = {}` would silently leak them.
+   */
+  resetSession(): void {
+    for (const id of Object.keys(this.players)) {
+      this.removePlayer(Number(id));
+    }
+    this.playersCount = 0;
+    this.myPlayer = null;
+    this.playerNames = {};
+    // Keep persistent room definitions; only drop membership. clearAll() would
+    // delete lobby/voice/game and subsequent joinRoom would silently fail.
+    this.roomManager.resetClients();
+    this.isInSpatialRoom = false;
+    this.currentCommunicationMode = CommunicationMode.TextChat;
   }
 
   updatePlayer(playerData: PlayerStateData): void {
@@ -234,12 +272,11 @@ export default class WsClient<T extends IPlayer = Player> extends WsConnection {
     if (playerId in this.players) {
       player = this.players[playerId];
     } else {
-      // Use factory function if provided, otherwise create default Player
-      if (this.playerFactory) {
-        player = this.playerFactory(playerId);
-      } else {
-        player = new Player(playerId) as unknown as T;
+      if (!this.playerFactory) {
+        console.error('WsClient: playerFactory not set, cannot create player', playerId);
+        return;
       }
+      player = this.playerFactory(playerId);
       this.players[playerId] = player;
       isNewPlayer = true;
       this.playersCount++;
@@ -252,8 +289,8 @@ export default class WsClient<T extends IPlayer = Player> extends WsConnection {
       this.myPlayer = player;
     }
 
-    if (isNewPlayer && this.onPlayerCreateCallback != null) {
-      this.onPlayerCreateCallback(player);
+    if (isNewPlayer) {
+      this.emitter.emit('playerCreate', player);
     }
   }
 
@@ -292,17 +329,13 @@ export default class WsClient<T extends IPlayer = Player> extends WsConnection {
     if (success) {
       const room = this.roomManager.getRoom(roomId);
       if (room) {
-        this.isInSpatialRoom =
-          room.supportsMode(CommunicationMode.Spatial2D) ||
-          room.supportsMode(CommunicationMode.Spatial3D);
+        this.isInSpatialRoom = room.supportsMode(CommunicationMode.Spatial);
 
         // Activate the spatial mode so shouldReceiveSpatialUpdates() returns true and
         // GameTickUpdateEvent movement is applied. Without this the client stays in the
         // default TextChat mode and silently drops every tick (audit §4.1).
-        if (room.supportsMode(CommunicationMode.Spatial2D)) {
-          this.setCommunicationMode(CommunicationMode.Spatial2D);
-        } else if (room.supportsMode(CommunicationMode.Spatial3D)) {
-          this.setCommunicationMode(CommunicationMode.Spatial3D);
+        if (room.supportsMode(CommunicationMode.Spatial)) {
+          this.setCommunicationMode(CommunicationMode.Spatial);
         }
       }
 

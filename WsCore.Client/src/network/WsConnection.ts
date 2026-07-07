@@ -66,15 +66,48 @@ import { JoinRoomRequest } from './protocol/JoinRoomRequest';
 
 import { MemoryPackReader } from './protocol/MemoryPackReader';
 import { MemoryPackWriter } from './protocol/MemoryPackWriter';
+import Emitter, { Unsubscribe } from '../utils/Emitter';
+
+export type ConnectionStatus = 'connecting' | 'open' | 'reconnecting' | 'closed';
 
 /**
- * WebSocket connection manager using MemoryPack serialization
+ * WebSocket connection manager using MemoryPack serialization.
+ *
+ * Owns the transport: one long-lived socket with automatic reconnect + backoff.
+ * The socket may be re-created on drop, but this instance lives the whole session.
+ * Higher-level app events (players, chat, rooms) are layered on top in WsClient
+ * via the shared `emitter`; connection status is emitted here.
  */
 export default class WsConnection {
   clientId: number = -1;
   ws: WebSocket | null = null;
   overrideUrl: string | null = null;
   serverUrl: string = '';
+
+  protected emitter = new Emitter<Record<string, (...args: any[]) => void>>();
+
+  connectionStatus: ConnectionStatus = 'closed';
+
+  // Reconnect / backoff state
+  private intentionalClose = false;
+  private reconnectAttempt = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private static readonly RECONNECT_BASE_MS = 500;
+  private static readonly RECONNECT_MAX_MS = 10000;
+
+  /**
+   * Subscribe to a client event. Returns an unsubscribe handle.
+   * Events: 'connectionStatus' (here) plus the app-level events emitted by WsClient.
+   */
+  on(event: string, fn: (...args: any[]) => void): Unsubscribe {
+    return this.emitter.on(event, fn);
+  }
+
+  private setStatus(status: ConnectionStatus): void {
+    if (this.connectionStatus === status) return;
+    this.connectionStatus = status;
+    this.emitter.emit('connectionStatus', status);
+  }
 
   // Event handlers (override these in your game code)
   onInitPlayerEvent(msg: InitPlayerEvent): void {}
@@ -101,21 +134,60 @@ export default class WsConnection {
    */
   connect(overrideUrl?: string): void {
     this.overrideUrl = overrideUrl || null;
-    this.ws = this.createSocket();
-    this.ws.onmessage = e => this.processServerMessage(e.data);
-    this.ws.onerror = e => {
-      console.error('WebSocket error:', e);
-      console.error('Failed to connect to:', this.serverUrl);
+    this.intentionalClose = false;
+    this.reconnectAttempt = 0;
+    this.setStatus('connecting');
+    this.openSocket();
+  }
+
+  /**
+   * Create the socket and wire its lifecycle handlers. Reused by reconnect.
+   */
+  private openSocket(): void {
+    const ws = this.createSocket();
+    this.ws = ws;
+
+    ws.onmessage = e => this.processServerMessage(e.data);
+    ws.onerror = () => {
+      // Fires just before onclose on failure; reconnect is scheduled from onclose.
+      console.warn('WebSocket error (will reconnect if not intentional):', ws.url);
     };
-    this.ws.onclose = e => {
-      console.log('WebSocket closed:', e);
-      if (e.code === 1006) {
-        console.warn(
-          'Connection closed abnormally (code 1006). Check if server is running and accessible.'
-        );
+    ws.onclose = e => {
+      if (this.intentionalClose) {
+        this.setStatus('closed');
+        return;
       }
+      if (e.code === 1006) {
+        console.warn('Connection closed abnormally (code 1006). Server unreachable?');
+      }
+      this.scheduleReconnect();
     };
-    this.ws.onopen = () => console.log('WebSocket connected to:', this.serverUrl);
+    ws.onopen = () => {
+      console.log('WebSocket connected to:', ws.url);
+      this.reconnectAttempt = 0;
+      this.setStatus('open');
+    };
+  }
+
+  private scheduleReconnect(): void {
+    if (this.intentionalClose || this.reconnectTimer) return;
+    this.setStatus('reconnecting');
+
+    const attempt = this.reconnectAttempt++;
+    const backoff = Math.min(
+      WsConnection.RECONNECT_BASE_MS * 2 ** attempt,
+      WsConnection.RECONNECT_MAX_MS
+    );
+    // ±20% jitter so many clients don't reconnect in lockstep.
+    const jitter = backoff * 0.2 * (Math.random() * 2 - 1);
+    const delay = Math.max(0, Math.round(backoff + jitter));
+
+    console.log(`Reconnecting in ${delay}ms (attempt ${attempt + 1})`);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.intentionalClose) return;
+      this.openSocket();
+    }, delay);
   }
 
   /**
@@ -202,7 +274,9 @@ export default class WsConnection {
    */
   private sendMessage(messageType: ClientMessageType, data: Uint8Array): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-      console.error('WebSocket is not connected');
+      // Drop while not OPEN. We deliberately do NOT queue: the server assigns a
+      // fresh clientId on reconnect, so replaying stale inputs would be wrong.
+      // Control messages (name/slots/join) are re-sent by the re-init sequence.
       return;
     }
 
@@ -316,12 +390,18 @@ export default class WsConnection {
   }
 
   /**
-   * Close the WebSocket connection
+   * Close the WebSocket connection intentionally (no reconnect).
    */
   disconnect(): void {
+    this.intentionalClose = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
+    this.setStatus('closed');
   }
 }

@@ -59,7 +59,7 @@ public class ServerStateService
         {
             new() { Id = "lobby", Name = "Lobby", Modes = new() { "TextChat" }, IsPersistent = true },
             new() { Id = "voice", Name = "Voice Room", Modes = new() { "VoiceChat", "TextChat" }, IsPersistent = true },
-            new() { Id = "2d-game", Name = "2D Game Room", Modes = new() { "Spatial", "TextChat" }, IsPersistent = true }
+            new() { Id = "game", Name = "Game Room", Modes = new() { "Spatial", "TextChat" }, IsPersistent = true }
         };
         _serverInfo.ActiveRooms = _serverInfo.Rooms.Count;
     }

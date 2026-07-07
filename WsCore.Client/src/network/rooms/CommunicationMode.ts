@@ -3,14 +3,10 @@
  */
 export enum CommunicationMode {
   /**
-   * 2D spatial mode with position updates
+   * Spatial mode with real-time position updates (the 3D game room).
+   * Maps to the server's single RoomCompatibility.Spatial.
    */
-  Spatial2D = 'spatial_2d',
-
-  /**
-   * 3D spatial mode with position updates
-   */
-  Spatial3D = 'spatial_3d',
+  Spatial = 'spatial',
 
   /**
    * Text chat only mode

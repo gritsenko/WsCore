@@ -1,5 +1,7 @@
+import styles from './ChatUI.css?inline';
+
 /**
- * Chat UI overlay component that can be used by both 2D and 3D clients
+ * Chat UI overlay component used by the in-game (3D) state.
  */
 export default class ChatUI {
   private chatOverlay: HTMLDivElement | null = null;
@@ -22,13 +24,14 @@ export default class ChatUI {
   }
 
   /**
-   * Load the chat CSS file
+   * Inject the chat CSS. Imported via `?inline` so it survives the single-file
+   * production build — the old `<link href="/src/utils/ChatUI.css">` 404'd there
+   * and left the in-game chat unstyled (audit §5).
    */
   private static loadCSS(): void {
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = '/src/utils/ChatUI.css';
-    document.head.appendChild(link);
+    const styleElement = document.createElement('style');
+    styleElement.textContent = styles;
+    document.head.appendChild(styleElement);
   }
 
   /**

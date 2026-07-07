@@ -11,6 +11,7 @@ export default class LobbyUI {
   private roomsList: HTMLDivElement | null = null;
   private messageCallback: ((message: string) => void) | null = null;
   private roomJoinCallback: ((roomId: string) => void) | null = null;
+  private playCallback: ((roomId: string) => void) | null = null;
   private users: Map<number, string> = new Map();
   private rooms: Map<string, { name: string; userCount: number }> = new Map();
   private currentUserId: number = -1;
@@ -42,8 +43,7 @@ export default class LobbyUI {
   private initializeDefaultRooms(): void {
     this.rooms.set('lobby', { name: 'Lobby', userCount: 0 });
     this.rooms.set('voice', { name: 'Voice Room', userCount: 0 });
-    this.rooms.set('2d-game', { name: '2D Game Room', userCount: 0 });
-    this.rooms.set('3d-game', { name: '3D Game Room', userCount: 0 });
+    this.rooms.set('game', { name: 'Game Room', userCount: 0 });
   }
 
   /**
@@ -153,6 +153,13 @@ export default class LobbyUI {
   }
 
   /**
+   * Set callback for when the Play button is clicked (enter the 3D game).
+   */
+  setOnPlayCallback(callback: (roomId: string) => void): void {
+    this.playCallback = callback;
+  }
+
+  /**
    * Update room list display
    */
   private updateRoomsList(): void {
@@ -178,8 +185,8 @@ export default class LobbyUI {
       nameSpan.textContent = room.name;
       roomContent.appendChild(nameSpan);
 
-      // Add Play button for game rooms
-      if (roomId === '2d-game' || roomId === '3d-game') {
+      // Add Play button for the game room
+      if (roomId === 'game') {
         const playButton = document.createElement('button');
         playButton.className = 'lobby-play-btn';
         playButton.textContent = 'Play';
@@ -219,10 +226,8 @@ export default class LobbyUI {
    * Handle Play button click
    */
   private handlePlayButtonClick(roomId: string): void {
-    console.log(`Play button clicked for room: ${roomId}`);
-    // Dispatch a custom event that the main app can listen to
-    const event = new CustomEvent('lobbyPlayGame', { detail: { roomId } });
-    document.dispatchEvent(event);
+    // Direct callback into the shell (App) — no DOM CustomEvent dance.
+    this.playCallback?.(roomId);
   }
 
   /**

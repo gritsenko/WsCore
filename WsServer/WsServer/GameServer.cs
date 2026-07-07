@@ -51,10 +51,10 @@ public class GameServer : GameServerBase<GameModel>
             new[] { RoomCompatibility.VoiceChat, RoomCompatibility.TextChat },
             isPersistent: true);
         
-        // 2D Game room (persistent)
+        // Game room - single spatial 3D room (persistent)
         _roomManager.CreateRoom(
-            "2d-game",
-            "2D Game Room",
+            "game",
+            "Game Room",
             new[] { RoomCompatibility.Spatial, RoomCompatibility.TextChat },
             isPersistent: true);
     }
