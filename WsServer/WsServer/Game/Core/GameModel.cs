@@ -11,6 +11,10 @@ namespace Game.Core;
 
 public class GameModel : IGameModel
 {
+    // Upper bound on a single tick's delta time. Guards physics against huge jumps
+    // after a GC pause / lag spike / the very first tick (when _lastTickTime is default).
+    private const float MaxDeltaTime = 0.1f;
+
     private DateTime _lastTickTime;
     private uint _lastPlayerId;
     private uint _lastBulletId;
@@ -100,11 +104,14 @@ public class GameModel : IGameModel
         return p;
     }
 
-    public uint GetNewPlayerId() => ++_lastPlayerId;
+    // Handlers run concurrently on socket threads, so id generation must be atomic —
+    // a plain ++ races and produces duplicate ids whose TryAdd silently drops (audit §1.2).
+    public uint GetNewPlayerId() => Interlocked.Increment(ref _lastPlayerId);
 
     public void UpdateGameState(DateTime time, Action onUpdatedAction)
     {
-        var dt = (time - _lastTickTime).Milliseconds * 0.001f;
+        var dt = (float)(time - _lastTickTime).TotalSeconds;
+        dt = Math.Clamp(dt, 0f, MaxDeltaTime);
         _lastTickTime = time;
 
         _destroyedBulletIds.Clear();
@@ -124,7 +131,14 @@ public class GameModel : IGameModel
         {
             var bullet = bulletEnumerator.Current.Value;
             bullet.Update(dt);
-            if (CheckBulletForCollisions(bullet, out var hitPlayer))
+            // Bullet.Update flags IsDestroyed once its lifetime expires. Both timed-out and
+            // collided bullets must be collected here, otherwise missed shots accumulate in
+            // _bullets forever (memory leak + wasted collision checks every tick).
+            if (bullet.IsDestroyed)
+            {
+                _destroyedBulletIds.Add(bullet.Id);
+            }
+            else if (CheckBulletForCollisions(bullet, out var hitPlayer))
             {
                 _tickHits.Add(new HitInfo(hitPlayer.Id, (byte)bullet.HitPoints, bullet.SpawnerId));
                 _destroyedBulletIds.Add(bullet.Id);
@@ -165,7 +179,13 @@ public class GameModel : IGameModel
 
     public void RemovePlayer(uint id)
     {
-        _players.TryRemove(id, out _);
+        if (_players.TryRemove(id, out var player))
+        {
+            // Otherwise every unique name accumulates in _playersTop forever and the
+            // whole dictionary is re-sorted on each frag (audit §1.3).
+            _playersTop.TryRemove(player.Name, out _);
+            UpdateTopString();
+        }
     }
 
     public uint AddNewPlayer()
@@ -240,6 +260,7 @@ public class GameModel : IGameModel
     public void SetPlayerName(uint id, string name)
     {
         var p = GetPlayer(id);
+        if (p == null) return;
 
         var oldName = p.Name;
         _playersTop.TryRemove(oldName, out var oldScore);
@@ -282,7 +303,7 @@ public class GameModel : IGameModel
     public void UpdatePlayerActivity(uint id)
     {
         var p = GetPlayer(id);
-        p.UpdateActivity();
+        p?.UpdateActivity();
     }
 
     public Player SetPlayerControls(uint id, Vector2 aim, int contols)
@@ -312,7 +333,7 @@ public class GameModel : IGameModel
         return [bullet.Id];
     }
 
-    public uint GetNewBulletId() => ++_lastBulletId;
+    public uint GetNewBulletId() => Interlocked.Increment(ref _lastBulletId);
 
     public void GetDestroyedBulletIds(List<uint> buffer)
     {
