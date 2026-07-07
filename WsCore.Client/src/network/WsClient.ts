@@ -295,6 +295,15 @@ export default class WsClient<T extends IPlayer = Player> extends WsConnection {
         this.isInSpatialRoom =
           room.supportsMode(CommunicationMode.Spatial2D) ||
           room.supportsMode(CommunicationMode.Spatial3D);
+
+        // Activate the spatial mode so shouldReceiveSpatialUpdates() returns true and
+        // GameTickUpdateEvent movement is applied. Without this the client stays in the
+        // default TextChat mode and silently drops every tick (audit §4.1).
+        if (room.supportsMode(CommunicationMode.Spatial2D)) {
+          this.setCommunicationMode(CommunicationMode.Spatial2D);
+        } else if (room.supportsMode(CommunicationMode.Spatial3D)) {
+          this.setCommunicationMode(CommunicationMode.Spatial3D);
+        }
       }
 
       // Send join room request to server
