@@ -99,7 +99,7 @@ public sealed class PrototypeClientHostedService : BackgroundService
     {
         public uint Id => IdInternal;
         public uint IdInternal { get; set; }
-        public Task Send(ArraySegment<byte> messageData) => Task.CompletedTask; // no-op
+        public void Send(ArraySegment<byte> messageData) { } // no-op
         public void Terminate() { }
     }
 }

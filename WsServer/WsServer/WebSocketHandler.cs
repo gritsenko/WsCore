@@ -3,6 +3,7 @@ using WsServer.Abstract;
 using System.Buffers;
 using System.Text;
 using System.Text.Json;
+using System.Threading.Channels;
 
 namespace WsServer;
 
@@ -25,6 +26,20 @@ public class WebSocketHandler(
     private int _consecutiveErrors;
     private readonly CancellationTokenSource _cts = new();
 
+    // One send loop per connection drains this queue and awaits each SendAsync in turn;
+    // WebSocket forbids concurrent sends on a socket. A slow client sheds the oldest
+    // queued frames (stale tick snapshots) instead of back-pressuring the broadcaster
+    // or triggering overlapping SendAsync (audit §1.6).
+    private const int SendQueueCapacity = 256;
+    private readonly Channel<ArraySegment<byte>> _sendChannel =
+        Channel.CreateBounded<ArraySegment<byte>>(new BoundedChannelOptions(SendQueueCapacity)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = false,
+        });
+    private Task? _sendLoop;
+
     public static async Task HandleWebSocket(HttpContext context)
     {
         if (!context.WebSockets.IsWebSocketRequest)
@@ -46,6 +61,10 @@ public class WebSocketHandler(
             var seg = new ArraySegment<byte>(buffer);
             // Use a reusable ArrayBufferWriter for accumulating frames
             var messageBuffer = new ArrayBufferWriter<byte>(BufferSize);
+
+            // Start the send loop before connecting so InitPlayer/state events queued by
+            // OnClientConnected are delivered.
+            _sendLoop = SendLoopAsync();
 
             if(socket.State == WebSocketState.Open)
                 gameServer.OnClientConnected(this, newId => Id = newId);
@@ -129,9 +148,17 @@ public class WebSocketHandler(
         }
         finally
         {
+            _sendChannel.Writer.TryComplete();
             if (Id != 0)
                 gameServer.OnClientDisconnected(Id);
 
+            // Stop the send loop (cancel unblocks a SendAsync stuck on a dead socket) and
+            // wait for it to finish before disposing the token source it observes.
+            try { _cts.Cancel(); } catch (ObjectDisposedException) { }
+            if (_sendLoop != null)
+            {
+                try { await _sendLoop; } catch { /* already logged in the loop */ }
+            }
             _cts.Dispose();
         }
     }
@@ -207,14 +234,9 @@ public class WebSocketHandler(
 
             if (req is Abstract.Messages.IClientRequest clientReq)
             {
-                if (serverLogicProvider.TryGetRequestHandler(reqType, out var handler) && handler != null)
-                {
-                    handler.Handle(Id, clientReq);
-                }
-                else
-                {
-                    logger.LogWarning("No handler found for request type {Type}", reqType.Name);
-                }
+                // Route through the game server so it runs on the tick thread via the
+                // command queue, same as binary requests (audit §1.4).
+                gameServer.ProcessClientRequest(Id, clientReq);
             }
             else
             {
@@ -229,18 +251,33 @@ public class WebSocketHandler(
 
     public void Terminate()
     {
-        _cts.Cancel();
+        _sendChannel.Writer.TryComplete();
+        try { _cts.Cancel(); } catch (ObjectDisposedException) { }
     }
 
-    public async Task Send(ArraySegment<byte> messageData)
+    public void Send(ArraySegment<byte> messageData)
+    {
+        // Non-blocking enqueue; the send loop delivers it in order. DropOldest discards
+        // stale frames for a slow client instead of blocking the broadcaster (audit §1.6).
+        _sendChannel.Writer.TryWrite(messageData);
+    }
+
+    private async Task SendLoopAsync()
     {
         try
         {
-            await socket.SendAsync(messageData, WebSocketMessageType.Binary, true, _cts.Token);
+            await foreach (var segment in _sendChannel.Reader.ReadAllAsync(_cts.Token))
+            {
+                await socket.SendAsync(segment, WebSocketMessageType.Binary, true, _cts.Token);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Connection is shutting down.
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Error sending message to client");
+            logger.LogWarning(ex, "Send loop for client {ClientId} stopped", Id);
         }
     }
 }
