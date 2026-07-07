@@ -182,8 +182,11 @@ public class GameModel : IGameModel
         if (_players.TryRemove(id, out var player))
         {
             // Otherwise every unique name accumulates in _playersTop forever and the
-            // whole dictionary is re-sorted on each frag (audit §1.3).
-            _playersTop.TryRemove(player.Name, out _);
+            // whole dictionary is re-sorted on each frag (audit §1.3). _playersTop is
+            // keyed by name and names aren't unique, so only drop the entry once no
+            // remaining player still uses that name (Copilot review).
+            if (_players.Values.All(p => p.Name != player.Name))
+                _playersTop.TryRemove(player.Name, out _);
             UpdateTopString();
         }
     }

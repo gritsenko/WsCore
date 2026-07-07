@@ -14,8 +14,15 @@ public class WebSocketHandler(
     : IClientConnection
 {
     public const int BufferSize = 4096;
+
+    // A client that keeps sending frames we can't process (unknown TypeId, corrupt
+    // payload, ...) is dropped after this many consecutive failures, so it can't hold
+    // the socket open and flood the logs indefinitely (Copilot review).
+    private const int MaxConsecutiveErrors = 10;
+
     public uint Id { get; private set; }
 
+    private int _consecutiveErrors;
     private readonly CancellationTokenSource _cts = new();
 
     public static async Task HandleWebSocket(HttpContext context)
@@ -69,16 +76,26 @@ public class WebSocketHandler(
                         messageBuffer.Write(buffer.AsSpan(0, result.Count));
                     }
 
-                    // Pass the written buffer to the game server. Isolate per-message
-                    // failures (unknown TypeId, deserialization error, handler NRE) so one
-                    // bad frame is logged and skipped instead of tearing down the connection.
+                    // Isolate per-message failures (corrupt payload, unknown TypeId,
+                    // handler bug) so one bad frame doesn't tear down a healthy connection.
+                    // But bound the abuse: a client spamming invalid frames would otherwise
+                    // keep the socket open and flood the logs forever, so drop it after too
+                    // many consecutive failures (Copilot review).
                     try
                     {
                         gameServer.ProcessClientMessageData(Id, messageBuffer.WrittenSpan.ToArray());
+                        _consecutiveErrors = 0;
                     }
                     catch (Exception ex)
                     {
-                        logger.LogError(ex, "Failed to process client message from {ClientId}", Id);
+                        _consecutiveErrors++;
+                        logger.LogWarning(ex, "Failed to process message from {ClientId} ({Errors}/{Max})",
+                            Id, _consecutiveErrors, MaxConsecutiveErrors);
+                        if (_consecutiveErrors >= MaxConsecutiveErrors)
+                        {
+                            logger.LogWarning("Dropping connection {ClientId}: too many consecutive invalid messages", Id);
+                            break;
+                        }
                     }
                 }
                 else if (result.MessageType == WebSocketMessageType.Text)
