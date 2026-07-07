@@ -63,4 +63,7 @@ app.Map("/ws", WebSocketHandler.HandleWebSocket);
 // Simple server info endpoint for dashboard
 app.MapGet("/info", (ServerInfoProvider provider) => provider.GetInfo());
 
+// Lightweight health endpoint for Docker/orchestration probes
+app.MapGet("/health", () => Results.Ok("healthy"));
+
 app.Run();

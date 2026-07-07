@@ -21,14 +21,11 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS server-builder
 
 WORKDIR /app/server
 
-# Copy solution and main projects (skip benchmarks)
-COPY WsServer/WsServer.sln ./
+# The server is a single self-contained project (WsServer/WsServer).
+# The TestClient and any benchmark projects are intentionally not copied.
 COPY WsServer/WsServer ./WsServer
-COPY WsServer/Game ./Game
-COPY WsServer/WsServer.Shared ./WsServer.Shared
-COPY WsServer/WsServer.DataBuffer ./WsServer.DataBuffer
 
-# Restore and build in Release mode (only main projects)
+# Restore and publish in Release mode
 RUN dotnet restore WsServer/WsServer.csproj
 RUN dotnet publish WsServer/WsServer.csproj -c Release -o /app/publish --no-restore
 
@@ -36,6 +33,11 @@ RUN dotnet publish WsServer/WsServer.csproj -c Release -o /app/publish --no-rest
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
 
 WORKDIR /app
+
+# curl is needed by the HEALTHCHECK below (not present in the aspnet image)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy published server from builder
 COPY --from=server-builder /app/publish ./
@@ -48,12 +50,12 @@ RUN useradd -m -u 1001 gameserver && \
     chown -R gameserver:gameserver /app
 USER gameserver
 
-# Expose ports
-EXPOSE 80 443
+# Expose port (the app listens on :80; TLS/443 is terminated by the nginx sidecar)
+EXPOSE 80
 
-# Health check
+# Health check (app listens on :80 via ASPNETCORE_URLS set in docker-compose)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost/health || exit 1
+    CMD curl -f http://localhost:80/health || exit 1
 
 # Start the server
 ENTRYPOINT ["dotnet", "WsServer.dll"]
