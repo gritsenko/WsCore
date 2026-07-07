@@ -32,6 +32,7 @@ public class GameModel : IGameModel
 
     public GameWorld World;
     public int PlayersCount => _players.Count;
+    public int BulletsCount => _bullets.Count;
     public int HitsCount => _tickHits.Count;
 
     public string Top { get; set; }

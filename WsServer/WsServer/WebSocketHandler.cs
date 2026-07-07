@@ -154,7 +154,9 @@ public class WebSocketHandler(
         }
         catch (WebSocketException ex)
         {
-            logger.LogError(ex, "WebSocket error");
+            // Abrupt client disconnects (browser closed, network drop, client abort)
+            // surface here — a normal lifecycle event, not a server error.
+            logger.LogInformation("WebSocket connection {ClientId} closed: {Message}", Id, ex.Message);
         }
         catch (Exception ex)
         {
@@ -289,9 +291,14 @@ public class WebSocketHandler(
         {
             // Connection is shutting down.
         }
+        catch (WebSocketException)
+        {
+            // Client went away mid-send (abrupt close/abort); the receive loop handles
+            // teardown. This is a normal disconnect, not worth a warning.
+        }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Send loop for client {ClientId} stopped", Id);
+            logger.LogWarning(ex, "Send loop for client {ClientId} stopped unexpectedly", Id);
         }
     }
 }
