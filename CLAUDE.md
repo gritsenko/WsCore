@@ -42,8 +42,9 @@ cd WsCore.Client && npm run build
 cd WsServer/WsServer.TestClient && dotnet run
 
 # --- automated testing helpers ---
-scripts/dev-up.sh      # start server + client in background (logs + pids in .run/)
-scripts/dev-down.sh    # stop them (kills whatever listens on :5000 and :5173)
+scripts/dev-up.sh                  # start server + client in background (logs/pids in .run/)
+CLIENT_PORT=5199 scripts/dev-up.sh # ...on an alt client port (dodge a stale :5173 service worker)
+scripts/dev-down.sh                # stop both (reads the client port from .run/client.port)
 ```
 
 The client is one app: it opens in the lobby; the **Play** button on the `game` room enters the 3D scene, **Back to Lobby** returns, and the single WebSocket persists across those switches and across server restarts (auto-reconnect). In dev the client hard-codes the server to port 5000; in production it uses the current origin.
@@ -80,7 +81,7 @@ Then, using the browser MCP tools (prefer `browser_eval` for assertions, `browse
    - Kill-while-connected also triggers the banner in a real browser, but **the VS Code integrated browser reloads the tab when an established WebSocket is killed** (the app itself never calls `location.reload`), which masks the banner — prefer the server-down-first method there.
 
 Caveats when driving the integrated browser:
-- A **service worker from another localhost project can shadow `localhost:5173`** and serve the wrong app (you'll see a foreign `document.title`). Run the client on a dedicated port — `npm start -- --port 5199 --strictPort` — and navigate there; a distinct port is a distinct origin with no stray SW.
+- A **service worker from another localhost project can shadow `localhost:5173`** and serve the wrong app (you'll see a foreign `document.title`). Bring the stack up on a dedicated port — `CLIENT_PORT=5199 scripts/dev-up.sh` — and navigate there; a distinct port is a distinct origin with no stray SW.
 - The dev client's `getWebSocketUrl()` always targets `:5000`, so the client port doesn't affect which server it talks to.
 
 This procedure is the acceptance check for the unified client (roadmap stage 2) — it has been run and passes (10 cycles: exactly one canvas in-game, zero leaked overlays/buttons/canvases in the lobby; reconnect banner + recovery confirmed). When adding features, extend it rather than reverting to eyeballing.
