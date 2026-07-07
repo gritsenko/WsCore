@@ -9,6 +9,10 @@ public class UpdatePlayerStateRequestHandler(GameModel gameModel) : RequestHandl
 {
     protected override void Handle(uint clientId, UpdatePlayerStateRequest request)
     {
+        // Reject NaN/Inf aim so it can't corrupt bullet direction / physics (audit §2).
+        if (!float.IsFinite(request.AimX) || !float.IsFinite(request.AimY))
+            return;
+
         gameModel.SetPlayerControls(clientId, new Vector2(request.AimX, request.AimY), request.ControlsState);
     }
 }

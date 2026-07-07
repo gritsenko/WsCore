@@ -260,10 +260,13 @@ public class GameModel : IGameModel
         return p;
     }
 
-    public void SetPlayerName(uint id, string name)
+    // Returns the resolved name actually assigned (a default is substituted for an empty
+    // name), or null if the player no longer exists — so callers broadcast what the model
+    // actually holds rather than the raw request.
+    public string? SetPlayerName(uint id, string name)
     {
         var p = GetPlayer(id);
-        if (p == null) return;
+        if (p == null) return null;
 
         var oldName = p.Name;
         _playersTop.TryRemove(oldName, out var oldScore);
@@ -280,6 +283,7 @@ public class GameModel : IGameModel
         p.UpdateActivity();
 
         TopChanged = true;
+        return p.Name;
     }
 
     public Player MovePlayer(uint id, float x, float y)
@@ -323,12 +327,18 @@ public class GameModel : IGameModel
 
     public uint[] SpawnBullet(Vector2 pos, Vector2 aimPos, uint spawnerId)
     {
+        // A zero/degenerate direction would make Vector2.Normalize produce NaN and spawn a
+        // bullet with a NaN position; skip it instead.
+        var dir = aimPos - pos;
+        if (dir.LengthSquared() < 1e-6f)
+            return [];
+
         var bullet = new Bullet()
         {
             Id = GetNewBulletId(),
             Pos = pos,
             Type = 0,
-            Velocity = Vector2.Normalize(aimPos - pos) * 500f,
+            Velocity = Vector2.Normalize(dir) * 500f,
             SpawnerId = spawnerId
         };
 

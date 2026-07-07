@@ -10,7 +10,11 @@ public class PlayerRespawnRequestHandler(GameModel gameModel, IGameMessenger mes
 {
     protected override void Handle(uint clientId, PlayerRespawnRequest request)
     {
-        var respawnPlayer = gameModel.RespawnPlayer(request.PlayerId);
+        // Respawn only the authenticated caller, never the client-supplied PlayerId, so a
+        // client can't respawn other players. RespawnPlayer may return null (audit §1.10).
+        var respawnPlayer = gameModel.RespawnPlayer(clientId);
+        if (respawnPlayer == null)
+            return;
 
         messenger.Broadcast(new PlayerRespawnEvent(respawnPlayer));
     }

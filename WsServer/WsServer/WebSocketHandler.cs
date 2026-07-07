@@ -21,6 +21,10 @@ public class WebSocketHandler(
     // the socket open and flood the logs indefinitely (Copilot review).
     private const int MaxConsecutiveErrors = 10;
 
+    // Cap on a single reconstructed message. A client streaming endless non-final frames
+    // would otherwise grow the accumulation buffer without bound (audit §2).
+    private const int MaxMessageSize = 64 * 1024;
+
     public uint Id { get; private set; }
 
     private int _consecutiveErrors;
@@ -89,6 +93,11 @@ public class WebSocketHandler(
 
                     while (!result.EndOfMessage && socket.State == WebSocketState.Open)
                     {
+                        if (messageBuffer.WrittenCount > MaxMessageSize)
+                        {
+                            logger.LogWarning("Dropping connection {ClientId}: incoming message exceeds {Max} bytes", Id, MaxMessageSize);
+                            return;
+                        }
                         result = await socket.ReceiveAsync(seg, _cts.Token);
                         if (result.MessageType != WebSocketMessageType.Binary)
                             break;
@@ -124,6 +133,11 @@ public class WebSocketHandler(
                     sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
                     while (!result.EndOfMessage && socket.State == WebSocketState.Open)
                     {
+                        if (sb.Length > MaxMessageSize)
+                        {
+                            logger.LogWarning("Dropping connection {ClientId}: incoming text message exceeds {Max} bytes", Id, MaxMessageSize);
+                            return;
+                        }
                         result = await socket.ReceiveAsync(seg, _cts.Token);
                         if (result.MessageType != WebSocketMessageType.Text)
                             break;
