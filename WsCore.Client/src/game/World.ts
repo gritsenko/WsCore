@@ -1,14 +1,20 @@
 import * as THREE from 'three';
-import MapObject3D from './MapObject3D';
+import MapObject from './MapObject';
 import { MapObjectData } from '../network/protocol/MapObjectData';
 
-export default class World3D {
+export default class World {
   static cellSize = 50;
 
-  objects: MapObject3D[] = [];
+  objects: MapObject[] = [];
   scene: THREE.Scene;
-  groundPlane: THREE.Mesh;
   textureLoader: THREE.TextureLoader;
+
+  // Kept as fields so dispose() can free every GPU resource this world created.
+  private groundPlane: THREE.Mesh | null = null;
+  private groundGeometry: THREE.PlaneGeometry | null = null;
+  private groundMaterial: THREE.MeshStandardMaterial | null = null;
+  private grassTexture: THREE.Texture | null = null;
+  private lights: THREE.Light[] = [];
 
   constructor() {
     this.textureLoader = new THREE.TextureLoader();
@@ -21,22 +27,22 @@ export default class World3D {
     this.createGround();
 
     // Preload map object textures
-    MapObject3D.preloadTextures(this.textureLoader);
+    MapObject.preloadTextures(this.textureLoader);
   }
 
   createGround() {
     // Create a large plane for the ground
-    const groundGeometry = new THREE.PlaneGeometry(10000, 10000);
+    this.groundGeometry = new THREE.PlaneGeometry(10000, 10000);
 
     // Create grass texture
-    const grassTexture = this.createGrassTexture();
+    this.grassTexture = this.createGrassTexture();
 
-    const material = new THREE.MeshStandardMaterial({
-      map: grassTexture,
+    this.groundMaterial = new THREE.MeshStandardMaterial({
+      map: this.grassTexture,
       roughness: 0.9,
       metalness: 0.0,
     });
-    this.groundPlane = new THREE.Mesh(groundGeometry, material);
+    this.groundPlane = new THREE.Mesh(this.groundGeometry, this.groundMaterial);
     this.groundPlane.receiveShadow = true;
     this.groundPlane.rotation.x = -Math.PI / 2; // Rotate to be horizontal
     this.groundPlane.position.set(0, 0, 0);
@@ -63,6 +69,8 @@ export default class World3D {
     // Add hemisphere light for better overall illumination
     const hemisphereLight = new THREE.HemisphereLight(0x87ceeb, 0x8b4513, 0.4);
     this.scene.add(hemisphereLight);
+
+    this.lights = [ambientLight, directionalLight, hemisphereLight];
   }
 
   createGrassTexture(): THREE.Texture {
@@ -115,18 +123,20 @@ export default class World3D {
     return texture;
   }
 
-  updateMapObjects(objs: MapObjectData[]) {
+  updateMapObjects(objs: (MapObjectData | null)[] | null) {
     // Destroy old objects
     for (const obj of this.objects) {
       obj.destroy();
     }
-
     this.objects = [];
 
+    if (!objs) return; // guard: server may send a null map payload (audit §4.9)
+
     // Create new objects
-    for (let i = 0; i < objs.length; i++) {
-      const mapObj = new MapObject3D();
-      mapObj.create(this.scene, objs[i]);
+    for (const data of objs) {
+      if (!data) continue;
+      const mapObj = new MapObject();
+      mapObj.create(this.scene, data);
       this.objects.push(mapObj);
     }
   }
@@ -136,6 +146,38 @@ export default class World3D {
   }
 
   posToCell(x) {
-    return Math.floor(x / World3D.cellSize) * World3D.cellSize;
+    return Math.floor(x / World.cellSize) * World.cellSize;
+  }
+
+  /**
+   * Release everything create()/updateMapObjects() added to the scene. The static
+   * MapObject texture cache is a shared asset and is NOT disposed here.
+   */
+  dispose() {
+    for (const obj of this.objects) obj.destroy();
+    this.objects = [];
+
+    if (this.groundPlane) {
+      this.groundPlane.parent?.remove(this.groundPlane);
+      this.groundPlane = null;
+    }
+    this.groundGeometry?.dispose();
+    this.groundMaterial?.dispose();
+    this.grassTexture?.dispose();
+    this.groundGeometry = null;
+    this.groundMaterial = null;
+    this.grassTexture = null;
+
+    for (const light of this.lights) {
+      light.parent?.remove(light);
+      // DirectionalLight's 2048×2048 shadow map is a real GPU render target.
+      const shadow = (light as THREE.DirectionalLight).shadow;
+      shadow?.map?.dispose();
+      shadow?.dispose?.();
+      light.dispose?.();
+    }
+    this.lights = [];
+
+    this.scene = null as any;
   }
 }

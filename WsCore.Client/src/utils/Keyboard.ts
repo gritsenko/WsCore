@@ -1,4 +1,12 @@
-﻿import KeyDef from './KeyDef';
+export interface KeyHandle {
+  code: number;
+  isDown: boolean;
+  isUp: boolean;
+  press?: () => void;
+  release?: () => void;
+  down: (event: KeyboardEvent) => void;
+  up: (event: KeyboardEvent) => void;
+}
 
 export default class Keyboard {
   static KEY_LEFT = 65; //A
@@ -13,20 +21,23 @@ export default class Keyboard {
   static KEY_RIGHT_MASK_OFFSET = 3;
   static KEY_DOWN_MASK_OFFSET = 1;
 
-  //KEY_LEFT = 37;
-  //KEY_UP = 38;
-  //KEY_RIGHT = 39;
-  //KEY_DOWN = 40;
+  /**
+   * Register a key. Returns a handle whose exact listener references are stored,
+   * so removeHandler() can detach them — the old inline `.bind()` left no way to
+   * remove the listeners, leaking 2 per key on every game entry (audit §4.4).
+   */
+  static addHandler(keyCode: number): KeyHandle {
+    const key: KeyHandle = {
+      code: keyCode,
+      isDown: false,
+      isUp: true,
+      press: undefined,
+      release: undefined,
+      down: () => {},
+      up: () => {},
+    };
 
-  static addHnadler(keyCode) {
-    var key = new KeyDef();
-    key.code = keyCode;
-    key.isDown = false;
-    key.isUp = true;
-    key.press = undefined;
-    key.release = undefined;
-    //The `downHandler`
-    key.downHandler = event => {
+    key.down = (event: KeyboardEvent) => {
       if (event.keyCode === key.code) {
         if (key.isUp && key.press) key.press();
         key.isDown = true;
@@ -35,8 +46,7 @@ export default class Keyboard {
       }
     };
 
-    //The `upHandler`
-    key.upHandler = event => {
+    key.up = (event: KeyboardEvent) => {
       if (event.keyCode === key.code) {
         if (key.isDown && key.release) key.release();
         key.isDown = false;
@@ -45,9 +55,16 @@ export default class Keyboard {
       }
     };
 
-    //Attach event listeners
-    window.addEventListener('keydown', key.downHandler.bind(key), false);
-    window.addEventListener('keyup', key.upHandler.bind(key), false);
+    window.addEventListener('keydown', key.down, false);
+    window.addEventListener('keyup', key.up, false);
     return key;
+  }
+
+  static removeHandler(key: KeyHandle | null | undefined): void {
+    if (!key) return;
+    window.removeEventListener('keydown', key.down, false);
+    window.removeEventListener('keyup', key.up, false);
+    key.press = undefined;
+    key.release = undefined;
   }
 }

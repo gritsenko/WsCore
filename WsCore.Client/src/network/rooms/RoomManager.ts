@@ -111,10 +111,7 @@ export class RoomManager {
     const client = room.getClient(clientId);
     if (!client) return true;
 
-    return (
-      client.currentMode === CommunicationMode.Spatial2D ||
-      client.currentMode === CommunicationMode.Spatial3D
-    );
+    return client.currentMode === CommunicationMode.Spatial;
   }
 
   /**
@@ -148,5 +145,17 @@ export class RoomManager {
   public clearAll(): void {
     this.clientRoomMap.clear();
     this.rooms.clear();
+  }
+
+  /**
+   * Drop all client membership but KEEP room definitions. Used on reconnect,
+   * where the session resets but the persistent rooms (lobby/voice/game) must
+   * survive so a subsequent joinRoom() still finds them.
+   */
+  public resetClients(): void {
+    this.clientRoomMap.clear();
+    for (const room of this.rooms.values()) {
+      room.clients.clear();
+    }
   }
 }

@@ -10,7 +10,6 @@
     "format:check": "prettier --check \"src/**/*.{ts,js,json,css,md}\""
   },
   "dependencies": {
-    "phaser": "^3.90.0",
     "three": "^0.128.0"
   },
   "devDependencies": {

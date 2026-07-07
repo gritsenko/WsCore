@@ -221,7 +221,7 @@ async Task RunNormalBot(BotHandle b, Uri u, IMessageSerializer s, CancellationTo
         await b.Socket.ConnectAsync(u, token);
         var recv = Drain(b.Socket, token);
 
-        await Send(b.Socket, Frame(s, new JoinRoomRequest("2d-game")), true, token);
+        await Send(b.Socket, Frame(s, new JoinRoomRequest("game")), true, token);
         await Send(b.Socket, Frame(s, new SetPlayerNameRequest { Name = $"bot{b.Index}" }), true, token);
         await Send(b.Socket, Frame(s, new UpdatePlayerSlotsRequest { Body = b.Index % 5, Gun = b.Index % 5, Armor = b.Index % 5 }), true, token);
 
@@ -260,7 +260,7 @@ async Task RunInvalidBot(BotHandle b, Uri u, IMessageSerializer s, CancellationT
     {
         await b.Socket.ConnectAsync(u, token);
         var recv = Drain(b.Socket, token);
-        await Send(b.Socket, Frame(s, new JoinRoomRequest("2d-game")), true, token);
+        await Send(b.Socket, Frame(s, new JoinRoomRequest("game")), true, token);
 
         while (!token.IsCancellationRequested && b.Socket.State == WebSocketState.Open)
         {

@@ -1,29 +1,29 @@
 import * as THREE from 'three';
 import { MapObjectData } from '../network/protocol/MapObjectData';
 
-export default class MapObject3D {
+export default class MapObject {
   type = 0;
   x = 0;
   y = 0;
   sprite: THREE.Sprite;
   mesh: THREE.Group;
 
-  static cellSize = 50; // Copy of World3D.cellSize
+  static cellSize = 50; // Mirrors World.cellSize
   static textures: Map<string, THREE.Texture> = new Map();
 
   static preloadTextures(loader: THREE.TextureLoader) {
     const textureLoader = loader;
     textureLoader.load('/map/objects/trees/tree_1.png', texture => {
-      MapObject3D.textures.set('tree1', texture);
+      MapObject.textures.set('tree1', texture);
     });
     textureLoader.load('/map/objects/trees/tree_2.png', texture => {
-      MapObject3D.textures.set('tree2', texture);
+      MapObject.textures.set('tree2', texture);
     });
     textureLoader.load('/map/objects/trees/tree_3.png', texture => {
-      MapObject3D.textures.set('tree3', texture);
+      MapObject.textures.set('tree3', texture);
     });
     textureLoader.load('/map/objects/trees/tree_4.png', texture => {
-      MapObject3D.textures.set('tree4', texture);
+      MapObject.textures.set('tree4', texture);
     });
   }
 
@@ -33,12 +33,12 @@ export default class MapObject3D {
     this.type = objData.objectType;
 
     // Convert grid coordinates to world coordinates
-    const x = this.x * MapObject3D.cellSize + MapObject3D.cellSize / 2;
-    const z = this.y * MapObject3D.cellSize + MapObject3D.cellSize / 2;
+    const x = this.x * MapObject.cellSize + MapObject.cellSize / 2;
+    const z = this.y * MapObject.cellSize + MapObject.cellSize / 2;
 
     // Create sprite mesh with billboard behavior
     const textureKey = 'tree' + Math.min(this.type + 1, 4);
-    const texture = MapObject3D.textures.get(textureKey);
+    const texture = MapObject.textures.get(textureKey);
 
     if (texture) {
       const material = new THREE.SpriteMaterial({
@@ -69,11 +69,23 @@ export default class MapObject3D {
   }
 
   destroy() {
-    if (this.sprite && this.sprite.parent) {
-      this.sprite.parent.remove(this.sprite);
+    if (this.sprite) {
+      this.sprite.parent?.remove(this.sprite);
+      // Dispose the per-instance material only; its map is a shared static texture.
+      this.sprite.material.dispose();
+      this.sprite = undefined as any;
     }
-    if (this.mesh && this.mesh.parent) {
-      this.mesh.parent.remove(this.mesh);
+    if (this.mesh) {
+      this.mesh.parent?.remove(this.mesh);
+      // The placeholder branch creates its own geometry + material — dispose both.
+      this.mesh.traverse(obj => {
+        const m = obj as THREE.Mesh;
+        m.geometry?.dispose?.();
+        const mat = m.material;
+        if (Array.isArray(mat)) mat.forEach(x => x.dispose());
+        else mat?.dispose?.();
+      });
+      this.mesh = undefined as any;
     }
   }
 }
