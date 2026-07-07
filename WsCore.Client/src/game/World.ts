@@ -9,7 +9,8 @@ export default class World {
   static cellSize = 50;
 
   objects: MapObject[] = [];
-  scene: THREE.Scene;
+  // Set by create(), not the constructor — a two-phase init the whole class relies on.
+  scene!: THREE.Scene;
   textureLoader: THREE.TextureLoader;
 
   // Kept as fields so dispose() can free every GPU resource this world created.
@@ -81,6 +82,7 @@ export default class World {
     canvas.width = 512;
     canvas.height = 512;
     const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('2D canvas context unavailable');
 
     // Base grass color - darker
     ctx.fillStyle = '#1a3d0a';

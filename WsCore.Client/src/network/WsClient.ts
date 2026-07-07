@@ -197,6 +197,7 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection 
     if (msg.rooms) {
       // Update room user counts
       for (const room of msg.rooms) {
+        if (room?.id == null) continue;
         this.roomManager.updateRoomUserCount(room.id, room.userCount);
       }
     }

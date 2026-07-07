@@ -5,8 +5,8 @@ export default class MapObject {
   type = 0;
   x = 0;
   y = 0;
-  sprite: THREE.Sprite;
-  mesh: THREE.Mesh;
+  sprite?: THREE.Sprite;
+  mesh?: THREE.Mesh;
 
   static cellSize = 50; // Mirrors World.cellSize
   static textures: Map<string, THREE.Texture> = new Map();
@@ -73,7 +73,7 @@ export default class MapObject {
       this.sprite.parent?.remove(this.sprite);
       // Dispose the per-instance material only; its map is a shared static texture.
       this.sprite.material.dispose();
-      this.sprite = undefined as any;
+      this.sprite = undefined;
     }
     if (this.mesh) {
       this.mesh.parent?.remove(this.mesh);
@@ -85,7 +85,7 @@ export default class MapObject {
         if (Array.isArray(mat)) mat.forEach(x => x.dispose());
         else mat?.dispose?.();
       });
-      this.mesh = undefined as any;
+      this.mesh = undefined;
     }
   }
 }
