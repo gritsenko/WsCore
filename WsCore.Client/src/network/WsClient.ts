@@ -209,11 +209,21 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection 
     if (msg.roomId && msg.users) {
       const room = this.roomManager.getRoom(msg.roomId);
       if (room) {
-        // Clear existing clients and rebuild from update
+        // The server's user list carries no communication-mode info, so a naive
+        // clear+rebuild would silently reset every client (including us) back to
+        // the TextChat default — killing spatial updates (WASD/click-move) the
+        // moment any room-membership broadcast arrives. Preserve modes across it.
+        const previousModes = new Map(
+          Array.from(room.clients.values(), c => [c.id, c.currentMode] as const)
+        );
         room.clients.clear();
         for (const userInfo of msg.users) {
           if (userInfo) {
-            room.addClient(userInfo.clientId, userInfo.name || '');
+            room.addClient(
+              userInfo.clientId,
+              userInfo.name || '',
+              previousModes.get(userInfo.clientId)
+            );
           }
         }
       }

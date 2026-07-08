@@ -30,6 +30,10 @@ export default class GameScene {
   private unsubs: Unsubscribe[] = [];
   private keyHandles: KeyHandle[] = [];
 
+  // Smoothed orbit target, dragged toward myPlayer each frame so the camera
+  // trails the player while preserving whatever orbit/zoom the user set.
+  private cameraTarget = new THREE.Vector3(0, 50, 0);
+
   private rafId = 0;
   private running = false;
   private backButton: HTMLElement | null = null;
@@ -171,6 +175,7 @@ export default class GameScene {
     view.style.left = '0';
 
     this.controls = new OrbitControls(this.camera, this.renderer.domElement);
+    this.controls.target.copy(this.cameraTarget);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.05;
     this.controls.screenSpacePanning = false;
@@ -196,6 +201,19 @@ export default class GameScene {
     if (!this.running) return;
     this.rafId = requestAnimationFrame(this.animate);
 
+    const p = this.client.myPlayer;
+    if (p && this.controls) {
+      const nextX = Common.lerp(this.cameraTarget.x, p.x, 0.09);
+      const nextZ = Common.lerp(this.cameraTarget.z, p.y, 0.09);
+      // Shift the camera by the same delta as the target so the orbit
+      // radius/angle the user set is preserved — a pure translation, not
+      // just a re-aim (setting .target alone only swivels the camera).
+      this.camera.position.x += nextX - this.cameraTarget.x;
+      this.camera.position.z += nextZ - this.cameraTarget.z;
+      this.cameraTarget.x = nextX;
+      this.cameraTarget.z = nextZ;
+      this.controls.target.copy(this.cameraTarget);
+    }
     this.controls?.update();
     for (const view of this.views.values()) view.update();
     this.world.update();
