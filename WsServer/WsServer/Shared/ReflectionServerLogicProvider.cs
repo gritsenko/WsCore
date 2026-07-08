@@ -126,7 +126,11 @@ public class ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFac
             _idsByType[typeof(T)] = typeId;
         }
         public byte FindIdByType(Type type) => _idsByType[type];
-        public Type FindTypeById(byte typeId) => _registeredTypes[typeId];
+
+        // typeId comes straight off the wire, so an unregistered value is expected
+        // client input, not a server bug — return null rather than throwing, so callers
+        // (MessageSerializer.Deserialize) can report it as the ArgumentException it expects.
+        public Type? FindTypeById(byte typeId) => _registeredTypes.GetValueOrDefault(typeId);
 
 
         private class DuplicateMessageIdException(byte id) : Exception

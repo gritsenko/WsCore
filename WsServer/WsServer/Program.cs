@@ -74,4 +74,19 @@ app.MapGet("/info", (ServerInfoProvider provider) => provider.GetInfo());
 // Lightweight health endpoint for Docker/orchestration probes
 app.MapGet("/health", () => Results.Ok("healthy"));
 
+// Graceful shutdown (audit §1.15): on SIGTERM/Ctrl+C, stop the tick loop and close every
+// open socket instead of leaving the process to drop connections mid-write when the host
+// process actually exits.
+app.Lifetime.ApplicationStopping.Register(() =>
+{
+    var logger = app.Services.GetRequiredService<ILogger<WsServer.GameServer>>();
+    var connections = app.Services.GetRequiredService<IClientConnectionManager>().Connections.ToList();
+    logger.LogInformation("Graceful shutdown: closing {Count} connection(s)", connections.Count);
+    foreach (var connection in connections)
+        connection.Terminate();
+
+    (app.Services.GetRequiredService<IGameServer>() as IDisposable)?.Dispose();
+    app.Services.GetRequiredService<WsServer.Rooms.RoomManager>().Dispose();
+});
+
 app.Run();

@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "format": "prettier --write \"src/**/*.{ts,js,json,css,md}\"",
     "format:check": "prettier --check \"src/**/*.{ts,js,json,css,md}\"",
-    "lint": "eslint src"
+    "lint": "eslint src",
+    "test": "vitest run"
   },
   "dependencies": {
     "three": "^0.185.1"
@@ -23,6 +24,7 @@
     "typescript": "^5.9.0",
     "typescript-eslint": "^8.63.0",
     "vite": "^6.3.2",
-    "vite-plugin-singlefile": "^2.0.3"
+    "vite-plugin-singlefile": "^2.0.3",
+    "vitest": "^3.2.7"
   }
 }

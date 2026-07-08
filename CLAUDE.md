@@ -16,9 +16,10 @@ WsCore is a real-time multiplayer game server: a .NET 10 / ASP.NET Core WebSocke
   - `game/` — the Three.js scene (was `3d/`): `GameScene` (scene/camera/renderer/RAF/input + full `exit()` teardown), `Player` (pure state, implements `IPlayer`), `PlayerView` (the sprite/nick visual), `World`, `MapObject`.
   - `lobby/` — `LobbyUI` + CSS only (no app logic).
   - `network/` — `WsConnection` (transport: reconnect/backoff, `connectionStatus`) → `WsClient` (session state + a typed `on()`/`emit()` event emitter), `rooms/`, and `network/protocol/` (**generated** — see below).
-  - `utils/` — `Emitter`, `Keyboard`, `ChatUI`, `Common`, `TypeState`.
+  - `utils/` — `Emitter`, `Keyboard`, `ChatUI`, `Common`.
   - `main.ts` is a thin entry that builds `App` from the name form.
-- `Tests/*.js` — standalone Node simulation scripts (they reimplement room logic in JS to reason about it; they are not integration tests against a running server, and they predate stage 2 — they still say `2d-game`/`Spatial2D`). Run with `node Tests/test-rooms.js`.
+  - `*.test.ts` files sit next to the code they cover (e.g. `network/rooms/RoomManager.test.ts`, `network/protocol/protocol.test.ts`) — see [Testing](#testing).
+- `WsServer/WsServer.Tests/` — xUnit project: unit tests for `GameModel`/`RoomManager`/`MessageSerializer`, plus a real-WebSocket integration test in `Integration/` (see [Testing](#testing)).
 - `AGENTS.md` (root) and `WsServer/AGENTS.md` — detailed prior guidance on conventions and the room system. Read them for depth; note both predate the single-project merge (see Gotchas).
 
 ## Commands
@@ -51,7 +52,19 @@ The client is one app: it opens in the lobby; the **Play** button on the `game` 
 
 ## Testing
 
-Two layers, both automatable — there is no xUnit/Vitest project yet (planned for roadmap stage 4).
+Four layers, all automatable.
+
+**Server — xUnit (`WsServer/WsServer.Tests`).** Unit tests for `GameModel` (bullet lifecycle/leak cleanup, collisions, respawn, `_playersTop` cleanup, atomic id generation), `RoomManager` (join/leave/mode/spatial-filtering), and `MessageSerializer` (client-request round-trip, unknown-TypeId handling). Plus one integration test (`Integration/ClientGameFlowTests.cs`) that boots the real server in-process on an OS-assigned port and drives it over a real `ClientWebSocket`: connect → join `game` → chat → observe a tick broadcast — the same flow as the manual browser smoke test below, without a browser.
+
+```bash
+cd WsServer/WsServer.Tests && dotnet test
+```
+
+**Client — Vitest (`WsCore.Client`).** Protocol round-trip tests pin fixed binary samples for a few message types (`network/protocol/protocol.test.ts`) so a wire-format regression breaks the test even if serialize/deserialize still agree with each other; `network/rooms/RoomManager.test.ts` exercises the real `RoomManager`/`Room` classes (join/leave/persistent-room/mode-switching/spatial-filtering) — this replaced the old ad-hoc `Tests/*.js` scripts at the repo root, which reimplemented room logic from scratch in plain JS against a stale pre-stage-2 model (`Spatial2D`/`Spatial3D`) and never touched real client code.
+
+```bash
+cd WsCore.Client && npm run test
+```
 
 **Server / protocol — headless load test.** `WsServer.LoadTest` spins up N bot sockets that join `game` and hammer move/shoot/chat (plus a hostile-input bot) against a real embedded server. It's the stress/soak check (memory flat, connections hold, abuse dropped).
 
