@@ -58,6 +58,7 @@ builder.Services.AddSingleton<IGameMessenger>(sp => new GameMessenger(
     sp.GetRequiredService<IClientConnectionManager>(),
     sp.GetRequiredService<IMessageSerializer>(),
     sp.GetRequiredService<RoomManager>()));
+builder.Services.AddSingleton(new GameServerOptions());
 builder.Services.AddSingleton<GameModel>();
 builder.Services.AddSingleton<IGameServer, GameServer>();
 builder.Services.AddTransient<WebSocketHandlerFactory>();

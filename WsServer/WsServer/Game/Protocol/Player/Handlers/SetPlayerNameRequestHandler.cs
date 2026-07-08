@@ -8,15 +8,13 @@ using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.Player.Handlers;
 
-public class SetPlayerNameRequestHandler(GameModel gameModel, IGameMessenger messenger, ILogger<SetPlayerNameRequestHandler> logger) : RequestHandlerBase<SetPlayerNameRequest>
+public class SetPlayerNameRequestHandler(GameModel gameModel, IGameMessenger messenger, GameServerOptions options, ILogger<SetPlayerNameRequestHandler> logger) : RequestHandlerBase<SetPlayerNameRequest>
 {
-    private const int MaxNameLength = 32;
-
     protected override void Handle(uint clientId, SetPlayerNameRequest request)
     {
         // Sanitize, then broadcast the name the model actually resolved (empty -> default),
         // so clients and server stay in sync (audit §2).
-        var requested = InputSanitizer.Clean(request.Name, MaxNameLength);
+        var requested = InputSanitizer.Clean(request.Name, options.MaxNameLength);
 
         var resolved = gameModel.SetPlayerName(clientId, requested);
         if (resolved == null) return; // player already gone

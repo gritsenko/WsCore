@@ -18,7 +18,8 @@ public class GameServer : GameServerBase<GameModel>
         IClientConnectionManager connectionManager,
         IServerLogicProvider serverLogicProvider,
         RoomManager roomManager,
-        ILogger<GameServer> logger) : base(gameModel, messenger, connectionManager, serverLogicProvider, logger)
+        GameServerOptions options,
+        ILogger<GameServer> logger) : base(gameModel, messenger, connectionManager, serverLogicProvider, options, logger)
     {
         _roomManager = roomManager;
         

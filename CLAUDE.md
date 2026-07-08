@@ -91,7 +91,7 @@ This procedure is the acceptance check for the unified client (roadmap stage 2) 
 Every client↔server message is framed as `[TypeId: 1 byte][MemoryPack payload]`.
 
 - A message is a `[MemoryPackable] partial class` implementing **`IClientRequest`** (client→server) or **`IServerEvent`** (server→client), with a `static byte TypeId`. `[GenerateTypeScript]` opts it into TS codegen.
-- `ReflectionServerLogicProvider` scans the assembly at startup, registering every `IClientRequest`/`IServerEvent` by its `TypeId` and wiring each request to its handler. **TypeIds must be unique** — a collision throws `DuplicateMessageIdException` at boot. `Game/Protocol/ServerMessageType.cs` is the human-readable map of assigned IDs; consult it before picking a new one.
+- `ReflectionServerLogicProvider` scans the assembly at startup, registering every `IClientRequest`/`IServerEvent` by its `TypeId` and wiring each request to its handler. **TypeIds must be unique** — a collision throws `DuplicateMessageIdException` at boot (a stale hand-maintained `ServerMessageType.cs` map used to promise this but had drifted out of sync with real ids and was removed; before picking a new id, grep for `TypeId =>` across `Game/Protocol/**` to see what's taken).
 - Request handlers subclass `RequestHandlerBase<TRequest>` and are constructed via DI (`ClientRequestHandlerFactory`), so they can inject `IGameMessenger`, `ILogger`, etc.
 - `WebSocketHandler` also accepts **JSON text frames** as a debugging fallback (it reflects fields onto the request type by name); the real client always sends binary.
 

@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using Game.Core.World;
+using WsServer;
 using WsServer.Abstract;
 
 namespace Game.Core;
@@ -13,7 +14,9 @@ public class GameModel : IGameModel
 {
     // Upper bound on a single tick's delta time. Guards physics against huge jumps
     // after a GC pause / lag spike / the very first tick (when _lastTickTime is default).
-    private const float MaxDeltaTime = 0.1f;
+    private readonly float _maxDeltaTime;
+    private readonly float _shootCooldownSeconds;
+    private readonly float _chatCooldownSeconds;
 
     private DateTime _lastTickTime;
     private uint _lastPlayerId;
@@ -38,8 +41,16 @@ public class GameModel : IGameModel
     public string Top { get; set; }
     public bool TopChanged { get; set; }
 
-    public GameModel()
+    public GameModel() : this(new GameServerOptions())
     {
+    }
+
+    public GameModel(GameServerOptions options)
+    {
+        _maxDeltaTime = options.MaxDeltaTimeSeconds;
+        _shootCooldownSeconds = options.ShootCooldownSeconds;
+        _chatCooldownSeconds = options.ChatCooldownSeconds;
+
         World = new GameWorld();
         //_npcProcessor = new NpcProcessor();
 
@@ -97,6 +108,8 @@ public class GameModel : IGameModel
         p.TargetPos = p.MovementState.Pos;
         p.Hp = 100;
         p.MaxHp = 100;
+        p.ShootCooldownDuration = _shootCooldownSeconds;
+        p.ChatCooldownDuration = _chatCooldownSeconds;
 
         p.Name = "Player " + p.Id;
 
@@ -112,7 +125,7 @@ public class GameModel : IGameModel
     public void UpdateGameState(DateTime time, Action onUpdatedAction)
     {
         var dt = (float)(time - _lastTickTime).TotalSeconds;
-        dt = Math.Clamp(dt, 0f, MaxDeltaTime);
+        dt = Math.Clamp(dt, 0f, _maxDeltaTime);
         _lastTickTime = time;
 
         _destroyedBulletIds.Clear();
@@ -213,38 +226,10 @@ public class GameModel : IGameModel
         TopChanged = true;
     }
 
-    public HitInfo HitPlayer(uint playerId, int hitPoints, uint hitterId)
-    {
-        var p1 = GetPlayer(playerId);
-        var p2 = GetPlayer(hitterId);
-
-        if (p1.Hit(hitPoints))
-        {
-            p1.RespawnTime = 5;
-
-            AddFrag(p1, -1);
-
-            if (playerId != hitterId)
-                AddFrag(p2, 1);
-        }
-
-        return new HitInfo(playerId, p1.Hp, hitterId);
-    }
-
     public Player GetPlayer(uint id)
     {
         _players.TryGetValue(id, out var p);
         return p;
-    }
-
-    private void AddFrag(Player player, int value = 1)
-    {
-        player.AddFrag(value);
-
-        _playersTop.TryAdd(player.Name, 0);
-        _playersTop[player.Name] += value;
-
-        UpdateTopString();
     }
 
     public Player RespawnPlayer(uint id)
@@ -287,16 +272,6 @@ public class GameModel : IGameModel
         return p.Name;
     }
 
-    public Player MovePlayer(uint id, float x, float y)
-    {
-        var p = GetPlayer(id);
-        if (p != null)
-        {
-            p.SetPos(x, y);
-            p.UpdateActivity();
-        }
-        return p;
-    }
     public Player SetPlayerTarget(uint id, float x, float y)
     {
         var p = GetPlayer(id);
@@ -306,12 +281,6 @@ public class GameModel : IGameModel
             p.UpdateActivity();
         }
         return p;
-    }
-
-    public void UpdatePlayerActivity(uint id)
-    {
-        var p = GetPlayer(id);
-        p?.UpdateActivity();
     }
 
     public Player SetPlayerControls(uint id, Vector2 aim, int contols)

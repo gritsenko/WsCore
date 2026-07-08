@@ -110,23 +110,6 @@ public class RoomManager : IDisposable
     }
     
     /// <summary>
-    /// Change client's communication mode within their room
-    /// </summary>
-    public bool SetClientMode(uint clientId, RoomCompatibility mode)
-    {
-        var room = GetClientRoom(clientId);
-        if (room == null || !room.SupportsMode(mode))
-            return false;
-        
-        var client = room.GetClient(clientId);
-        if (client == null)
-            return false;
-        
-        client.CurrentMode = mode;
-        return true;
-    }
-    
-    /// <summary>
     /// Check if client should receive spatial updates
     /// </summary>
     public bool ShouldReceiveSpatialUpdates(uint clientId)
@@ -146,18 +129,6 @@ public class RoomManager : IDisposable
     public IEnumerable<Room> GetAllRooms()
     {
         return _rooms.Values;
-    }
-    
-    /// <summary>
-    /// Get clients in a specific room
-    /// </summary>
-    public IEnumerable<uint> GetRoomClientIds(string roomId)
-    {
-        if (_rooms.TryGetValue(roomId, out var room))
-        {
-            return room.GetClientIds();
-        }
-        return Enumerable.Empty<uint>();
     }
     
     /// <summary>

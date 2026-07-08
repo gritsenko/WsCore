@@ -1,6 +1,6 @@
 # WsCore
 
-A high-performance, real-time multiplayer game server built with .NET 10 and WebSocket, designed for flexible gameplay experiences with room-based communication and dual client support (2D Phaser and 3D Three.js).
+A high-performance, real-time multiplayer game server built with .NET 10 and WebSocket, paired with a unified single-socket TypeScript client (Three.js scene + Discord-style lobby as UI states of one app).
 
 **🚀 Production Ready:** Docker setup with automated deployment scripts for VDS. See [docs/](docs/) for deployment guides.
 
@@ -9,15 +9,8 @@ A high-performance, real-time multiplayer game server built with .NET 10 and Web
 ![Dashboard](docs/media/dashboard.jpg)
 *WsCore Server Dashboard - Real-time server monitoring and metrics*
 
-## Client Samples
-
-### 2D Client (Phaser)
-![2D Client](docs/media/phaser.jpg)
-*Traditional 2D rendering with sprite-based gameplay*
-
-### 3D Client (Three.js)
-![3D Client](docs/media/threejs.jpg)
-*Modern 3D isometric rendering with WebGL acceleration*
+![Client](docs/media/threejs.jpg)
+*3D isometric client rendering with WebGL acceleration*
 
 ## Architecture Overview
 
@@ -27,7 +20,7 @@ WsCore implements a modular, scalable architecture with room-based communication
 
 #### 1. **WebSocket Server (`WsServer/`)**
 - **ASP.NET Core 10 WebSocket handler** for real-time bidirectional communication
-- **Room-based communication system** supporting TextChat, VoiceChat, Spatial2D, and Spatial3D modes
+- **Room-based communication system** supporting TextChat, VoiceChat, and Spatial modes
 - **Dependency injection** for loose coupling and testability
 - **Static file serving** for web-based game clients
 - **Connection lifecycle management** with proper cleanup and error handling
@@ -52,12 +45,12 @@ WsCore implements a modular, scalable architecture with room-based communication
 - **Message serialization** via MemoryPack with automatic type mapping
 - **Room-aware broadcasting** for efficient spatial updates
 
-#### 5. **Client Code (Multi-Mode Support)**
-- **2D Client (Phaser)**: Traditional 2D rendering and input handling
-- **3D Client (Three.js)**: Modern WebGL-based isometric 3D rendering
-- **Lobby Interface**: Discord-style chat room for text communication
+#### 5. **Client Code (Unified Single-Socket App)**
+- **One `WsClient`/one WebSocket** lives the whole session; lobby and game are UI states of the same shell, not separate apps
+- **3D Client (Three.js)**: WebGL-based isometric 3D rendering (`game/` — scene, `Player`/`PlayerView`, `World`, `MapObject`), entered via the **Play** button
+- **Lobby Interface**: Discord-style chat room for text communication (`lobby/`), shown by default and on **Back to Lobby**
 - **Auto-generated TS models** produced by MemoryPack source generator during server build
-- **Room-based navigation** allowing seamless transitions between modes
+- **Reconnect with backoff**: a connection banner during outages, automatic re-init on reconnect
 - **Binary protocol**: reads 1-byte TypeId then MemoryPack payload using generated `MemoryPackReader`
 
 ## Communication Modes & Room System
@@ -65,14 +58,12 @@ WsCore implements a modular, scalable architecture with room-based communication
 ### Available Rooms
 - **Lobby**: Text chat only (default starting point)
 - **Voice Room**: Voice + Text chat
-- **2D Game Room**: 2D spatial gameplay + Text chat
-- **3D Game Room**: 3D spatial gameplay + Text chat
+- **Game Room**: Spatial gameplay + Text chat (entered from the lobby via **Play**)
 
 ### Communication Modes
 - **TextChat**: Text-based messaging between room members
 - **VoiceChat**: Voice communication (future implementation)
-- **Spatial2D**: 2D position-based updates (players see relevant 2D game state)
-- **Spatial3D**: 3D position-based updates (players see relevant 3D game state)
+- **Spatial**: Position-based updates for the 3D scene (players see relevant game state)
 
 ## Base Concepts and Principles
 
@@ -121,9 +112,9 @@ _roomManager.CreateRoom(
     isPersistent: true);
 
 _roomManager.CreateRoom(
-    "2d-game", 
-    "2D Game Room", 
-    new[] { CommunicationMode.Spatial2D, CommunicationMode.TextChat }, 
+    "game", 
+    "Game Room", 
+    new[] { CommunicationMode.Spatial, CommunicationMode.TextChat }, 
     isPersistent: true);
 ```
 
@@ -152,7 +143,7 @@ Client Connection
     ↓
 Join Default Lobby Room (TextChat)
     ↓
-Navigate to Game Room (Spatial2D/Spatial3D + TextChat)
+Navigate to Game Room (Spatial + TextChat)
     ↓
 Receive Spatial Updates (filtered by proximity)
     ↓
@@ -163,17 +154,17 @@ Receive Text Messages (all room members)
 
 ```
 WsCore/
-├── WsCore.Client/               # Multi-mode client TypeScript (Vite)
+├── WsCore.Client/               # Unified single-socket client TypeScript (Vite)
 │   ├── src/
-│   │   ├── 2d/                 # 2D Phaser client (Spatial2D mode)
-│   │   ├── 3d/                 # 3D Three.js client (Spatial3D mode)
-│   │   ├── lobby/              # Discord-style lobby (TextChat mode)
-│   │   ├── network/protocol    # Auto-generated MemoryPack TS files
-│   │   └── main.ts             # Entry point with mode routing
+│   │   ├── app/                 # Shell: owns the one WsClient, lobby↔game state machine
+│   │   ├── game/                # Three.js scene: GameScene, Player/PlayerView, World, MapObject
+│   │   ├── lobby/                # Discord-style lobby UI (no own socket)
+│   │   ├── network/protocol     # Auto-generated MemoryPack TS files
+│   │   ├── network/              # WsConnection (transport) → WsClient (session state)
+│   │   └── main.ts              # Thin entry point building App
 ├── WsServer/
-│   ├── WsServer/               # ASP.NET Core 10 WebSocket host
-│   ├── Game/                   # Game logic and protocol definitions
-│   └── WsServer.Shared/        # Messaging, serialization, reflection registry
+│   ├── WsServer/                # ASP.NET Core 10 WebSocket host (server + game logic + protocol, one project)
+│   └── WsServer.TestClient/     # Embedded server + terminal UI for local testing without a browser
 ```
 
 ## Client Quickstart
@@ -192,14 +183,13 @@ npm start
 ```
 
 ### Client Access & Room Navigation
-- **Lobby Interface**: `http://localhost:5173/` (default - Discord-style chat)
-- **2D Game**: `http://localhost:5173/?mode=2d` (2D Phaser gameplay)
-- **3D Game**: `http://localhost:5173/?mode=3d` (3D Three.js gameplay)
+- **Lobby Interface**: `http://localhost:5173/` (default — Discord-style chat)
+- **Game**: click **Play** on the `game` room to enter the 3D scene; **Back to Lobby** returns
 
 **Room Navigation Flow:**
 1. Start in Lobby (text chat only)
-2. Navigate to game rooms for spatial gameplay
-3. Switch between 2D and 3D modes seamlessly
+2. Click **Play** to enter the 3D game room for spatial gameplay
+3. Click **Back to Lobby** any number of times — the single WebSocket persists across switches
 4. All rooms maintain text chat functionality
 
 Note: The server and client are intentionally started manually (no auto-run from tools). MemoryPack-generated TS files will appear under `WsCore.Client/src/network/protocol` after building the server.
@@ -242,19 +232,14 @@ npm start
 
 Note: In development, the server and client are started separately. Automated tools should not start them.
 
-## Client Features Comparison
+## Client States
 
-| Feature | 2D (Phaser) | 3D (Three.js) | Lobby |
-|---------|-------------|---------------|-------|
-| Rendering | Traditional 2D sprites | WebGL 3D isometric | Web UI |
-| Communication | Spatial2D + TextChat | Spatial3D + TextChat | TextChat only |
-| Camera | Following camera | Orthographic isometric | N/A |
-| Performance | GPU-accelerated | GPU-accelerated | Minimal |
-| Controls | Arrow keys + mouse | Arrow keys + mouse | Text input |
-| Room Support | ✅ 2D Game Room | ✅ 3D Game Room | ✅ All Rooms |
-| Multiplayer | ✅ Full support | ✅ Full support | ✅ Full support |
+| State | Rendering | Communication | Controls |
+|-------|-----------|----------------|----------|
+| Lobby | Web UI (Discord-style) | TextChat only | Text input |
+| Game | WebGL 3D isometric (Three.js) | Spatial + TextChat | Arrow keys + mouse |
 
-The multi-client approach allows developers to choose the visual style that best fits their game concept while maintaining the same core gameplay mechanics, room system, and server infrastructure.
+Lobby and Game are UI states of one shell — one `WsClient`/one WebSocket lives the whole session, and switching between them any number of times leaks nothing (verified via the browser smoke test in [CLAUDE.md](CLAUDE.md#testing)).
 
 ## 🐳 Docker & Deployment
 

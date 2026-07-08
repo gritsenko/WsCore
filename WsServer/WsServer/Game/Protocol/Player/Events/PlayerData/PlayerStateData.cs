@@ -1,5 +1,4 @@
-﻿using System.Runtime.InteropServices;
-using Game.ServerLogic.GameState.Events.GameTickStateUpdateEventData;
+﻿using Game.ServerLogic.GameState.Events.GameTickStateUpdateEventData;
 using MemoryPack;
 using WsServer.Abstract.Messages;
 
@@ -11,7 +10,6 @@ public partial class PlayerStateData
 {
     public uint Id;
 
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 32)]
     public string Name;
     public byte Hp;
     public byte MaxHp;

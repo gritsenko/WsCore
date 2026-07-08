@@ -31,6 +31,7 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>, IDis
         IGameMessenger messenger,
         IClientConnectionManager connectionManager,
         IServerLogicProvider serverLogicProvider,
+        GameServerOptions options,
         ILogger<GameServerBase<TGameModel>> logger)
     {
         serverLogicProvider.Initialize();
@@ -40,7 +41,7 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>, IDis
         _serverLogicProvider = serverLogicProvider;
         _logger = logger;
 
-        _timer = new PeriodicTimer(TimeSpan.FromMilliseconds(33));
+        _timer = new PeriodicTimer(TimeSpan.FromMilliseconds(options.TickIntervalMs));
         _ = RunGameLoopAsync(); // Start the game loop
     }
 

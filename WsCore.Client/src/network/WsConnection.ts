@@ -18,7 +18,6 @@ export enum ServerEventType {
 }
 
 export enum ClientMessageType {
-  GetTilesRequest = 50,
   GetMapObjectsRequest = 51,
   SetMapObjectRequest = 52,
   DestroyMapObjectRequest = 53,
@@ -50,7 +49,6 @@ import { ChatMessageEvent } from './protocol/ChatMessageEvent';
 import { RoomListEvent } from './protocol/RoomListEvent';
 import { RoomUsersUpdateEvent } from './protocol/RoomUsersUpdateEvent';
 
-import { GetTilesRequest } from './protocol/GetTilesRequest';
 import { GetMapObjectsRequest } from './protocol/GetMapObjectsRequest';
 import { DestroyMapObjectRequest } from './protocol/DestroyMapObjectRequest';
 import { SetMapObjectRequest } from './protocol/SetMapObjectRequest';
@@ -65,7 +63,6 @@ import { GetRoomListRequest } from './protocol/GetRoomListRequest';
 import { JoinRoomRequest } from './protocol/JoinRoomRequest';
 
 import { MemoryPackReader } from './protocol/MemoryPackReader';
-import { MemoryPackWriter } from './protocol/MemoryPackWriter';
 import Emitter, { Unsubscribe } from '../utils/Emitter';
 
 export type ConnectionStatus = 'connecting' | 'open' | 'reconnecting' | 'closed';
@@ -110,21 +107,21 @@ export default class WsConnection {
   }
 
   // Event handlers (override these in your game code)
-  onInitPlayerEvent(msg: InitPlayerEvent): void {}
-  onPlayerJoinedEvent(msg: PlayerJoinedEvent): void {}
-  onPlayerLeftEvent(msg: PlayerLeftEvent): void {}
-  onPlayerRespawnEvent(msg: PlayerRespawnEvent): void {}
-  onPlayerShootingEvent(msg: PlayerShootingEvent): void {}
-  onPlayersTopEvent(msg: PlayersTopEvent): void {}
-  onSetPlayerHpEvent(msg: SetPlayerHpEvent): void {}
-  onSetPlayerNameEvent(msg: SetPlayerNameEvent): void {}
-  onUpdatePlayerSlotsEvent(msg: UpdatePlayerSlotsEvent): void {}
-  onUpdateMapObjectsEvent(msg: UpdateMapObjectsEvent): void {}
-  onGameStateUpdateEvent(msg: GameStateUpdateEvent): void {}
-  onGameTickUpdateEvent(msg: GameTickUpdateEvent): void {}
-  onChatMessageEvent(msg: ChatMessageEvent): void {}
-  onRoomListEvent(msg: RoomListEvent): void {}
-  onRoomUsersUpdateEvent(msg: RoomUsersUpdateEvent): void {}
+  onInitPlayerEvent(_msg: InitPlayerEvent): void {}
+  onPlayerJoinedEvent(_msg: PlayerJoinedEvent): void {}
+  onPlayerLeftEvent(_msg: PlayerLeftEvent): void {}
+  onPlayerRespawnEvent(_msg: PlayerRespawnEvent): void {}
+  onPlayerShootingEvent(_msg: PlayerShootingEvent): void {}
+  onPlayersTopEvent(_msg: PlayersTopEvent): void {}
+  onSetPlayerHpEvent(_msg: SetPlayerHpEvent): void {}
+  onSetPlayerNameEvent(_msg: SetPlayerNameEvent): void {}
+  onUpdatePlayerSlotsEvent(_msg: UpdatePlayerSlotsEvent): void {}
+  onUpdateMapObjectsEvent(_msg: UpdateMapObjectsEvent): void {}
+  onGameStateUpdateEvent(_msg: GameStateUpdateEvent): void {}
+  onGameTickUpdateEvent(_msg: GameTickUpdateEvent): void {}
+  onChatMessageEvent(_msg: ChatMessageEvent): void {}
+  onRoomListEvent(_msg: RoomListEvent): void {}
+  onRoomUsersUpdateEvent(_msg: RoomUsersUpdateEvent): void {}
 
   constructor() {}
 
@@ -350,14 +347,6 @@ export default class WsConnection {
     request.mapY = mapY;
     const data = GetMapObjectsRequest.serialize(request);
     this.sendMessage(ClientMessageType.GetMapObjectsRequest, data);
-  }
-
-  sendGetTilesRequest(mapX: number, mapY: number): void {
-    const request = new GetTilesRequest();
-    request.mapX = mapX;
-    request.mapY = mapY;
-    const data = GetTilesRequest.serialize(request);
-    this.sendMessage(ClientMessageType.GetTilesRequest, data);
   }
 
   sendSetMapObjectRequest(mapX: number, mapY: number, objectType: number): void {

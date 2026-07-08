@@ -17,16 +17,11 @@ public class MessageSerializer : IMessageSerializer
     public ArraySegment<byte> Serialize<TEventMessage>(TEventMessage message) where TEventMessage : IServerEvent
     {
         var messageType = _serverLogicProvider.FindServerEventIdByType(typeof(TEventMessage));
-        // Use ArrayBufferWriter for pooled buffer
         var writer = new ArrayBufferWriter<byte>(1024);
         writer.GetSpan(1)[0] = messageType; // Reserve and set header
         writer.Advance(1);
         MemoryPackSerializer.Serialize(writer, message);
-        var buffer = writer.WrittenSpan;
-        // Copy to ArrayPool-rented buffer for compatibility with ArraySegment<byte>
-        var pooled = ArrayPool<byte>.Shared.Rent(buffer.Length);
-        buffer.CopyTo(pooled);
-        return new ArraySegment<byte>(pooled, 0, buffer.Length);
+        return new ArraySegment<byte>(writer.WrittenSpan.ToArray());
     }
 
     public IClientRequest Deserialize(ref byte[] data, out Type messageType)
@@ -54,9 +49,6 @@ public class MessageSerializer : IMessageSerializer
         writer.GetSpan(1)[0] = messageType; // header
         writer.Advance(1);
         MemoryPackSerializer.Serialize(writer, request);
-        var buffer = writer.WrittenSpan;
-        var pooled = ArrayPool<byte>.Shared.Rent(buffer.Length);
-        buffer.CopyTo(pooled);
-        return new ArraySegment<byte>(pooled, 0, buffer.Length);
+        return new ArraySegment<byte>(writer.WrittenSpan.ToArray());
     }
 }

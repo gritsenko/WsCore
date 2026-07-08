@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Numerics;
 
 namespace Game.Core;
@@ -11,13 +10,6 @@ public class Player
     public static double Radius { get; set; } = 48;
 
     public Vector2 TargetPos = Vector2.Zero;
-
-    private static readonly Dictionary<int, int> ClassHp = new()
-    {
-        {0, 100}, {1, 200}, {2, 50}, {3, 80}, {4, 150}
-    };
-
-    public int Frags { get; set; }
 
     public PlayerMovementState MovementState { get; set; } = new();
 
@@ -39,10 +31,11 @@ public class Player
 
     public double RespawnTime = 0;
 
-    // Server-side rate limits (audit §2). Ticked down in Update so no wall-clock or
-    // timestamps are needed and everything stays on the single tick thread.
-    public const float ShootCooldownDuration = 0.25f; // max ~4 shots/sec
-    public const float ChatCooldownDuration = 0.5f;   // max ~2 messages/sec
+    // Server-side rate limits (audit §2), sourced from GameServerOptions by GameModel at
+    // creation time. Ticked down in Update so no wall-clock or timestamps are needed and
+    // everything stays on the single tick thread.
+    public float ShootCooldownDuration = 0.25f; // max ~4 shots/sec
+    public float ChatCooldownDuration = 0.5f;   // max ~2 messages/sec
     public float ShootCooldown;
     public float ChatCooldown;
 
@@ -60,43 +53,10 @@ public class Player
         return true;
     }
 
-    public void UpdateFrom(Player p)
-    {
-        MovementState = p.MovementState;
-
-        BodyIndex = p.BodyIndex;
-        WeaponIndex = p.WeaponIndex;
-        ArmorIndex = p.ArmorIndex;
-
-        MaxHp = p.MaxHp;
-        Speed = p.Speed;
-
-    }
-
-    public void UpdateStats()
-    {
-        MaxHp = (byte) ClassHp[BodyIndex];
-        Hp = MaxHp;
-    }
-
     public bool Hit(int hitPoint)
     {
         Hp = (byte) Math.Max(Hp - hitPoint, 0);
         return Hp == 0;
-    }
-
-    public void AddFrag(int i)
-    {
-        Frags += i;
-    }
-
-    public void Move(Vector2 speed)
-    {
-        MovementState.Pos += speed;
-    }
-    public void Move(float dx, float dy)
-    {
-        MovementState.Pos += new Vector2(dx, dy);
     }
 
     public virtual void MoveTarget(float dx, float dy)
@@ -176,7 +136,7 @@ public class Player
 
         if (dir.Length() > (MovementState.Velocity * dt).Length())
         {
-            Move(MovementState.Velocity * dt);
+            MovementState.Pos += MovementState.Velocity * dt;
         }
         else
         {

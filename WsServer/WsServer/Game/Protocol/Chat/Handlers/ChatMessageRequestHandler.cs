@@ -8,17 +8,15 @@ using WsServer.Abstract.Messages;
 
 namespace Game.ServerLogic.Chat.Handlers;
 
-public class ChatMessageRequestHandler(GameModel gameModel, IGameMessenger messenger, ILogger<ChatMessageRequestHandler> logger) : RequestHandlerBase<ChatMessageRequest>
+public class ChatMessageRequestHandler(GameModel gameModel, IGameMessenger messenger, GameServerOptions options, ILogger<ChatMessageRequestHandler> logger) : RequestHandlerBase<ChatMessageRequest>
 {
-    private const int MaxChatLength = 256;
-
     protected override void Handle(uint clientId, ChatMessageRequest request)
     {
         var player = gameModel.GetPlayer(clientId);
         if (player == null || !player.TryConsumeChatCooldown()) // rate limit (audit §2)
             return;
 
-        var message = InputSanitizer.Clean(request.Message, MaxChatLength);
+        var message = InputSanitizer.Clean(request.Message, options.MaxChatLength);
         if (message.Length == 0)
             return;
 

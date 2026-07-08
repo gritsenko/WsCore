@@ -114,6 +114,7 @@ public class ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFac
     public sealed class MessageTypeRegistry
     {
         private readonly Dictionary<byte, Type> _registeredTypes = [];
+        private readonly Dictionary<Type, byte> _idsByType = [];
 
         public IEnumerable<Type> GetTypes() => _registeredTypes.Values;
 
@@ -122,8 +123,9 @@ public class ReflectionServerLogicProvider(Assembly assembly, IRequestHandlerFac
             var typeId = T.TypeId;
             if (!_registeredTypes.TryAdd(typeId, typeof(T)))
                 throw new DuplicateMessageIdException(typeId);
+            _idsByType[typeof(T)] = typeId;
         }
-        public byte FindIdByType(Type type) => _registeredTypes.First(x => x.Value == type).Key;
+        public byte FindIdByType(Type type) => _idsByType[type];
         public Type FindTypeById(byte typeId) => _registeredTypes[typeId];
 
 

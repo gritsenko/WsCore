@@ -15,7 +15,7 @@ export function clearBit(target: number, i: number): number {
 }
 
 export function pad(num: number, size: number): string {
-  var s = '000000000' + num;
+  const s = '000000000' + num;
   return s.substr(s.length - size);
 }
 

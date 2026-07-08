@@ -11,19 +11,20 @@ public class WebSocketHandler(
     WebSocket socket,
     IGameServer gameServer,
     ILogger<WebSocketHandler> logger,
-    IServerLogicProvider serverLogicProvider)
+    IServerLogicProvider serverLogicProvider,
+    GameServerOptions options)
     : IClientConnection
 {
-    public const int BufferSize = 4096;
+    private readonly int _bufferSize = options.WebSocketBufferSize;
 
     // A client that keeps sending frames we can't process (unknown TypeId, corrupt
     // payload, ...) is dropped after this many consecutive failures, so it can't hold
     // the socket open and flood the logs indefinitely (Copilot review).
-    private const int MaxConsecutiveErrors = 10;
+    private readonly int _maxConsecutiveErrors = options.WebSocketMaxConsecutiveErrors;
 
     // Cap on a single reconstructed message. A client streaming endless non-final frames
     // would otherwise grow the accumulation buffer without bound (audit §2).
-    private const int MaxMessageSize = 64 * 1024;
+    private readonly int _maxMessageSize = options.WebSocketMaxMessageSizeBytes;
 
     public uint Id { get; private set; }
 
@@ -34,9 +35,8 @@ public class WebSocketHandler(
     // WebSocket forbids concurrent sends on a socket. A slow client sheds the oldest
     // queued frames (stale tick snapshots) instead of back-pressuring the broadcaster
     // or triggering overlapping SendAsync (audit §1.6).
-    private const int SendQueueCapacity = 256;
     private readonly Channel<ArraySegment<byte>> _sendChannel =
-        Channel.CreateBounded<ArraySegment<byte>>(new BoundedChannelOptions(SendQueueCapacity)
+        Channel.CreateBounded<ArraySegment<byte>>(new BoundedChannelOptions(options.WebSocketSendQueueCapacity)
         {
             FullMode = BoundedChannelFullMode.DropOldest,
             SingleReader = true,
@@ -61,10 +61,10 @@ public class WebSocketHandler(
     {
         try
         {
-            var buffer = new byte[BufferSize];
+            var buffer = new byte[_bufferSize];
             var seg = new ArraySegment<byte>(buffer);
             // Use a reusable ArrayBufferWriter for accumulating frames
-            var messageBuffer = new ArrayBufferWriter<byte>(BufferSize);
+            var messageBuffer = new ArrayBufferWriter<byte>(_bufferSize);
 
             // Start the send loop before connecting so InitPlayer/state events queued by
             // OnClientConnected are delivered.
@@ -93,9 +93,9 @@ public class WebSocketHandler(
 
                     while (!result.EndOfMessage && socket.State == WebSocketState.Open)
                     {
-                        if (messageBuffer.WrittenCount > MaxMessageSize)
+                        if (messageBuffer.WrittenCount > _maxMessageSize)
                         {
-                            logger.LogWarning("Dropping connection {ClientId}: incoming message exceeds {Max} bytes", Id, MaxMessageSize);
+                            logger.LogWarning("Dropping connection {ClientId}: incoming message exceeds {Max} bytes", Id, _maxMessageSize);
                             return;
                         }
                         result = await socket.ReceiveAsync(seg, _cts.Token);
@@ -118,8 +118,8 @@ public class WebSocketHandler(
                     {
                         _consecutiveErrors++;
                         logger.LogWarning(ex, "Failed to process message from {ClientId} ({Errors}/{Max})",
-                            Id, _consecutiveErrors, MaxConsecutiveErrors);
-                        if (_consecutiveErrors >= MaxConsecutiveErrors)
+                            Id, _consecutiveErrors, _maxConsecutiveErrors);
+                        if (_consecutiveErrors >= _maxConsecutiveErrors)
                         {
                             logger.LogWarning("Dropping connection {ClientId}: too many consecutive invalid messages", Id);
                             break;
@@ -133,9 +133,9 @@ public class WebSocketHandler(
                     sb.Append(Encoding.UTF8.GetString(buffer, 0, result.Count));
                     while (!result.EndOfMessage && socket.State == WebSocketState.Open)
                     {
-                        if (sb.Length > MaxMessageSize)
+                        if (sb.Length > _maxMessageSize)
                         {
-                            logger.LogWarning("Dropping connection {ClientId}: incoming text message exceeds {Max} bytes", Id, MaxMessageSize);
+                            logger.LogWarning("Dropping connection {ClientId}: incoming text message exceeds {Max} bytes", Id, _maxMessageSize);
                             return;
                         }
                         result = await socket.ReceiveAsync(seg, _cts.Token);

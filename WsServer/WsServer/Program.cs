@@ -24,6 +24,11 @@ builder.Services.AddSingleton<IServerLogicProvider, ReflectionServerLogicProvide
     //pass our Game.ServerLogic assembly for parsing messages and handlers from it
     new ReflectionServerLogicProvider(typeof(ChatMessageEvent).Assembly, new ClientRequestHandlerFactory(sc)));
 
+// Tick rate, buffer sizes, rate-limit cooldowns and validation limits — configurable via
+// the "GameServer" section of appsettings.json instead of scattered magic numbers.
+builder.Services.Configure<GameServerOptions>(builder.Configuration.GetSection("GameServer"));
+builder.Services.AddSingleton(sp => sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<GameServerOptions>>().Value);
+
 //init game server
 builder.Services.AddSingleton<IClientConnectionManager, ConnectionManager>();
 builder.Services.AddSingleton<IMessageSerializer, MessageSerializer>();
@@ -43,8 +48,11 @@ builder.Services.AddSingleton<IGameServer, GameServer>();
 
 builder.Services.AddTransient<WebSocketHandlerFactory>();
 
-// Prototype synthetic client (disabled unless WS_PROTO_CLIENT=1)
-builder.Services.AddHostedService<PrototypeClientHostedService>();
+// Prototype synthetic client: Development-only, and disabled there too unless WS_PROTO_CLIENT=1
+if (builder.Environment.IsDevelopment())
+{
+    builder.Services.AddHostedService<PrototypeClientHostedService>();
+}
 
 var app = builder.Build();
 

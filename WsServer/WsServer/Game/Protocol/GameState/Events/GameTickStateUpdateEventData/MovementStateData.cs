@@ -1,9 +1,7 @@
-﻿using System.Runtime.InteropServices;
-using MemoryPack;
+﻿using MemoryPack;
 
 namespace Game.ServerLogic.GameState.Events.GameTickStateUpdateEventData;
 
-[StructLayout(LayoutKind.Sequential)]
 [GenerateTypeScript]
 [MemoryPackable]
 public partial class MovementStateData
