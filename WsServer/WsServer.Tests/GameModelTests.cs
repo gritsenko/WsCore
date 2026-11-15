@@ -63,6 +63,10 @@ public class GameModelTests
         var target = model.GetPlayer(targetId);
         shooter.SetPos(0, 0);
         target.SetPos(10, 0); // well within Player.Radius (48) of the bullet's spawn point
+        // Stand still: a new player's target is its random spawn point, and SetPos alone
+        // would leave it walking there during the tick — sometimes out of the bullet's way.
+        shooter.SetTarget(0, 0);
+        target.SetTarget(10, 0);
 
         model.SpawnBullet(new Vector2(0, 0), new Vector2(1, 0), shooterId);
 
