@@ -202,7 +202,12 @@ _roomManager.JoinRoom(clientId, playerName, "lobby");
 - Non-root user (gameserver UID 1001)
 
 ### Production Deployment
-- Nginx reverse proxy with WebSocket support
-- SSL/TLS with Let's Encrypt auto-renewal
-- Health checks and auto-restart
-- Room system fully functional in production
+- Production URL: `https://tox.gritsenko.biz`.
+- Proxmox `192.168.1.6`: unprivileged LXC CT 115 (`192.168.1.215`), `wscore.service`; HAProxy terminates TLS on `192.168.1.201` (CT 102).
+- Workflow: `.github/workflows/ci.yml`. Pushing a version tag matching `v[0-9]+.[0-9]+.[0-9]+` (for example, `v1.2.3`) runs checks, builds the tagged commit, and deploys it automatically. Plain pushes to `master` and pull requests run CI only.
+- Manual deployment remains available through Actions → CI → Run workflow → `master`, or `gh workflow run ci.yml --repo gritsenko/WsCore --ref master`.
+- To release, update `master`, choose a new version, create an annotated tag (`git tag -a v1.2.3 -m "Release v1.2.3"`), and push that specific tag (`git push origin v1.2.3`). The tagged commit must contain the workflow supporting tag deployment. Never move an existing release tag to another commit.
+- GitHub-hosted runners build and test; the dedicated `home-deploy-wscore` runner in CT 111 delivers the artifact over LAN. The machine triggering a deployment only needs access to GitHub, not `192.168.1.215`.
+- Releases live under `/opt/wscore/releases/<commit>`; `current` switches atomically. `scripts/deploy-release.sh` verifies checksums, restarts the service, checks `/health`, and rolls back on failure.
+- SQLite chat history must remain outside release directories: `GameServer__ChatDatabasePath=/var/lib/wscore/chat.db`. Preserve the database during deployment and rollback. Restart disconnects sessions and resets the in-memory game world.
+- Detailed infrastructure documentation and installation scripts: `C:\Projects\devops\server-wscore-115.md` (`gritsenko/devops`). Update that document when changing production infrastructure or the release process.
