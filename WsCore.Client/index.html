@@ -1,8 +1,29 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
     <meta charset="utf-8" />
-    <title>Project Seven</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WAVE — общение и 3D-мир в браузере</title>
+    <meta name="description" content="Комнаты для общения и общий 3D-мир прямо в браузере: текстовый чат, профили с аватарами, бег по общей локации." />
+    <meta name="theme-color" content="#141615" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="canonical" href="https://tox.gritsenko.biz/" />
+
+    <!-- Link previews (Telegram, Discord, VK, Slack…). Crawlers need absolute URLs. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="WAVE" />
+    <meta property="og:title" content="WAVE — общение и 3D-мир в браузере" />
+    <meta property="og:description" content="Комнаты для общения и общий 3D-мир прямо в браузере: текстовый чат, профили с аватарами, бег по общей локации." />
+    <meta property="og:url" content="https://tox.gritsenko.biz/" />
+    <meta property="og:image" content="https://tox.gritsenko.biz/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="WAVE — комнаты для общения и общий 3D-мир" />
+    <meta property="og:locale" content="ru_RU" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="WAVE — общение и 3D-мир в браузере" />
+    <meta name="twitter:description" content="Комнаты для общения и общий 3D-мир прямо в браузере: текстовый чат, профили с аватарами, бег по общей локации." />
+    <meta name="twitter:image" content="https://tox.gritsenko.biz/og-image.png" />
     <style>
         html, body {
             background: #141615;
@@ -137,6 +158,16 @@
 
         <a id="name-form-toggle" href="#">I have an account</a>
     </div>
+
+    <!-- A returning visitor enters without the form (see enterRemembered in main.ts):
+         hide it before the module loads so it does not flash. -->
+    <script>
+        try {
+            if (/^[A-Za-z0-9_-]{16,64}$/.test(localStorage.getItem('wscore.userKey') || '') && location.hash !== '#login') {
+                document.getElementById('name-form').style.display = 'none';
+            }
+        } catch (e) { /* storage unavailable: the form stays */ }
+    </script>
 
     <script type="module" src="/src/main.ts"></script>
 </body>

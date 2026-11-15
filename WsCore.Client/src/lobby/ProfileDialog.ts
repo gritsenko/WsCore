@@ -17,6 +17,8 @@ export interface ProfileHandlers {
   onAvatarRemoved(): void;
   onClaim(login: string, password: string): void;
   onLogout(): void;
+  /** A guest wants to enter an account they already have. */
+  onSwitchAccount(): void;
   onClose(): void;
 }
 
@@ -251,7 +253,10 @@ export default class ProfileDialog {
       claim.onclick = () => this.handlers.onClaim(login.value.trim(), password.value);
       const row = el('div', 'lobby-dialog-buttons');
       row.append(claim, status);
-      this.accountSection.append(login, password, row);
+      const existing = el('button', 'lobby-dialog-link', 'У меня уже есть аккаунт — войти');
+      existing.type = 'button';
+      existing.onclick = () => this.handlers.onSwitchAccount();
+      this.accountSection.append(login, password, row, existing);
     }
   }
 }

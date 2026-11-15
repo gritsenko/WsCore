@@ -319,6 +319,12 @@ export default class LobbyState {
         this.client.claimAccount(login, password);
       },
       onLogout: () => this.client.logout(),
+      onSwitchAccount: () => {
+        // Back to the entry form in login mode. The guest key stays stored, so backing
+        // out of the form (or a refused login) returns to this guest.
+        location.hash = '#login';
+        location.reload();
+      },
       onClose: () => this.closeProfile(),
     });
   }

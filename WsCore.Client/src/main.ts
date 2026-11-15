@@ -1,5 +1,12 @@
 import App from './app/App';
-import { createUserKey, loadOrCreateUserKey, loadSavedName, saveName } from './app/IdentityStorage';
+import {
+  createUserKey,
+  loadOrCreateUserKey,
+  loadSavedLogin,
+  loadSavedName,
+  loadSavedUserKey,
+  saveName,
+} from './app/IdentityStorage';
 
 let app: App | null = null;
 
@@ -85,8 +92,39 @@ function onStartGameClicked(): void {
   app.start();
 }
 
+/**
+ * A returning visitor (this browser holds a user key) enters straight away, as the user
+ * the key identifies — no form. `#login` asks for the form anyway: a guest who wants to
+ * enter an existing account (see the profile dialog). index.html hides the form by the
+ * same rule before this module loads, so it does not flash.
+ */
+function enterRemembered(): boolean {
+  const userKey = loadSavedUserKey();
+  if (!userKey || location.hash === '#login') return false;
+
+  const login = loadSavedLogin();
+  app = new App(getWebSocketUrl());
+  app.setPlayerName(loadSavedName() || login || 'User');
+  app.setUserKey(userKey);
+  // A claimed account's name lives on the server (another device may have changed it);
+  // a guest exists only here, so the stored name is the one to use.
+  if (login) app.keepServerName();
+  if (form) form.style.display = 'none';
+  app.start();
+  return true;
+}
+
 // Prefill the name form with the last login.
 if (nameInput && !nameInput.value) nameInput.value = loadSavedName();
+
+if (!enterRemembered()) {
+  if (form) form.style.display = '';
+  if (location.hash === '#login') {
+    // One-shot: a later reload goes back to entering as the remembered user.
+    history.replaceState(null, '', location.pathname + location.search);
+    setMode(true);
+  }
+}
 
 toggle?.addEventListener('click', e => {
   e.preventDefault();

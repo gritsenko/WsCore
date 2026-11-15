@@ -937,6 +937,24 @@
   color: var(--text-muted);
 }
 
+.lobby-dialog-link {
+  display: block;
+  margin-top: 14px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.lobby-dialog-link:hover,
+.lobby-dialog-link:focus-visible {
+  color: var(--accent);
+  outline: none;
+}
+
 .lobby-dialog-login {
   color: var(--text);
 }

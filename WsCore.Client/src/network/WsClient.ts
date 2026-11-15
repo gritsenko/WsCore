@@ -91,6 +91,12 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
    * Empty = stay anonymous (no member-list entry).
    */
   userKey = '';
+  /**
+   * Identify without a name, so the server keeps the one it has for us. Set when
+   * entering a claimed account from a remembered key: the name stored in this browser
+   * may be stale (the account can be renamed on another device).
+   */
+  keepServerName = false;
   /** Our user id, once the server answered the identify (0 until then). */
   myUserId = 0;
   /** The member list: every known user — online, away and offline. */
@@ -125,8 +131,9 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
     if (this.pendingLogin) {
       const { login, password, userKey } = this.pendingLogin;
       this.sendLoginRequest(login, password, userKey);
-    } else if (this.userKey) this.sendIdentifyRequest(this.userKey, this.myPlayerName);
-    else this.sendSetPlayerNameRequest(this.myPlayerName);
+    } else if (this.userKey) {
+      this.sendIdentifyRequest(this.userKey, this.keepServerName ? '' : this.myPlayerName);
+    } else this.sendSetPlayerNameRequest(this.myPlayerName);
     if (this.away) this.sendSetAwayRequest(true); // a new session starts as "active"
     this.sendUpdatePlayerSlotsRequest(0, 0, 0);
     this.requestRoomList();

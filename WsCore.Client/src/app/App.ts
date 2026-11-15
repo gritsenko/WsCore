@@ -4,7 +4,7 @@ import Player from '../game/Player';
 import LobbyState from './LobbyState';
 import IdleDetector from '../utils/IdleDetector';
 import { AccountAction, AccountResult } from '../network/ClientEvents';
-import { clearIdentity, saveName, saveUserKey } from './IdentityStorage';
+import { clearIdentity, saveLogin, saveName, saveUserKey } from './IdentityStorage';
 // GameScene (and three.js with it) is imported dynamically in enterGame() — a
 // static import here would pull three into the entry chunk.
 
@@ -53,6 +53,9 @@ export default class App {
     this.client.on('sessionInit', () => this.activeState?.onSessionInit());
     this.client.on('connectionStatus', (status: ConnectionStatus) => this.onStatus(status));
     this.client.on('account', result => this.onAccount(result));
+    // Whether this device is logged in to a claimed account (known from the identify's
+    // answer, a claim or a login) decides how the next page load enters.
+    this.client.on('presence', () => this.rememberLogin());
     // Our name as the server has it (the account's name after a login, a rename in the
     // profile) is what the name form offers next time.
     this.client.on('playerName', (id, name) => {
@@ -84,7 +87,20 @@ export default class App {
     this.client.loginOnConnect(login, password, userKey);
   }
 
+  /**
+   * Enter with the name the server has for us instead of the one stored here — for a
+   * remembered claimed account, whose name may have changed on another device.
+   */
+  keepServerName(): void {
+    this.client.keepServerName = true;
+  }
+
+  private rememberLogin(): void {
+    if (this.client.myUserId !== 0) saveLogin(this.client.myLogin);
+  }
+
   private onAccount(result: AccountResult): void {
+    if (result.success && result.action !== AccountAction.Logout) this.rememberLogin();
     switch (result.action) {
       case AccountAction.Login:
         if (result.success) saveUserKey(this.client.userKey);

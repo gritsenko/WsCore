@@ -600,6 +600,18 @@ describe('WsClient accounts and profiles', () => {
     expect(client.myLogin).toBe('ann');
   });
 
+  it('a remembered account identifies without a name, so the server keeps its own', () => {
+    const client = new WsClient<Player>();
+    client.userKey = 'device-key-0123456789';
+    client.myPlayerName = 'Stale name';
+    client.keepServerName = true;
+    const identify = vi.spyOn(client, 'sendIdentifyRequest');
+
+    client.onInitPlayerEvent(init(5));
+
+    expect(identify).toHaveBeenCalledWith('device-key-0123456789', '');
+  });
+
   it('claiming keeps the user and learns the login', () => {
     const client = new WsClient<Player>();
     client.onInitPlayerEvent(init(5));

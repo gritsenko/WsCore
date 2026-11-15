@@ -4,9 +4,12 @@
  *  - the user key: a random secret that IS our identity for the server. For a guest it
  *    is the only way back to the user; for a claimed account it is this device's login.
  *  - the last display name, to prefill the name form.
+ *  - the login of the claimed account this device is logged in to, if any.
+ * A stored key is what makes a reload enter straight away instead of asking again.
  */
 const NAME_STORAGE_KEY = 'wscore.userName';
 const USER_KEY_STORAGE_KEY = 'wscore.userKey';
+const LOGIN_STORAGE_KEY = 'wscore.login';
 const USER_KEY_PATTERN = /^[A-Za-z0-9_-]{16,64}$/;
 
 export function loadSavedName(): string {
@@ -39,18 +42,42 @@ export function saveUserKey(key: string): void {
   }
 }
 
+/** The key stored by an earlier visit, or null (first visit, logged out, no storage). */
+export function loadSavedUserKey(): string | null {
+  try {
+    const saved = localStorage.getItem(USER_KEY_STORAGE_KEY);
+    return saved && USER_KEY_PATTERN.test(saved) ? saved : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The login of the account this device is logged in to; null for a guest. */
+export function loadSavedLogin(): string | null {
+  try {
+    return localStorage.getItem(LOGIN_STORAGE_KEY) || null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveLogin(login: string | null): void {
+  try {
+    if (login) localStorage.setItem(LOGIN_STORAGE_KEY, login);
+    else localStorage.removeItem(LOGIN_STORAGE_KEY);
+  } catch {
+    // Not persisted.
+  }
+}
+
 /**
  * Our stable identity, created on the first visit and sent to the server on every
  * connect, so it knows us as the same user across reloads. If storage is unavailable
  * the key lasts for this page load only.
  */
 export function loadOrCreateUserKey(): string {
-  try {
-    const saved = localStorage.getItem(USER_KEY_STORAGE_KEY);
-    if (saved && USER_KEY_PATTERN.test(saved)) return saved;
-  } catch {
-    // Fall through: a per-page-load key.
-  }
+  const saved = loadSavedUserKey();
+  if (saved) return saved;
   const key = createUserKey();
   saveUserKey(key);
   return key;
@@ -61,6 +88,7 @@ export function clearIdentity(): void {
   try {
     localStorage.removeItem(USER_KEY_STORAGE_KEY);
     localStorage.removeItem(NAME_STORAGE_KEY);
+    localStorage.removeItem(LOGIN_STORAGE_KEY);
   } catch {
     // Nothing was persisted.
   }
