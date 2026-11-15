@@ -4,10 +4,10 @@
 # browser testing, then wait until both ports are listening. Logs and pids go to
 # .run/. Stop with scripts/dev-down.sh.
 #
-# The client port defaults to Vite's 5173 but can be overridden:
+# The client port defaults to 5001 (set in vite.config.ts) but can be overridden:
 #   CLIENT_PORT=5199 scripts/dev-up.sh
-# Use a non-5173 port if another local project has registered a service worker on
-# localhost:5173 (it will shadow this app and serve the wrong page). The chosen
+# Use a different port if another local project has registered a service worker on
+# localhost:5001 (it will shadow this app and serve the wrong page). The chosen
 # port is recorded in .run/client.port so dev-down.sh stops the right one.
 #
 # For interactive development, prefer two terminals (see CLAUDE.md); this helper
@@ -18,7 +18,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN="$ROOT/.run"
 mkdir -p "$RUN"
 
-CLIENT_PORT="${CLIENT_PORT:-5173}"
+CLIENT_PORT="${CLIENT_PORT:-5001}"
 echo "$CLIENT_PORT" >"$RUN/client.port"
 
 listening() { lsof -ti "tcp:$1" >/dev/null 2>&1; }

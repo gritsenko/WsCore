@@ -5,7 +5,8 @@ import { CommunicationMode } from './CommunicationMode.js';
  */
 export class RoomClient {
   public readonly id: number;
-  public readonly name: string;
+  /** Mutable: updated when the server reports a rename (SetPlayerNameEvent). */
+  public name: string;
   public readonly joinedAt: Date;
   public currentMode: CommunicationMode;
 

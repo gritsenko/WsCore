@@ -4,88 +4,83 @@
     <meta charset="utf-8" />
     <title>Project Seven</title>
     <style>
-        /* Chat overlay styles */
-        #chat-overlay {
-            /* Styles are applied inline by ChatUI.ts, but you can override here */
+        html, body {
+            background: #141615;
         }
 
-        /* Ensure name form is properly styled */
         #name-form {
             position: fixed;
             top: 50%;
             left: 50%;
             transform: translate(-50%, -50%);
-            background: rgba(0, 0, 0, 0.9);
-            border: 2px solid #4a9eff;
-            border-radius: 8px;
-            padding: 40px;
+            box-sizing: border-box;
+            width: min(380px, calc(100vw - 32px));
+            padding: 36px;
+            background: #171918;
+            border: 1px solid #2a2e2c;
+            border-radius: 20px;
             z-index: 2000;
-            box-shadow: 0 0 20px rgba(74, 158, 255, 0.4);
-            font-family: Arial, sans-serif;
-            color: #e0e0e0;
-            min-width: 300px;
+            box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+            font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+            color: #ece8de;
         }
 
         #name-form p {
-            margin: 0 0 15px 0;
-            font-size: 16px;
-            color: #4a9eff;
-            font-weight: bold;
+            margin: 0 0 24px 0;
+            font-size: 22px;
+            font-weight: 600;
         }
 
         #name-form label {
             display: block;
-            margin: 16px 0 8px 0;
-            font-size: 14px;
-            color: #a0a0a0;
+            margin: 0 0 8px 0;
+            font-size: 12px;
             font-weight: 600;
+            color: #8d928f;
+            text-transform: uppercase;
+            letter-spacing: 0.18em;
         }
 
-        #name-text-input,
-        #mode-selection {
+        #name-text-input {
             width: 100%;
-            padding: 10px;
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid #4a9eff;
-            border-radius: 4px;
-            color: white;
-            font-size: 14px;
             box-sizing: border-box;
-            margin-bottom: 16px;
+            height: 46px;
+            padding: 0 16px;
+            margin-bottom: 20px;
+            background: #141615;
+            border: 1px solid #2a2e2c;
+            border-radius: 14px;
+            color: #ece8de;
+            font: inherit;
+            font-size: 15px;
+            transition: border-color 0.15s;
         }
 
-        #name-text-input:focus,
-        #mode-selection:focus {
+        #name-text-input::placeholder {
+            color: #8d928f;
+        }
+
+        #name-text-input:focus {
             outline: none;
-            border-color: #7cb8ff;
-            background: rgba(255, 255, 255, 0.15);
-        }
-
-        #mode-selection {
-            cursor: pointer;
-        }
-
-        #mode-selection option {
-            background: #1e1e1e;
-            color: white;
+            border-color: #a3dcb8;
         }
 
         #name-form button {
             width: 100%;
-            background: linear-gradient(to right, #2a5a8f, #4a9eff);
-            color: white;
-            border: 1px solid #4a9eff;
-            border-radius: 4px;
-            padding: 12px 30px;
+            height: 46px;
+            background: #a3dcb8;
+            color: #12261b;
+            border: none;
+            border-radius: 14px;
             cursor: pointer;
-            font-size: 14px;
-            font-weight: bold;
-            transition: all 0.2s;
+            font: inherit;
+            font-size: 15px;
+            font-weight: 700;
+            transition: background-color 0.15s;
         }
 
         #name-form button:hover {
-            background: linear-gradient(to right, #3a6aaf, #5aaaff);
-            box-shadow: 0 0 10px rgba(74, 158, 255, 0.5);
+            background: #b6e8c8;
         }
     </style>
 </head>
@@ -97,9 +92,8 @@
         
         <label for="name-text-input">Username:</label>
         <input id="name-text-input" value="" placeholder="Enter your username" />
-        
--------
-        <button style="margin-top: 8px;" onclick="onStartGameClicked();">
+
+        <button onclick="onStartGameClicked();">
             Enter Lobby
         </button>
     </div>

@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import * as Common from '../utils/Common';
-import Keyboard, { KeyHandle } from '../utils/Keyboard';
+import Keyboard, { KeyHandle, isEditableTarget } from '../utils/Keyboard';
+import { isClickGesture, PointerSample } from '../utils/Pointer';
 import ChatUI from '../utils/ChatUI';
 import WsClient from '../network/WsClient';
 import { Unsubscribe } from '../utils/Emitter';
@@ -17,6 +18,8 @@ import PlayerView from './PlayerView';
  */
 export default class GameScene {
   private client: WsClient<Player>;
+  /** The spatial room this scene shows (from the server's room list). */
+  private readonly roomId: string;
   private readonly onLeave: () => void;
 
   private scene!: THREE.Scene;
@@ -34,12 +37,22 @@ export default class GameScene {
   // trails the player while preserving whatever orbit/zoom the user set.
   private cameraTarget = new THREE.Vector3(0, 50, 0);
 
+  /** Camera-follow decay rate (1/s): matches the old per-frame lerp(…, 0.09) at 60 Hz. */
+  private static readonly CAMERA_SMOOTHING = Common.rateFromPerFrameLerp(0.09, 60);
+
+  /** RAF timestamp of the previous frame (ms); 0 = no frame yet. */
+  private lastFrameMs = 0;
+
+  /** Primary-button pointerdown on the canvas, pending a click-vs-drag decision. */
+  private pointerDown: (PointerSample & { id: number }) | null = null;
+
   private rafId = 0;
   private running = false;
   private backButton: HTMLElement | null = null;
 
-  constructor(client: WsClient<Player>, onLeave: () => void) {
+  constructor(client: WsClient<Player>, roomId: string, onLeave: () => void) {
     this.client = client;
+    this.roomId = roomId;
     this.onLeave = onLeave;
   }
 
@@ -55,7 +68,9 @@ export default class GameScene {
       this.client.on('playerCreate', (p: Player) => this.addView(p)),
       this.client.on('playerRemove', (p: Player) => this.removeView(p.id)),
       this.client.on('mapObjects', objs => this.world.updateMapObjects(objs)),
-      this.client.on('chat', (name, text) => this.chatUI?.addMessage(name, text))
+      this.client.on('chat', (name, text) => this.chatUI?.addMessage(name, text)),
+      this.client.on('roomJoined', roomId => this.onRoomJoined(roomId)),
+      this.client.on('roomJoinFailed', roomId => this.onRoomJoinFailed(roomId))
     );
 
     // Assets load async; the RAF loop and world start once they're ready.
@@ -67,7 +82,8 @@ export default class GameScene {
       PlayerView.preload(new THREE.TextureLoader());
       this.world.create(this.scene);
       this.running = true;
-      this.animate();
+      this.lastFrameMs = 0;
+      this.animate(performance.now());
     });
 
     this.createBackButton();
@@ -75,13 +91,27 @@ export default class GameScene {
 
   /**
    * Runs after clientId is assigned: first connect, reconnect, or a lobby→game
-   * switch. Joins the game room, (re)fetches the map, and builds views for any
-   * already-known players (on reconnect there are none — they arrive via events).
+   * switch. Asks to join the game room; the players arrive once the server confirms
+   * (JoinRoomResult → GameStateUpdate → `playerCreate` per player, `myPlayer` set for
+   * our own avatar). Views for already-known players are built now (normally none:
+   * the client drops all players whenever it is outside the game world).
    */
   onSessionInit(): void {
-    this.client.joinRoom('game');
-    this.client.sendGetMapObjectsRequest(0, 0);
+    this.client.joinRoom(this.roomId);
     this.buildExistingViews();
+  }
+
+  private onRoomJoined(roomId: string): void {
+    // The map is game-world state: fetch it once we're confirmed in the world.
+    if (roomId === this.roomId) this.client.sendGetMapObjectsRequest(0, 0);
+  }
+
+  private onRoomJoinFailed(roomId: string): void {
+    // E.g. the room no longer exists after a server restart: no dead end — back to
+    // the lobby.
+    if (roomId !== this.roomId) return;
+    console.warn(`GameScene: could not join "${roomId}", returning to the lobby`);
+    this.onLeave();
   }
 
   exit(): void {
@@ -89,6 +119,7 @@ export default class GameScene {
     this.running = false;
     if (this.rafId) cancelAnimationFrame(this.rafId);
     this.rafId = 0;
+    this.lastFrameMs = 0;
 
     // 2. Detach client subscriptions — a live closure would pin this whole scene.
     for (const off of this.unsubs) off();
@@ -98,14 +129,20 @@ export default class GameScene {
     for (const k of this.keyHandles) Keyboard.removeHandler(k);
     this.keyHandles = [];
     window.removeEventListener('resize', this.onResize);
-    document.removeEventListener('click', this.onClick);
+    if (this.renderer) {
+      const canvas = this.renderer.domElement;
+      canvas.removeEventListener('pointerdown', this.onPointerDown);
+      canvas.removeEventListener('pointerup', this.onPointerUp);
+      canvas.removeEventListener('pointercancel', this.onPointerCancel);
+    }
+    this.pointerDown = null;
     document.removeEventListener('keydown', this.onKeyDown);
 
     // 4. Player visuals.
     for (const view of this.views.values()) view.detach();
     this.views.clear();
 
-    // 5. World (ground geometry/material/texture, lights + shadow map, objects).
+    // 5. World (ground geometry/material/texture, lights, objects).
     this.world.dispose();
 
     // 6. OrbitControls (holds canvas/document listeners).
@@ -168,7 +205,8 @@ export default class GameScene {
     const view = document.getElementById('game')!;
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
     this.renderer.setSize(width, height);
-    this.renderer.setPixelRatio(window.devicePixelRatio);
+    // Cap at 2: 3x+ displays would triple fill-rate cost for no visible gain.
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     view.appendChild(this.renderer.domElement);
     view.style.position = 'absolute';
     view.style.top = '0';
@@ -197,14 +235,28 @@ export default class GameScene {
     textureLoader.load('/knight/01_idle_sword.png', onLoad, undefined, onLoad);
   }
 
-  private animate = (): void => {
+  private animate = (nowMs: number): void => {
     if (!this.running) return;
     this.rafId = requestAnimationFrame(this.animate);
 
-    const p = this.client.myPlayer;
+    // Delta time in seconds, clamped so a long gap (backgrounded tab) doesn't jump.
+    const dt = this.lastFrameMs ? Common.frameDeltaSeconds(nowMs, this.lastFrameMs) : 0;
+    this.lastFrameMs = nowMs;
+
+    // Snapshot interpolation: remote avatars are drawn a bit in the past (between two
+    // received snapshots); our own avatar with a shorter delay, for responsiveness.
+    const clock = this.client.serverClock;
+    const serverNow = clock.synced ? clock.now(nowMs) : NaN;
+    const remoteT = serverNow - clock.remoteDelayMs();
+    const localT = serverNow - clock.localDelayMs();
+    const me = this.client.myPlayer;
+    for (const [id, view] of this.views) view.update(dt, me?.id === id ? localT : remoteT);
+
+    const p = me;
     if (p && this.controls) {
-      const nextX = Common.lerp(this.cameraTarget.x, p.x, 0.09);
-      const nextZ = Common.lerp(this.cameraTarget.z, p.y, 0.09);
+      const t = Common.smoothingFactor(GameScene.CAMERA_SMOOTHING, dt);
+      const nextX = Common.lerp(this.cameraTarget.x, p.renderX, t);
+      const nextZ = Common.lerp(this.cameraTarget.z, p.renderY, t);
       // Shift the camera by the same delta as the target so the orbit
       // radius/angle the user set is preserved — a pure translation, not
       // just a re-aim (setting .target alone only swivels the camera).
@@ -215,7 +267,6 @@ export default class GameScene {
       this.controls.target.copy(this.cameraTarget);
     }
     this.controls?.update();
-    for (const view of this.views.values()) view.update();
     this.world.update();
 
     if (this.renderer) this.renderer.render(this.scene, this.camera);
@@ -230,7 +281,13 @@ export default class GameScene {
     this.initKey(Keyboard.KEY_RIGHT, Keyboard.KEY_RIGHT_MASK_OFFSET);
 
     window.addEventListener('resize', this.onResize);
-    document.addEventListener('click', this.onClick);
+    // Click-to-move listens on the canvas only (not document), so clicks on the chat
+    // overlay / Back button don't send a move target; pointerdown/up lets us tell a
+    // click from the end of an OrbitControls camera drag.
+    const canvas = this.renderer!.domElement;
+    canvas.addEventListener('pointerdown', this.onPointerDown);
+    canvas.addEventListener('pointerup', this.onPointerUp);
+    canvas.addEventListener('pointercancel', this.onPointerCancel);
     document.addEventListener('keydown', this.onKeyDown);
   }
 
@@ -260,7 +317,28 @@ export default class GameScene {
     this.renderer.setSize(width, height);
   };
 
-  private onClick = (e: MouseEvent): void => {
+  private onPointerDown = (e: PointerEvent): void => {
+    if (e.button !== 0 || !e.isPrimary) {
+      // A second finger / other button means a camera gesture, not a click.
+      this.pointerDown = null;
+      return;
+    }
+    this.pointerDown = { id: e.pointerId, x: e.clientX, y: e.clientY, t: e.timeStamp };
+  };
+
+  private onPointerUp = (e: PointerEvent): void => {
+    const down = this.pointerDown;
+    this.pointerDown = null;
+    if (!down || down.id !== e.pointerId || e.button !== 0) return;
+    if (!isClickGesture(down, { x: e.clientX, y: e.clientY, t: e.timeStamp })) return;
+    this.moveToScreenPoint(e);
+  };
+
+  private onPointerCancel = (): void => {
+    this.pointerDown = null;
+  };
+
+  private moveToScreenPoint(e: { clientX: number; clientY: number }): void {
     if (!this.renderer) return;
     const rect = this.renderer.domElement.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
@@ -273,10 +351,11 @@ export default class GameScene {
     if (raycaster.ray.intersectPlane(groundPlane, point)) {
       this.client.sendUpdatePlayerTargetRequest(point.x, point.z);
     }
-  };
+  }
 
   private onKeyDown = (e: KeyboardEvent): void => {
     if (e.code !== 'KeyE' && e.code !== 'KeyQ') return;
+    if (isEditableTarget(e.target)) return; // typing "e"/"q" in chat
     const cursor = new THREE.Vector3();
     const raycaster = new THREE.Raycaster();
     raycaster.setFromCamera(new THREE.Vector2(0, 0), this.camera);

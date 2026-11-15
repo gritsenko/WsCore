@@ -1,6 +1,8 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Game.Core;
 using WsServer.Abstract;
+using WsServer.Rooms;
 
 namespace WsServer.ServerInfo;
 
@@ -11,21 +13,31 @@ public record ServerInfoDto
     long WorkingSetBytes,
     double CpuUsagePercent,
     int WebSocketConnections,
+    // Avatars in the game world (built-in bots + clients in a spatial room). Clients in
+    // the lobby have a connection but no avatar.
+    int GamePlayers,
+    IReadOnlyList<RoomUsageDto> Rooms,
     string OSDescription,
     string DotnetVersion
 );
 
+public record RoomUsageDto(string Id, int Users);
+
 public class ServerInfoProvider
 {
     private readonly IClientConnectionManager _connectionManager;
+    private readonly GameModel _gameModel;
+    private readonly RoomManager _roomManager;
     private readonly Process _process;
     private readonly DateTime _startTime;
     private TimeSpan _lastTotalProcessorTime;
     private DateTime _lastSampleTime;
 
-    public ServerInfoProvider(IClientConnectionManager connectionManager)
+    public ServerInfoProvider(IClientConnectionManager connectionManager, GameModel gameModel, RoomManager roomManager)
     {
         _connectionManager = connectionManager;
+        _gameModel = gameModel;
+        _roomManager = roomManager;
         _process = Process.GetCurrentProcess();
         _startTime = DateTime.UtcNow;
         _lastTotalProcessorTime = _process.TotalProcessorTime;
@@ -57,6 +69,9 @@ public class ServerInfoProvider
             WorkingSetBytes: _process.WorkingSet64,
             CpuUsagePercent: Math.Round(cpuPercent, 2),
             WebSocketConnections: CountConnections(),
+            // Volatile mirror / concurrent collections: safe to read off the tick thread.
+            GamePlayers: _gameModel.PlayersCount,
+            Rooms: _roomManager.GetAllRooms().OrderBy(r => r.Order).Select(r => new RoomUsageDto(r.Id, r.ClientCount)).ToList(),
             OSDescription: RuntimeInformation.OSDescription,
             DotnetVersion: RuntimeInformation.FrameworkDescription
         );

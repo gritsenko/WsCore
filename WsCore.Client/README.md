@@ -18,7 +18,7 @@ WsCore.Client is a modern TypeScript client for the WsCore multiplayer game serv
 ## Client States & Rooms
 
 ### 🏠 Lobby (Default)
-- **Access**: `http://localhost:5173/` (default)
+- **Access**: `http://localhost:5001/` (default)
 - **Communication**: TextChat only
 - **Features**: Discord-style chat interface, room navigation, user lists
 - **Purpose**: Starting point, social chat, room discovery
@@ -95,7 +95,7 @@ WsCore.Client/
 │   ├── knight/              # Player sprite sheets
 │   ├── map/                 # Map textures and objects
 │   └── ui/                  # UI elements and icons
-└── dist/                    # Built single HTML file (vite-plugin-singlefile)
+└── dist/                    # Build output: index.html + hashed chunks in assets/ (copied to the server's wwwroot)
 ```
 
 ## Getting Started
@@ -109,7 +109,7 @@ WsCore.Client/
    npm start
    ```
 3. **Access the client:**
-   - **Lobby**: `http://localhost:5173/` (default — Discord-style chat)
+   - **Lobby**: `http://localhost:5001/` (default — Discord-style chat)
    - **Game**: click **Play** on the `game` room from the lobby
 
 ## Server Requirements
@@ -125,8 +125,7 @@ WsCore.Client/
 - **[three](https://threejs.org/)** — 3D WebGL engine for the game scene
 
 ### Build Tools
-- **[vite](https://vitejs.dev/)** — Fast build tool and dev server
-- **[vite-plugin-singlefile](https://github.com/salvoravida/vite-plugin-singlefile)** — Bundle to single HTML file
+- **[vite](https://vite.dev/)** (8.x, Rolldown) — Build tool and dev server; **[Vitest](https://vitest.dev/)** for unit tests (`npm run test`)
 - **[TypeScript](https://www.typescriptlang.org/)** — Type safety (`strict: true`), `npm run typecheck`
 - **[ESLint](https://eslint.org/)** + **[Prettier](https://prettier.io/)** — Linting (`npm run lint`) and formatting (`npm run format`)
 
@@ -211,8 +210,16 @@ npm start
 
 ### Production Build
 ```bash
-npm run build          # Single HTML file bundle (vite-plugin-singlefile)
+npm run build          # dist/: index.html + content-hashed chunks in dist/assets/
 ```
+
+The build is a normal multi-file bundle (no inlining): a small entry chunk with the
+lobby/network code, and the 3D game loaded lazily — `App.enterGame()` does
+`import('../game/GameScene')` on **Play**, so `three` (its own `three-*.js` chunk,
+~140 kB gzip) is never downloaded by a user who stays in the lobby. Files in
+`dist/assets/` are content-hashed and safe to cache forever; `index.html` must not be
+long-cached. The app is served from the site root (`base: "/"`), and `public/` assets
+are referenced by absolute URLs (`/knight/...`, `/map/...`).
 
 ### Verification
 See the browser smoke-test procedure in the root [CLAUDE.md](../CLAUDE.md#testing) — it drives the lobby↔game cycle via the integrated-browser MCP and checks for leaked canvases/listeners/DOM nodes and clean reconnect behavior.
@@ -263,7 +270,7 @@ The client is designed for use with the WsCore .NET 10 server with room system. 
 - **Type Generation**: Rebuild server to update TypeScript types
 - **Asset Loading**: Check public folder structure for shared assets
 - **Build Issues**: Run `npm run typecheck` and `npm run lint` before `npm run build`
-- **Stale service worker**: a service worker from another localhost project can shadow `localhost:5173`; use `CLIENT_PORT=5199 scripts/dev-up.sh` to dodge it (see root CLAUDE.md)
+- **Stale service worker**: a service worker from another localhost project can shadow `localhost:5001`; use `CLIENT_PORT=5199 scripts/dev-up.sh` to dodge it (see root CLAUDE.md)
 
 ### Network Issues
 - **Connection Failed**: Check server is running on port 5000 (dev client always targets `:5000` regardless of client port)

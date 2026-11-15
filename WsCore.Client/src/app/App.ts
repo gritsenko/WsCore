@@ -2,7 +2,8 @@ import WsClient from '../network/WsClient';
 import { ConnectionStatus } from '../network/WsConnection';
 import Player from '../game/Player';
 import LobbyState from './LobbyState';
-import GameScene from '../game/GameScene';
+// GameScene (and three.js with it) is imported dynamically in enterGame() — a
+// static import here would pull three into the entry chunk.
 
 /**
  * A lobby / game state of the unified client. Both share the one WsClient owned
@@ -24,6 +25,10 @@ export default class App {
   private readonly url: string;
   private readonly client: WsClient<Player>;
   private activeState: AppState | null = null;
+  /** Bumped on every transition; an async game load started before it is stale. */
+  private transitionSeq = 0;
+  /** True while the lazily-loaded game chunk is being fetched. */
+  private gameLoading = false;
   private banner: HTMLDivElement;
 
   constructor(url: string) {
@@ -49,14 +54,40 @@ export default class App {
   }
 
   private enterLobby(): void {
-    this.transitionTo(new LobbyState(this.client, () => this.enterGame()));
+    this.transitionTo(new LobbyState(this.client, roomId => this.enterGame(roomId)));
   }
 
-  private enterGame(): void {
-    this.transitionTo(new GameScene(this.client, () => this.enterLobby()));
+  /**
+   * Lazy-loads the game chunk (three.js + the scene) on the first Play, so the
+   * lobby never downloads it. The lobby stays fully active while the chunk loads:
+   * chat, room switches, disconnects and reconnect `sessionInit`s all keep going to
+   * it. Once loaded, the scene is created only if nothing else happened meanwhile —
+   * a repeated Play click reuses the in-flight load, and any transition in the gap
+   * (bumping `transitionSeq`) makes the late result a no-op, so a scene is never
+   * created twice nor after the user has moved on.
+   */
+  private enterGame(roomId: string): void {
+    if (this.gameLoading) return; // Play clicked again while the chunk is still loading.
+    this.gameLoading = true;
+    const seq = this.transitionSeq;
+
+    import('../game/GameScene')
+      .then(({ default: GameScene }) => {
+        if (seq !== this.transitionSeq) return; // Moved on while loading.
+        this.transitionTo(new GameScene(this.client, roomId, () => this.enterLobby()));
+      })
+      .catch(err => {
+        // Chunk fetch failed (offline / redeploy removed the old hash). Stay in the
+        // lobby; Play can be retried.
+        console.error('App: failed to load the game scene', err);
+      })
+      .finally(() => {
+        this.gameLoading = false;
+      });
   }
 
   private transitionTo(state: AppState): void {
+    this.transitionSeq++;
     // Old state tears down its own DOM/scene/subscriptions before the new one builds.
     this.activeState?.exit();
     this.activeState = state;

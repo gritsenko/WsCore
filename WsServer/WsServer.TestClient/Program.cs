@@ -41,27 +41,11 @@ async Task<WebApplication> StartEmbeddedServer()
     //        .AddFilter(level => level >= LogLevel.Information);
     //});
 
-    builder.Services.AddSingleton<IServerLogicProvider, ReflectionServerLogicProvider>(sc =>
-        new ReflectionServerLogicProvider(typeof(ChatMessageEvent).Assembly, new ClientRequestHandlerFactory(sc)));
-
-    builder.Services.AddSingleton<IClientConnectionManager, ConnectionManager>();
-    builder.Services.AddSingleton<IMessageSerializer, MessageSerializer>();
-    builder.Services.AddSingleton<RoomManager>();
-    builder.Services.AddSingleton<IGameMessenger>(sp =>
-        new GameMessenger(
-            sp.GetRequiredService<IClientConnectionManager>(),
-            sp.GetRequiredService<IMessageSerializer>(),
-            sp.GetRequiredService<RoomManager>()));
-    
-    builder.Services.AddSingleton(new GameServerOptions());
-    builder.Services.AddSingleton<GameModel>();
-    builder.Services.AddSingleton<IGameServer, GameServer>();
-    builder.Services.AddTransient<WebSocketHandlerFactory>();
+    builder.Services.AddGameServer();
 
     var app = builder.Build();
 
-    app.UseWebSockets();
-    app.Map("/ws", WebSocketHandler.HandleWebSocket);
+    app.UseGameServer();
 
     // Start server
     _ = app.RunAsync("http://localhost:5000");

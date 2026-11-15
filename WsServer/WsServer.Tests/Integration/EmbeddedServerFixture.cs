@@ -22,7 +22,9 @@ public sealed class EmbeddedServerFixture : IAsyncLifetime
     private WebApplication _app = null!;
 
     public Uri WsUri { get; private set; } = null!;
+    public Uri HttpUri { get; private set; } = null!;
     public GameModel GameModel { get; private set; } = null!;
+    public RoomManager Rooms { get; private set; } = null!;
     public ReflectionServerLogicProvider LogicProvider { get; private set; } = null!;
 
     public async Task InitializeAsync()
@@ -30,34 +32,28 @@ public sealed class EmbeddedServerFixture : IAsyncLifetime
         var builder = WebApplication.CreateBuilder();
         builder.Logging.ClearProviders();
 
-        builder.Services.AddSingleton<IServerLogicProvider, ReflectionServerLogicProvider>(sc =>
-            new ReflectionServerLogicProvider(typeof(ChatMessageEvent).Assembly, new ClientRequestHandlerFactory(sc)));
-        builder.Services.AddSingleton<IClientConnectionManager, ConnectionManager>();
-        builder.Services.AddSingleton<IMessageSerializer, MessageSerializer>();
-        builder.Services.AddSingleton<RoomManager>();
-        builder.Services.AddSingleton<IGameMessenger>(sp => new GameMessenger(
-            sp.GetRequiredService<IClientConnectionManager>(),
-            sp.GetRequiredService<IMessageSerializer>(),
-            sp.GetRequiredService<RoomManager>()));
-        builder.Services.AddSingleton(new GameServerOptions());
-        builder.Services.AddSingleton<GameModel>();
-        builder.Services.AddSingleton<IGameServer, GameServer>();
-        builder.Services.AddTransient<WebSocketHandlerFactory>();
+        // Short heartbeat so the tests can observe it without waiting the default 5 s; no
+        // chat cooldown so a test's back-to-back messages aren't rate-limited.
+        builder.Services.AddGameServer(configure: o =>
+        {
+            o.HeartbeatIntervalSeconds = 0.3;
+            o.ChatCooldownSeconds = 0;
+        });
 
         builder.WebHost.UseUrls("http://127.0.0.1:0"); // OS picks a free port
 
         _app = builder.Build();
-        _app.UseWebSockets();
-        _app.Map("/ws", WebSocketHandler.HandleWebSocket);
+        _app.UseGameServer();
         await _app.StartAsync();
 
         var address = _app.Services.GetRequiredService<IServer>()
             .Features.Get<IServerAddressesFeature>()!.Addresses.First();
         WsUri = new Uri(address.Replace("http://", "ws://") + "/ws");
+        HttpUri = new Uri(address);
 
-        // Resolving IGameServer starts the tick loop and initializes the message registry.
-        _ = _app.Services.GetRequiredService<IGameServer>();
+        // The game server is a hosted service: StartAsync above started its tick loop.
         GameModel = _app.Services.GetRequiredService<GameModel>();
+        Rooms = _app.Services.GetRequiredService<RoomManager>();
         LogicProvider = (ReflectionServerLogicProvider)_app.Services.GetRequiredService<IServerLogicProvider>();
 
         await Task.Delay(200); // let the first tick run

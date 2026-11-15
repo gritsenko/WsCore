@@ -1,5 +1,8 @@
+using System.Collections.Concurrent;
+using System.Net.Http.Json;
 using System.Net.WebSockets;
 using Game.ServerLogic.Chat.Events;
+using Game.ServerLogic.Connection.Events;
 using Game.ServerLogic.Chat.Requests;
 using Game.ServerLogic.GameState.Events;
 using Game.ServerLogic.Player.Events;
@@ -7,6 +10,9 @@ using Game.ServerLogic.Rooms.Events;
 using Game.ServerLogic.Rooms.Requests;
 using MemoryPack;
 using WsServer.Abstract.Messages;
+using WsServer.ServerInfo;
+
+using static WsServer.Tests.TestSupport;
 
 namespace WsServer.Tests.Integration;
 
@@ -49,13 +55,152 @@ public class ClientGameFlowTests(EmbeddedServerFixture fixture) : IClassFixture<
         await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", cts.Token);
     }
 
-    private static async Task Send<T>(ClientWebSocket socket, T request, CancellationToken ct) where T : IClientRequest
+    /// <summary>
+    /// A connection is not a player: a lobby-only client (A) gets heartbeats, the room
+    /// list and lobby chat, but no game-world traffic and no avatar; a game client (B)
+    /// gets the world; when B goes back to the lobby its avatar is gone and A/B chat.
+    /// </summary>
+    [Fact]
+    public async Task LobbyClientAndGameClient_TrafficIsScopedByRoom()
     {
-        var writer = new System.Buffers.ArrayBufferWriter<byte>(256);
-        writer.GetSpan(1)[0] = T.TypeId;
-        writer.Advance(1);
-        MemoryPackSerializer.Serialize(writer, request);
-        await socket.SendAsync(writer.WrittenMemory, WebSocketMessageType.Binary, true, ct);
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await using var a = await Collector.Connect(fixture, cts.Token);
+        await using var b = await Collector.Connect(fixture, cts.Token);
+        using var http = new HttpClient { BaseAddress = fixture.HttpUri };
+
+        var initA = await a.WaitFor<InitPlayerEvent>(cts.Token);
+        var initB = await b.WaitFor<InitPlayerEvent>(cts.Token);
+        await a.WaitFor<JoinRoomResultEvent>(cts.Token, e => e.RoomId == "lobby" && e.Success);
+        var playersBefore = (await GetInfo(http)).GamePlayers;
+
+        // A: room list on request, from the server.
+        await SendRequest(a.Socket, new GetRoomListRequest(), cts.Token);
+        var list = await a.WaitFor<RoomListEvent>(cts.Token);
+        Assert.Contains(list.Rooms, r => r.Id == "game" && r.SupportedModes.Contains("Spatial"));
+
+        // B enters the game: confirmed, then the whole world (itself included), then ticks.
+        await SendRequest(b.Socket, new JoinRoomRequest("game"), cts.Token);
+        await b.WaitFor<JoinRoomResultEvent>(cts.Token, e => e.RoomId == "game" && e.Success);
+        var state = await b.WaitFor<GameStateUpdateEvent>(cts.Token);
+        Assert.Contains(state.PlayerStateData, p => p.Id == initB.ClientId);
+        await b.WaitFor<GameTickUpdateEvent>(cts.Token);
+        Assert.Equal(playersBefore + 1, (await GetInfo(http)).GamePlayers);
+
+        // Chats are per room.
+        await SendRequest(a.Socket, new ChatMessageRequest { Message = "lobby-1" }, cts.Token);
+        await SendRequest(b.Socket, new ChatMessageRequest { Message = "game-1" }, cts.Token);
+        await a.WaitFor<ChatMessageEvent>(cts.Token, e => e.Message == "lobby-1");
+        await b.WaitFor<ChatMessageEvent>(cts.Token, e => e.Message == "game-1");
+
+        // A is alive (heartbeats) yet saw nothing of the world.
+        await a.WaitFor<HeartbeatEvent>(cts.Token);
+        await Task.Delay(300, cts.Token);
+        Assert.Empty(a.All<GameTickUpdateEvent>());
+        Assert.Empty(a.All<PlayerJoinedEvent>());
+        Assert.Empty(a.All<GameStateUpdateEvent>());
+        Assert.DoesNotContain(a.All<ChatMessageEvent>(), e => e.Message == "game-1");
+        Assert.DoesNotContain(b.All<ChatMessageEvent>(), e => e.Message == "lobby-1");
+
+        // B back to the lobby: its avatar is removed from the world...
+        b.Clear(); // forget B's connect-time lobby JoinRoomResult
+        await SendRequest(b.Socket, new JoinRoomRequest("lobby"), cts.Token);
+        await b.WaitFor<JoinRoomResultEvent>(cts.Token, e => e.RoomId == "lobby" && e.Success);
+        Assert.Equal(playersBefore, (await GetInfo(http)).GamePlayers);
+        await using (var observer = await Collector.Connect(fixture, cts.Token))
+        {
+            await observer.WaitFor<InitPlayerEvent>(cts.Token);
+            await SendRequest(observer.Socket, new JoinRoomRequest("game"), cts.Token);
+            var seen = await observer.WaitFor<GameStateUpdateEvent>(cts.Token);
+            Assert.DoesNotContain(seen.PlayerStateData, p => p.Id == initB.ClientId || p.Id == initA.ClientId);
+        }
+
+        // ...and A and B now share the lobby chat.
+        await SendRequest(b.Socket, new ChatMessageRequest { Message = "lobby-2" }, cts.Token);
+        await a.WaitFor<ChatMessageEvent>(cts.Token, e => e.Message == "lobby-2" && e.ClientId == initB.ClientId);
+        await b.WaitFor<ChatMessageEvent>(cts.Token, e => e.Message == "lobby-2");
+    }
+
+    private static async Task<ServerInfoDto> GetInfo(HttpClient http)
+        => (await http.GetFromJsonAsync<ServerInfoDto>("/info"))!;
+
+    [Fact]
+    public async Task Health_RunningTickLoop_ReturnsHealthy()
+    {
+        using var http = new HttpClient { BaseAddress = fixture.HttpUri };
+        var response = await http.GetAsync("/health");
+        Assert.Equal(System.Net.HttpStatusCode.OK, response.StatusCode);
+    }
+
+    private static Task Send<T>(ClientWebSocket socket, T request, CancellationToken ct) where T : IClientRequest
+        => SendRequest(socket, request, ct);
+
+    /// <summary>A real client socket whose every incoming event is decoded and kept.</summary>
+    private sealed class Collector : IAsyncDisposable
+    {
+        private readonly ConcurrentQueue<object> _events = new();
+        private readonly CancellationTokenSource _stop = new();
+        private Task _receive = Task.CompletedTask;
+        public ClientWebSocket Socket { get; } = new();
+
+        public static async Task<Collector> Connect(EmbeddedServerFixture fixture, CancellationToken ct)
+        {
+            var c = new Collector();
+            await c.Socket.ConnectAsync(fixture.WsUri, ct);
+            c._receive = c.ReceiveLoop(fixture);
+            return c;
+        }
+
+        private async Task ReceiveLoop(EmbeddedServerFixture fixture)
+        {
+            var buffer = new byte[256 * 1024];
+            try
+            {
+                while (Socket.State == WebSocketState.Open)
+                {
+                    var result = await Socket.ReceiveAsync(buffer.AsMemory(), _stop.Token);
+                    var count = result.Count;
+                    while (!result.EndOfMessage)
+                    {
+                        result = await Socket.ReceiveAsync(buffer.AsMemory(count), _stop.Token);
+                        count += result.Count;
+                    }
+                    if (result.MessageType != WebSocketMessageType.Binary || count == 0)
+                        continue;
+                    var type = fixture.LogicProvider.ServerEventTypes.FindTypeById(buffer[0]);
+                    if (type != null)
+                        _events.Enqueue(MemoryPackSerializer.Deserialize(type, buffer.AsSpan(1, count - 1))!);
+                }
+            }
+            catch { /* closed / stopped */ }
+        }
+
+        public void Clear() => _events.Clear();
+
+        public T[] All<T>() where T : IServerEvent => _events.OfType<T>().ToArray();
+
+        public async Task<T> WaitFor<T>(CancellationToken ct, Func<T, bool>? predicate = null) where T : IServerEvent
+        {
+            var deadline = DateTime.UtcNow + ReceiveTimeout;
+            while (true)
+            {
+                var match = _events.OfType<T>().FirstOrDefault(e => predicate is null || predicate(e));
+                if (match != null)
+                    return match;
+                if (DateTime.UtcNow > deadline)
+                    throw new TimeoutException($"no {typeof(T).Name} received");
+                await Task.Delay(10, ct);
+            }
+        }
+
+        public async ValueTask DisposeAsync()
+        {
+            try { await Socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", CancellationToken.None); }
+            catch { /* already closed */ }
+            _stop.Cancel();
+            try { await _receive; } catch { }
+            Socket.Dispose();
+            _stop.Dispose();
+        }
     }
 
     /// <summary>

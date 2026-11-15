@@ -1,6 +1,5 @@
 ﻿using System.Numerics;
 using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -16,26 +15,32 @@ public class GameModel : IGameModel
     // after a GC pause / lag spike / the very first tick (when _lastTickTime is default).
     private readonly float _maxDeltaTime;
     private readonly float _shootCooldownSeconds;
-    private readonly float _chatCooldownSeconds;
 
-    private DateTime _lastTickTime;
+    private TimeSpan _lastTickTime;
     private uint _lastPlayerId;
     private uint _lastBulletId;
+    private int _playersCount;
+    private int _bulletsCount;
 
-    private readonly ConcurrentDictionary<uint, Bullet> _bullets = new();
-    private readonly ConcurrentDictionary<uint, Player> _players = new();
-    private readonly ConcurrentDictionary<string, int> _playersTop = new();
+    // Threading model: every mutation and every read of these collections happens on the
+    // tick thread — client requests, connects and disconnects all arrive through
+    // GameServerBase's command queue — so they are plain, lock-free collections. The only
+    // members safe to call from other threads are the id generators (Interlocked) and the
+    // PlayersCount/BulletsCount diagnostics (a possibly-stale int read, used by LoadTest).
+    private readonly Dictionary<uint, Bullet> _bullets = new();
+    private readonly Dictionary<uint, Player> _players = new();
+    private readonly Dictionary<string, int> _playersTop = new();
 
     private readonly List<HitInfo> _tickHits = [];
-    private readonly Lock _tickHitsLock = new Lock();
     private readonly List<uint> _destroyedBulletIds = [];
-    private readonly Lock _destroyedBulletIdsLock = new Lock();
     private readonly List<uint> _respawnedPlayerIds = [];
-    private readonly Lock _respawnedPlayerIdsLock = new Lock();
 
     public GameWorld World;
-    public int PlayersCount => _players.Count;
-    public int BulletsCount => _bullets.Count;
+
+    /// <summary>Simulation time of the latest UpdateGameState (monotonic, since loop start).</summary>
+    public TimeSpan Time => _lastTickTime;
+    public int PlayersCount => Volatile.Read(ref _playersCount);
+    public int BulletsCount => Volatile.Read(ref _bulletsCount);
     public int HitsCount => _tickHits.Count;
 
     public string Top { get; set; }
@@ -49,7 +54,6 @@ public class GameModel : IGameModel
     {
         _maxDeltaTime = options.MaxDeltaTimeSeconds;
         _shootCooldownSeconds = options.ShootCooldownSeconds;
-        _chatCooldownSeconds = options.ChatCooldownSeconds;
 
         World = new GameWorld();
         //_npcProcessor = new NpcProcessor();
@@ -64,43 +68,43 @@ public class GameModel : IGameModel
             var p = CreateNewPlayer(true);
             _players[p.Id] = p;
         }
+        UpdateCounts();
+    }
+
+    // Mirrors the collection sizes into plain ints so cross-thread diagnostic readers
+    // never touch the (non-thread-safe) dictionaries themselves.
+    private void UpdateCounts()
+    {
+        Volatile.Write(ref _playersCount, _players.Count);
+        Volatile.Write(ref _bulletsCount, _bullets.Count);
     }
 
     public IEnumerable<Player> GetPlayers()
     {
-        foreach (var player in _players)
+        foreach (var player in _players.Values)
         {
-            yield return player.Value;
+            yield return player;
         }
     }
 
     public void ForEachPlayers<TItem>(Func<Player, TItem> processFunc, List<TItem> buffer)
     {
         buffer.Clear();
-        var enumerator = _players.GetEnumerator();
-        try
-        {
-            while (enumerator.MoveNext())
-            {
-                buffer.Add(processFunc(enumerator.Current.Value));
-            }
-        }
-        finally
-        {
-            enumerator.Dispose();
-        }
+        foreach (var player in _players.Values)
+            buffer.Add(processFunc(player));
     }
 
-    public Player CreateNewPlayer(bool isBot = false)
+    public Player CreateNewPlayer(bool isBot = false) => CreateNewPlayer(GetNewPlayerId(), isBot);
+
+    public Player CreateNewPlayer(uint id, bool isBot = false)
     {
-        var r = new Random();
+        var r = Random.Shared;
         var p = isBot ? new SimpleBot() : new Player();
 
-        p.Id = GetNewPlayerId();
+        p.Id = id;
         p.MovementState = new PlayerMovementState()
         {
             Pos = new Vector2((float)(r.NextDouble() * 800), (float)(r.NextDouble() * 600)),
-            BodyAngle = (int)(r.NextDouble() * 360),
             AimPos = new Vector2((float)(r.NextDouble() * 800), (float)(r.NextDouble() * 600)),
             ControlsState = 0
         };
@@ -109,7 +113,6 @@ public class GameModel : IGameModel
         p.Hp = 100;
         p.MaxHp = 100;
         p.ShootCooldownDuration = _shootCooldownSeconds;
-        p.ChatCooldownDuration = _chatCooldownSeconds;
 
         p.Name = "Player " + p.Id;
 
@@ -118,11 +121,12 @@ public class GameModel : IGameModel
         return p;
     }
 
-    // Handlers run concurrently on socket threads, so id generation must be atomic —
-    // a plain ++ races and produces duplicate ids whose TryAdd silently drops (audit §1.2).
+    // Ids are reserved on socket threads (GameServerBase.OnClientConnected) before the
+    // player is added on the tick thread, so generation must be atomic — a plain ++ races
+    // and produces duplicate ids (audit §1.2).
     public uint GetNewPlayerId() => Interlocked.Increment(ref _lastPlayerId);
 
-    public void UpdateGameState(DateTime time, Action onUpdatedAction)
+    public void UpdateGameState(TimeSpan time, Action onUpdatedAction)
     {
         var dt = (float)(time - _lastTickTime).TotalSeconds;
         dt = Math.Clamp(dt, 0f, _maxDeltaTime);
@@ -130,20 +134,18 @@ public class GameModel : IGameModel
 
         _destroyedBulletIds.Clear();
 
-        foreach (var player in _players)
+        foreach (var (id, player) in _players)
         {
-            player.Value.Update(dt);
-            if (player.Value.IsDead && player.Value.RespawnTime <= 0)
+            player.Update(dt);
+            if (player.IsDead && player.RespawnTime <= 0)
             {
-                _respawnedPlayerIds.Add(player.Key);
-                RespawnPlayer(player.Key);
+                _respawnedPlayerIds.Add(id);
+                RespawnPlayer(id);
             }
         }
 
-        using var bulletEnumerator = _bullets.GetEnumerator();
-        while (bulletEnumerator.MoveNext())
+        foreach (var bullet in _bullets.Values)
         {
-            var bullet = bulletEnumerator.Current.Value;
             bullet.Update(dt);
             // Bullet.Update flags IsDestroyed once its lifetime expires. Both timed-out and
             // collided bullets must be collected here, otherwise missed shots accumulate in
@@ -163,7 +165,8 @@ public class GameModel : IGameModel
         onUpdatedAction.Invoke();
 
         foreach (var bulletId in _destroyedBulletIds)
-            _bullets.TryRemove(bulletId, out _);
+            _bullets.Remove(bulletId);
+        UpdateCounts();
 
         _tickHits.Clear();
         _respawnedPlayerIds.Clear();
@@ -193,29 +196,48 @@ public class GameModel : IGameModel
 
     public void RemovePlayer(uint id)
     {
-        if (_players.TryRemove(id, out var player))
+        if (_players.Remove(id, out var player))
         {
+            UpdateCounts();
             // Otherwise every unique name accumulates in _playersTop forever and the
             // whole dictionary is re-sorted on each frag (audit §1.3). _playersTop is
             // keyed by name and names aren't unique, so only drop the entry once no
             // remaining player still uses that name (Copilot review).
             if (_players.Values.All(p => p.Name != player.Name))
-                _playersTop.TryRemove(player.Name, out _);
+                _playersTop.Remove(player.Name);
             UpdateTopString();
         }
     }
 
     public uint AddNewPlayer()
     {
-        var p = CreateNewPlayer();
+        var id = GetNewPlayerId();
+        AddNewPlayer(id);
+        return id;
+    }
+
+    public void AddNewPlayer(uint id) => AddPlayer(CreateNewPlayer(id));
+
+    /// <summary>
+    /// Creates the avatar of a connected client entering the game world (id == its
+    /// clientId), carrying over the identity the client set while it had no avatar.
+    /// </summary>
+    public Player SpawnPlayer(uint id, string name, int bodyIndex, int weaponIndex, int armorIndex)
+    {
+        var p = CreateNewPlayer(id);
+        p.Name = name;
+        p.BodyIndex = bodyIndex;
+        p.WeaponIndex = weaponIndex;
+        p.ArmorIndex = armorIndex;
         AddPlayer(p);
-        return p.Id;
+        return p;
     }
 
     public void AddPlayer(Player player)
     {
         _players[player.Id] = player;
         _playersTop.TryAdd(player.Name, 0);
+        UpdateCounts();
 
         UpdateTopString();
     }
@@ -234,7 +256,7 @@ public class GameModel : IGameModel
 
     public Player RespawnPlayer(uint id)
     {
-        var r = new Random();
+        var r = Random.Shared;
         var p = GetPlayer(id);
 
         if (p != null)
@@ -255,7 +277,7 @@ public class GameModel : IGameModel
         if (p == null) return null;
 
         var oldName = p.Name;
-        _playersTop.TryRemove(oldName, out var oldScore);
+        _playersTop.Remove(oldName, out var oldScore);
 
         if (string.IsNullOrEmpty(name))
         {
@@ -313,6 +335,7 @@ public class GameModel : IGameModel
         };
 
         _bullets.TryAdd(bullet.Id, bullet);
+        UpdateCounts();
         return [bullet.Id];
     }
 
@@ -321,27 +344,18 @@ public class GameModel : IGameModel
     public void GetDestroyedBulletIds(List<uint> buffer)
     {
         buffer.Clear();
-        lock (_destroyedBulletIdsLock)
-        {
-            buffer.AddRange(_destroyedBulletIds);
-        }
+        buffer.AddRange(_destroyedBulletIds);
     }
 
     public void GetHits(List<HitInfo> buffer)
     {
         buffer.Clear();
-        lock (_tickHitsLock)
-        {
-            buffer.AddRange(_tickHits);
-        }
+        buffer.AddRange(_tickHits);
     }
 
     public void GetRespawnedPlayerIds(List<uint> buffer)
     {
         buffer.Clear();
-        lock (_respawnedPlayerIdsLock)
-        {
-            buffer.AddRange(_respawnedPlayerIds);
-        }
+        buffer.AddRange(_respawnedPlayerIds);
     }
 }

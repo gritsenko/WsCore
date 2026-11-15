@@ -183,7 +183,7 @@ npm start
 ```
 
 ### Client Access & Room Navigation
-- **Lobby Interface**: `http://localhost:5173/` (default — Discord-style chat)
+- **Lobby Interface**: `http://localhost:5001/` (default — Discord-style chat)
 - **Game**: click **Play** on the `game` room to enter the 3D scene; **Back to Lobby** returns
 
 **Room Navigation Flow:**
@@ -226,7 +226,7 @@ Start the server manually from `WsServer/WsServer` and the client from `WsCore.C
 # Terminal 1
 dotnet run
 
-# Terminal 2 (default Vite URL: http://localhost:5173)
+# Terminal 2 (dev server URL: http://localhost:5001)
 npm start
 ```
 

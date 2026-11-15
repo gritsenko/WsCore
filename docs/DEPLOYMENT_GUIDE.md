@@ -100,8 +100,7 @@ docker-compose up --build
 ```
 
 ### Build Details
-- **Client build output**: WsCore.Client/dist/index.html (2,071.75 KB uncompressed, 481.48 KB gzipped)
-- **Room routing**: All three modes (lobby, 2d, 3d) in single HTML file
+- **Client build output**: WsCore.Client/dist/ — index.html + content-hashed chunks in assets/ (entry ~76 kB / ~13 kB gzip; three.js is a separate lazy chunk ~566 kB / ~139 kB gzip, loaded only when entering the game)
 - **Server projects**: WsServer (main + room manager), Game (logic), WsServer.Shared (messaging)
 - **MemoryPack**: Auto-generated TypeScript types in WsCore.Client/src/network/protocol
 - **Runtime base**: mcr.microsoft.com/dotnet/aspnet:10.0
@@ -552,7 +551,7 @@ WsCore/
 │   │   ├── 2d/               # 2D Phaser client (Spatial2D)
 │   │   ├── 3d/               # 3D Three.js client (Spatial3D)
 │   │   └── network/protocol  # Auto-generated MemoryPack types
-│   └── dist/                 # Built single HTML with room routing
+│   └── dist/                 # Built index.html + hashed chunks (assets/)
 └── WsServer/                 # .NET 10 game server with room system
     ├── WsServer/             # ASP.NET Core WebSocket host
     ├── Game/                 # Game logic and room management

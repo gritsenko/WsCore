@@ -1,5 +1,5 @@
-﻿import WsConnection, { ConnectionStatus } from './WsConnection';
-import { Unsubscribe } from '../utils/Emitter';
+﻿import WsConnection from './WsConnection';
+import type { IPlayer } from './ClientEvents';
 import { InitPlayerEvent } from './protocol/InitPlayerEvent';
 import { PlayerJoinedEvent } from './protocol/PlayerJoinedEvent';
 import { PlayerLeftEvent } from './protocol/PlayerLeftEvent';
@@ -10,77 +10,36 @@ import { ChatMessageEvent } from './protocol/ChatMessageEvent';
 import { UpdateMapObjectsEvent } from './protocol/UpdateMapObjectsEvent';
 import { PlayerStateData } from './protocol/PlayerStateData';
 import { MapObjectData } from './protocol/MapObjectData';
-import { RoomManager } from './rooms/RoomManager.js';
-import { CommunicationMode } from './rooms/CommunicationMode.js';
+import { RoomInfo } from './protocol/RoomInfo';
+import { RoomDescription, RoomManager } from './rooms/RoomManager.js';
+import { CommunicationMode, parseServerModes } from './rooms/CommunicationMode.js';
 import { RoomListEvent } from './protocol/RoomListEvent';
 import { RoomUsersUpdateEvent } from './protocol/RoomUsersUpdateEvent';
+import { JoinRoomResultEvent } from './protocol/JoinRoomResultEvent';
+import { ServerClock } from '../utils/SnapshotInterpolation';
 
-export interface IPlayer {
-  id: number;
-  x: number;
-  y: number;
-  ax: number;
-  ay: number;
-  targetX: number;
-  targetY: number;
-  angle: number;
-  controls: number;
-  name: string;
-  speed: { x: number; y: number };
-  animationState: number;
-  hp: number;
-  maxHp: number;
-  body: number;
-  weapon: number;
-  armor: number;
-  isMyPlayer: boolean;
+export type { IPlayer } from './ClientEvents';
 
-  updateName(name: string): void;
-  onStateUpdatedFromServer(): void;
-  destroy(): void;
+function describeRoom(info: RoomInfo): RoomDescription | null {
+  if (!info.id) return null;
+  return {
+    id: info.id,
+    name: info.name || info.id,
+    supportedModes: parseServerModes(info.supportedModes),
+    isPersistent: info.isPersistent,
+    userCount: info.userCount,
+  };
 }
 
-export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection {
+/**
+ * Session state on top of the transport. A connection is not a player: in the lobby
+ * there are no `players` at all; they exist only while we are in a spatial room (the
+ * server sends GameStateUpdate/PlayerJoined/PlayerLeft only to spatial-room members).
+ * Rooms come from the server (RoomListEvent) and membership changes only when the
+ * server confirms it (JoinRoomResultEvent).
+ */
+export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<T> {
   static MapObjectData = MapObjectData;
-
-  constructor() {
-    super();
-    this.roomManager = new RoomManager();
-    this.initializeDefaultRooms();
-  }
-
-  private initializeDefaultRooms(): void {
-    // Create default rooms - mark them as persistent so they don't get deleted when empty.
-    // Must mirror the server's GameServer.InitializeDefaultRooms: lobby / voice / game.
-    this.roomManager.createRoom('lobby', 'Lobby', [CommunicationMode.TextChat], true);
-    this.roomManager.createRoom(
-      'voice',
-      'Voice Room',
-      [CommunicationMode.VoiceChat, CommunicationMode.TextChat],
-      true
-    );
-    this.roomManager.createRoom(
-      'game',
-      'Game Room',
-      [CommunicationMode.Spatial, CommunicationMode.TextChat],
-      true
-    );
-  }
-
-  /**
-   * Subscribe to a client event. Returns an unsubscribe handle so lobby/game
-   * states can detach on teardown instead of the client being recreated.
-   */
-  on(event: 'connectionStatus', fn: (status: ConnectionStatus) => void): Unsubscribe;
-  on(event: 'sessionInit', fn: () => void): Unsubscribe;
-  on(event: 'playerCreate' | 'playerRemove' | 'playerJoined', fn: (player: T) => void): Unsubscribe;
-  on(event: 'playerName', fn: (id: number, name: string) => void): Unsubscribe;
-  on(event: 'roomUsers', fn: (msg: RoomUsersUpdateEvent) => void): Unsubscribe;
-  on(event: 'mapObjects', fn: (objects: (MapObjectData | null)[] | null) => void): Unsubscribe;
-  on(event: 'chat', fn: (name: string, text: string, isOwn: boolean) => void): Unsubscribe;
-  on(event: string, fn: (...args: any[]) => void): Unsubscribe {
-    return super.on(event, fn);
-  }
 
   myPlayer: T | null = null;
   myPlayerName = 'John Smith';
@@ -88,11 +47,24 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection 
   players: { [id: number]: T } = {};
   playerNames: { [id: number]: string } = {}; // Cache player names
   playerFactory?: (id: number) => T;
-  roomManager: RoomManager;
+  readonly roomManager = new RoomManager();
+  /** Server-time estimate from tick snapshot stamps; drives snapshot interpolation. */
+  readonly serverClock = new ServerClock();
+  /** Local clock (ms) used to timestamp snapshot arrivals; replaceable in tests. */
+  now: () => number = () => performance.now();
+  private readonly tickIncluded = new Set<number>();
 
   // Room-aware properties
   currentCommunicationMode: CommunicationMode = CommunicationMode.TextChat;
   isInSpatialRoom: boolean = false;
+  /** Room of the latest JoinRoomRequest still awaiting the server's answer. */
+  pendingRoomId: string | null = null;
+  /**
+   * The room the server places every new connection in (the first confirmed join of a
+   * session — the server's automatic lobby join). Where the lobby state returns to.
+   */
+  homeRoomId: string | null = null;
+  private awaitingHomeRoom = false;
 
   override onInitPlayerEvent(msg: InitPlayerEvent): void {
     // Every InitPlayerEvent (first connect OR reconnect) starts a fresh session:
@@ -100,9 +72,12 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection 
     this.resetSession();
 
     this.clientId = msg.clientId;
+    this.awaitingHomeRoom = true;
     console.log('Player initialized', this.clientId);
+    // Session identity (kept server-side even without an avatar) and the room list.
     this.sendSetPlayerNameRequest(this.myPlayerName);
     this.sendUpdatePlayerSlotsRequest(0, 0, 0);
+    this.requestRoomList();
 
     // Room choice is driven by the active state (lobby vs game) via sessionInit,
     // so a reconnect while in-game rejoins the game room, not the lobby.
@@ -114,6 +89,9 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection 
     const playerName = msg.name || '';
     // Cache the player name
     this.playerNames[clientId] = playerName;
+    if (clientId === this.clientId && playerName) this.myPlayerName = playerName;
+    const roomClient = this.getCurrentRoom()?.getClient(clientId);
+    if (roomClient) roomClient.name = playerName;
     if (this.players[clientId] != null) {
       this.players[clientId].updateName(playerName);
     }
@@ -134,10 +112,6 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection 
   }
 
   override onPlayerLeftEvent(msg: PlayerLeftEvent): void {
-    // Leave room if this was our player
-    if (msg.clientId === this.clientId) {
-      this.roomManager.leaveRoom(this.clientId);
-    }
     this.removePlayer(msg.clientId);
   }
 
@@ -154,36 +128,31 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection 
   }
 
   override onGameTickUpdateEvent(msg: GameTickUpdateEvent): void {
-    // Only process spatial updates if we're in a spatial room
-    if (!this.roomManager.shouldReceiveSpatialUpdates(this.clientId)) {
-      return; // Ignore spatial updates in non-spatial rooms
+    // A tick still in flight when we left the spatial room: ignore it.
+    if (!this.isInSpatialRoom || !this.shouldReceiveSpatialUpdates()) return;
+
+    // Snapshots are deltas: they carry only avatars that changed recently (plus every
+    // avatar in a periodic full snapshot). An avatar missing from one is unchanged —
+    // record that it is still where it was, never extrapolate it.
+    const t = msg.serverTimeMs;
+    this.serverClock.observe(t, this.now());
+
+    const included = this.tickIncluded;
+    included.clear();
+    for (const state of msg.movementStates ?? []) {
+      if (!state) continue;
+      const p = this.players[state.playerId];
+      if (p == undefined) continue;
+      p.x = state.x;
+      p.y = state.y;
+      p.animationState = state.animationState;
+      p.motion.push(t, state.x, state.y);
+      p.onStateUpdatedFromServer();
+      included.add(state.playerId);
     }
 
-    if (!msg.movementStates) return;
-
-    const playersCount = msg.movementStates.length;
-
-    for (let i = 0; i < playersCount; i++) {
-      const state = msg.movementStates[i];
-      if (!state) continue;
-
-      const playerId = state.playerId;
-      const p = this.players[playerId];
-
-      if (p != undefined) {
-        p.x = state.x;
-        p.y = state.y;
-        p.ax = state.aimX;
-        p.ay = state.aimY;
-        p.targetX = state.targetX;
-        p.targetY = state.targetY;
-        p.angle = state.bodyAngle;
-        p.controls = state.controlsState;
-        p.speed.x = state.velocityX;
-        p.speed.y = state.velocityY;
-        p.animationState = state.animationState;
-        p.onStateUpdatedFromServer();
-      }
+    for (const id in this.players) {
+      if (!included.has(Number(id))) this.players[id].motion.hold(t);
     }
   }
 
@@ -192,20 +161,57 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection 
   }
 
   override onRoomListEvent(msg: RoomListEvent): void {
-    console.log('Room list received:', msg.rooms);
-
-    if (msg.rooms) {
-      // Update room user counts
-      for (const room of msg.rooms) {
-        if (room?.id == null) continue;
-        this.roomManager.updateRoomUserCount(room.id, room.userCount);
-      }
+    const list: RoomDescription[] = [];
+    for (const info of msg.rooms ?? []) {
+      const desc = info && describeRoom(info);
+      if (desc) list.push(desc);
     }
+    this.roomManager.syncRooms(list);
+    this.emitter.emit('roomList', this.roomManager.getAllRooms());
+  }
+
+  override onJoinRoomResultEvent(msg: JoinRoomResultEvent): void {
+    const roomId = msg.roomId || '';
+    if (this.pendingRoomId === roomId) this.pendingRoomId = null;
+
+    if (!msg.success) {
+      console.warn(`Join room "${roomId}" refused: ${msg.error}`);
+      this.emitter.emit('roomJoinFailed', roomId, msg.error || 'Join failed');
+      return;
+    }
+
+    // The result describes the room, so membership works even if it arrives before
+    // (or without) a room list.
+    const desc = msg.room && describeRoom(msg.room);
+    if (desc) this.roomManager.upsertRoom(desc);
+
+    const wasSpatial = this.isInSpatialRoom;
+    this.roomManager.joinRoom(this.clientId, this.myPlayerName, roomId);
+    const room = this.roomManager.getRoom(roomId);
+    this.isInSpatialRoom = room?.supportsMode(CommunicationMode.Spatial) ?? false;
+
+    if (this.isInSpatialRoom) {
+      // Activate the spatial mode so GameTickUpdateEvent movement is applied (the
+      // server does the same for spatial-room members).
+      this.setCommunicationMode(CommunicationMode.Spatial);
+    } else {
+      this.currentCommunicationMode = CommunicationMode.TextChat;
+    }
+
+    // Players exist only inside the game world. Unless we stay in it, drop them all:
+    // leaving → the world is gone for us; entering → the GameStateUpdateEvent that
+    // follows this result rebuilds it from scratch (no stale players/duplicate views).
+    if (!wasSpatial || !this.isInSpatialRoom) this.clearPlayers();
+
+    if (this.awaitingHomeRoom) {
+      this.homeRoomId = roomId;
+      this.awaitingHomeRoom = false;
+    }
+
+    this.emitter.emit('roomJoined', roomId);
   }
 
   override onRoomUsersUpdateEvent(msg: RoomUsersUpdateEvent): void {
-    console.log(`Room users update for ${msg.roomId}:`, msg.users);
-
     if (msg.roomId && msg.users) {
       const room = this.roomManager.getRoom(msg.roomId);
       if (room) {
@@ -224,8 +230,10 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection 
               userInfo.name || '',
               previousModes.get(userInfo.clientId)
             );
+            if (userInfo.name) this.playerNames[userInfo.clientId] = userInfo.name;
           }
         }
+        room.userCount = room.clients.size;
       }
     }
 
@@ -234,10 +242,12 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection 
 
   /**
    * Resolve a display name for a client id, preferring our own name, then the
-   * name cache, then the player object. Used for chat labelling.
+   * current room's user list, then the name cache, then the player object.
    */
   private resolveName(id: number): string {
-    if (this.myPlayer && id === this.myPlayer.id) return this.myPlayerName;
+    if (id === this.clientId) return this.myPlayerName;
+    const roomName = this.getCurrentRoom()?.getClient(id)?.name;
+    if (roomName) return roomName;
     if (this.playerNames[id]) return this.playerNames[id];
     const player = this.players[id];
     if (player?.name && player.name.length > 0) return player.name;
@@ -257,26 +267,37 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection 
   }
 
   /**
-   * Tear down all per-session state so a reconnect (with a new clientId) rebuilds
-   * cleanly. removePlayer() per entry so subscribers (e.g. the game scene) dispose
-   * their visuals — a bare `players = {}` would silently leak them.
+   * Remove every player via removePlayer() so subscribers (e.g. the game scene)
+   * dispose their visuals — a bare `players = {}` would silently leak them.
    */
-  resetSession(): void {
+  clearPlayers(): void {
     for (const id of Object.keys(this.players)) {
       this.removePlayer(Number(id));
     }
     this.playersCount = 0;
     this.myPlayer = null;
+  }
+
+  /**
+   * Tear down all per-session state so a reconnect (with a new clientId) rebuilds
+   * cleanly.
+   */
+  resetSession(): void {
+    this.clearPlayers();
     this.playerNames = {};
-    // Keep persistent room definitions; only drop membership. clearAll() would
-    // delete lobby/voice/game and subsequent joinRoom would silently fail.
+    // Keep the room definitions (the next RoomListEvent replaces them); only drop
+    // membership — the new session starts in no room until the server confirms one.
     this.roomManager.resetClients();
+    this.serverClock.reset(); // a new session may be a restarted server (new time base)
     this.isInSpatialRoom = false;
     this.currentCommunicationMode = CommunicationMode.TextChat;
+    this.pendingRoomId = null;
+    this.homeRoomId = null; // re-learnt from the new session's automatic join
+    this.awaitingHomeRoom = false;
   }
 
   updatePlayer(playerData: PlayerStateData): void {
-    let player: T | null = null;
+    let player: T;
     let isNewPlayer = false;
     const playerId = playerData.id;
 
@@ -296,7 +317,6 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection 
     this.setPlayerData(player, playerData);
 
     if (!this.myPlayer && player.id === this.clientId) {
-      console.log('my player:', player);
       this.myPlayer = player;
     }
 
@@ -317,12 +337,9 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection 
     if (ms) {
       p.x = ms.x;
       p.y = ms.y;
-      p.ax = ms.aimX;
-      p.ay = ms.aimY;
-      p.angle = ms.bodyAngle;
-      p.controls = ms.controlsState;
-      p.speed.x = ms.velocityX;
-      p.speed.y = ms.velocityY;
+      p.animationState = ms.animationState;
+      // Full state, but untimed: start the interpolation history over from here.
+      p.motion.reset(ms.x, ms.y);
     }
   }
 
@@ -330,42 +347,19 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection 
    * Room management methods
    */
 
-  /**
-   * Join a room
-   */
-  joinRoom(roomId: string, playerName?: string): boolean {
-    const name = playerName || this.myPlayerName;
-    const success = this.roomManager.joinRoom(this.clientId, name, roomId);
-
-    if (success) {
-      const room = this.roomManager.getRoom(roomId);
-      if (room) {
-        this.isInSpatialRoom = room.supportsMode(CommunicationMode.Spatial);
-
-        // Activate the spatial mode so shouldReceiveSpatialUpdates() returns true and
-        // GameTickUpdateEvent movement is applied. Without this the client stays in the
-        // default TextChat mode and silently drops every tick (audit §4.1).
-        if (room.supportsMode(CommunicationMode.Spatial)) {
-          this.setCommunicationMode(CommunicationMode.Spatial);
-        }
-      }
-
-      // Send join room request to server
-      this.sendJoinRoomRequest(roomId);
-    }
-
-    return success;
+  /** Ask the server for the room list; the answer arrives as the `roomList` event. */
+  requestRoomList(): void {
+    this.sendGetRoomListRequest();
   }
 
   /**
-   * Leave current room
+   * Ask the server to move us into `roomId`. Nothing changes locally until the server
+   * answers: `roomJoined` on success (membership, spatial mode and players updated),
+   * `roomJoinFailed` otherwise. Requests are answered in order; the latest wins.
    */
-  leaveRoom(): boolean {
-    const success = this.roomManager.leaveRoom(this.clientId);
-    if (success) {
-      this.isInSpatialRoom = false;
-    }
-    return success;
+  joinRoom(roomId: string): void {
+    this.pendingRoomId = roomId;
+    this.sendJoinRoomRequest(roomId);
   }
 
   /**

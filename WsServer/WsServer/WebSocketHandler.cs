@@ -31,17 +31,36 @@ public class WebSocketHandler(
     private int _consecutiveErrors;
     private readonly CancellationTokenSource _cts = new();
 
-    // One send loop per connection drains this queue and awaits each SendAsync in turn;
-    // WebSocket forbids concurrent sends on a socket. A slow client sheds the oldest
-    // queued frames (stale tick snapshots) instead of back-pressuring the broadcaster
-    // or triggering overlapping SendAsync (audit §1.6).
-    private readonly Channel<ArraySegment<byte>> _sendChannel =
-        Channel.CreateBounded<ArraySegment<byte>>(new BoundedChannelOptions(options.WebSocketSendQueueCapacity)
+    // ---- outgoing traffic -------------------------------------------------------------
+    // One send loop per connection awaits each SendAsync in turn (WebSocket forbids
+    // concurrent sends on a socket), fed from two sources (audit §1.6):
+    //  * reliable events (chat, join/leave, room users, InitPlayer, ...) go to a bounded
+    //    FIFO that never drops. If a client falls so far behind that it fills up, the
+    //    connection is terminated — the client reconnects and resyncs, instead of silently
+    //    losing an event and staying desynced forever.
+    //  * the unreliable tick snapshot occupies a single "latest" slot: a newer snapshot
+    //    replaces an unsent older one, so a slow client just skips stale frames.
+    // Relative order is preserved: the slot remembers how many reliable events had been
+    // queued before it, and the sender delivers exactly those first.
+    private readonly Channel<ArraySegment<byte>> _reliableQueue =
+        Channel.CreateBounded<ArraySegment<byte>>(new BoundedChannelOptions(Math.Max(1, options.WebSocketSendQueueCapacity))
         {
-            FullMode = BoundedChannelFullMode.DropOldest,
+            FullMode = BoundedChannelFullMode.Wait, // TryWrite fails when full -> we terminate
             SingleReader = true,
             SingleWriter = false,
         });
+    // Wake-up signal for the send loop; capacity 1, extra signals coalesce.
+    private readonly Channel<bool> _sendSignal =
+        Channel.CreateBounded<bool>(new BoundedChannelOptions(1) { FullMode = BoundedChannelFullMode.DropWrite });
+    private readonly Lock _sendLock = new();
+    private long _reliableEnqueued;          // guarded by _sendLock
+    private bool _hasLatest;                 // guarded by _sendLock
+    private ArraySegment<byte> _latest;      // guarded by _sendLock
+    private bool _latestIsKeyframe;          // guarded by _sendLock
+    private long _latestAfterReliable;       // guarded by _sendLock: reliable count when _latest was queued
+    private long _reliableSent;              // send loop only
+    private volatile bool _closed;
+    private int _overflowed;
     private Task? _sendLoop;
 
     public static async Task HandleWebSocket(HttpContext context)
@@ -57,7 +76,8 @@ public class WebSocketHandler(
         await webSocketHandler.ProcessLoop();
     }
 
-    private async Task ProcessLoop()
+    // Public for tests, which drive a handler over a fake WebSocket.
+    public async Task ProcessLoop()
     {
         try
         {
@@ -164,7 +184,9 @@ public class WebSocketHandler(
         }
         finally
         {
-            _sendChannel.Writer.TryComplete();
+            MarkClosed();
+            // Queued behind this connection's connect command on the tick thread, so it
+            // can't overtake it (see GameServerBase.OnClientDisconnected).
             if (Id != 0)
                 gameServer.OnClientDisconnected(Id);
 
@@ -267,24 +289,106 @@ public class WebSocketHandler(
 
     public void Terminate()
     {
-        _sendChannel.Writer.TryComplete();
+        MarkClosed();
         try { _cts.Cancel(); } catch (ObjectDisposedException) { }
     }
 
+    private void MarkClosed()
+    {
+        _closed = true;
+        _reliableQueue.Writer.TryComplete();
+    }
+
+    /// <summary>Queues a reliable message. Never dropped: on overflow the connection is terminated.</summary>
     public void Send(ArraySegment<byte> messageData)
     {
-        // Non-blocking enqueue; the send loop delivers it in order. DropOldest discards
-        // stale frames for a slow client instead of blocking the broadcaster (audit §1.6).
-        _sendChannel.Writer.TryWrite(messageData);
+        bool queued;
+        lock (_sendLock)
+        {
+            queued = _reliableQueue.Writer.TryWrite(messageData);
+            if (queued)
+                _reliableEnqueued++;
+        }
+
+        if (queued)
+        {
+            _sendSignal.Writer.TryWrite(true);
+            return;
+        }
+
+        if (_closed)
+            return; // connection already shutting down; nothing to deliver to
+
+        // Queue full: dropping a reliable event would desync the client permanently, so
+        // disconnect it instead (it reconnects and gets a fresh InitPlayer + state).
+        if (Interlocked.Exchange(ref _overflowed, 1) == 0)
+            logger.LogWarning("Dropping connection {ClientId}: reliable send queue full ({Capacity} messages)",
+                Id, options.WebSocketSendQueueCapacity);
+        Terminate();
+    }
+
+    /// <summary>
+    /// Queues an unreliable "latest state" message, replacing any unsent older one — except
+    /// that a pending keyframe is only replaced by a newer keyframe (a non-keyframe arriving
+    /// while a keyframe is pending is dropped).
+    /// </summary>
+    public void SendLatest(ArraySegment<byte> messageData, bool keyframe = false)
+    {
+        lock (_sendLock)
+        {
+            if (_closed)
+                return;
+            if (_hasLatest && _latestIsKeyframe && !keyframe)
+                return; // keep the pending keyframe; it is already scheduled to go out
+            _latest = messageData;
+            _latestIsKeyframe = keyframe;
+            _latestAfterReliable = _reliableEnqueued;
+            _hasLatest = true;
+        }
+        _sendSignal.Writer.TryWrite(true);
+    }
+
+    // Picks the next frame to send: the latest snapshot once every reliable message queued
+    // before it has gone out, otherwise the next reliable message.
+    private bool TryTakeNext(out ArraySegment<byte> segment)
+    {
+        lock (_sendLock)
+        {
+            if (_hasLatest && _reliableSent >= _latestAfterReliable)
+            {
+                segment = _latest;
+                _latest = default;
+                _latestIsKeyframe = false;
+                _hasLatest = false;
+                return true;
+            }
+        }
+
+        if (_reliableQueue.Reader.TryRead(out segment))
+        {
+            _reliableSent++;
+            return true;
+        }
+
+        // A pending snapshot always becomes eligible: every reliable message counted
+        // before it was written to the queue under the same lock, so it is readable
+        // (even after the queue is completed).
+        return false;
     }
 
     private async Task SendLoopAsync()
     {
+        var ct = _cts.Token;
         try
         {
-            await foreach (var segment in _sendChannel.Reader.ReadAllAsync(_cts.Token))
+            while (!ct.IsCancellationRequested)
             {
-                await socket.SendAsync(segment, WebSocketMessageType.Binary, true, _cts.Token);
+                if (TryTakeNext(out var segment))
+                {
+                    await socket.SendAsync(segment, WebSocketMessageType.Binary, true, ct);
+                    continue;
+                }
+                await _sendSignal.Reader.ReadAsync(ct);
             }
         }
         catch (OperationCanceledException)

@@ -14,6 +14,8 @@ node_modules/
 # Build artifacts
 bin/
 obj/
+**/bin/
+**/obj/
 dist/
 publish/
 

@@ -18,19 +18,26 @@ using WsServer.Rooms;
 // Stage 1 load test. Boots the real server in-process and hammers it with N
 // WebSocket bots using the real binary protocol, then reports whether memory
 // stays flat and connections survive. Three cohorts:
-//   normal   - join the spatial room, move/aim/shoot/chat faster than the rate
+//   normal   - join the spatial room (which gives them an avatar), move/aim/shoot/chat faster than the rate
 //              limits (stresses the command queue, send queue, and throttling)
 //   invalid  - valid TypeIds with bad payloads (NaN/Inf coords, out-of-range
 //              slots, over-long chat) -> must be dropped silently, stay connected
 //   garbage  - unknown TypeId / oversized frames -> must be disconnected by the
 //              abuse policy without crashing the server
 //
-// Usage: dotnet run --project WsServer/WsServer.LoadTest -- --bots 40 --seconds 25 --port 5199
+// Tick traffic: every normal bot counts the GameTickUpdateEvent (TypeId 1) frames it
+// receives; the report prints snapshot bytes/sec and snapshots/sec per spatial client.
+// `--idle 1` keeps the normal bots' avatars standing still (they still shoot and chat),
+// so only the 10 built-in server bots move — the mostly-idle traffic scenario.
+//
+// Usage: dotnet run --project WsServer/WsServer.LoadTest -- --bots 40 --seconds 25 --port 5199 [--idle 1]
 // ---------------------------------------------------------------------------
 
 int botCount = GetArg("--bots", 40);
 int durationSec = GetArg("--seconds", 25);
 int port = GetArg("--port", 5199);
+bool idleBots = GetArg("--idle", 0) != 0;
+const byte TickTypeId = 1; // GameTickUpdateEvent.TypeId
 
 int garbageBots = Math.Max(1, botCount / 12);
 int invalidBots = Math.Max(1, botCount / 12);
@@ -40,7 +47,7 @@ int total = normalBots + invalidBots + garbageBots + oversizeBots;
 
 Console.WriteLine("=== WsCore Stage 1 load test ===");
 Console.WriteLine($"bots={total} (normal={normalBots}, invalid={invalidBots}, garbage={garbageBots}, oversize={oversizeBots}) " +
-                  $"duration={durationSec}s port={port}");
+                  $"duration={durationSec}s port={port} normal-bots-move={!idleBots}");
 Console.WriteLine();
 
 // ---- boot the real server in-process (mirrors Program.cs, minus static files / prototype) ----
@@ -49,29 +56,15 @@ builder.Logging.ClearProviders();
 builder.Logging.AddSimpleConsole(o => o.SingleLine = true);
 builder.Logging.SetMinimumLevel(LogLevel.Warning); // hide per-player Info; keep Warning/Error
 
-builder.Services.AddSingleton<IServerLogicProvider, ReflectionServerLogicProvider>(sc =>
-    new ReflectionServerLogicProvider(typeof(ChatMessageEvent).Assembly, new ClientRequestHandlerFactory(sc)));
-builder.Services.AddSingleton<IClientConnectionManager, ConnectionManager>();
-builder.Services.AddSingleton<IMessageSerializer, MessageSerializer>();
-builder.Services.AddSingleton<RoomManager>();
-builder.Services.AddSingleton<IGameMessenger>(sp => new GameMessenger(
-    sp.GetRequiredService<IClientConnectionManager>(),
-    sp.GetRequiredService<IMessageSerializer>(),
-    sp.GetRequiredService<RoomManager>()));
-builder.Services.AddSingleton(new GameServerOptions());
-builder.Services.AddSingleton<GameModel>();
-builder.Services.AddSingleton<IGameServer, GameServer>();
-builder.Services.AddTransient<WebSocketHandlerFactory>();
+builder.Services.AddGameServer();
 
 var app = builder.Build();
 app.Urls.Add($"http://127.0.0.1:{port}");
-app.UseWebSockets();
-app.Map("/ws", WebSocketHandler.HandleWebSocket);
+app.UseGameServer();
+// The game server is a hosted service: StartAsync starts its tick loop and initializes
+// the message registry before we build request frames.
 await app.StartAsync();
 
-// Force-resolve the game server so the tick loop starts and the message registry
-// is initialized before we build request frames.
-_ = app.Services.GetRequiredService<IGameServer>();
 var gameModel = app.Services.GetRequiredService<GameModel>();
 var serializer = app.Services.GetRequiredService<IMessageSerializer>();
 
@@ -88,6 +81,7 @@ for (int i = 0; i < garbageBots; i++) bots.Add(new BotHandle("garbage", i));
 for (int i = 0; i < oversizeBots; i++) bots.Add(new BotHandle("oversize", i));
 
 using var cts = new CancellationTokenSource();
+var runClock = Stopwatch.StartNew(); // shared time base for the tick-traffic window
 var ct = cts.Token;
 var uri = new Uri($"ws://127.0.0.1:{port}/ws");
 
@@ -128,6 +122,11 @@ while (sw.Elapsed.TotalSeconds < durationSec)
 }
 int finalBullets = peakBullets;
 long endHeap = samples.Count > 0 ? samples[^1] : startHeap;
+double measuredSeconds = runClock.Elapsed.TotalSeconds;
+// Snapshot traffic per spatial client, sampled before the bots are cancelled.
+var tickStats = bots.Where(b => b.Cohort == "normal")
+    .Select(b => (bytes: Interlocked.Read(ref b.TickBytes), frames: Interlocked.Read(ref b.TickFrames), started: b.TicksSince))
+    .ToList();
 
 // ---- stop bots and server ----
 cts.Cancel();
@@ -141,7 +140,20 @@ Console.WriteLine("=== results ===");
 Console.WriteLine($"connections still open  normal={normalOpen}/{normalBots}  invalid={invalidOpen}/{invalidBots}  " +
                   $"garbage={garbageOpen}/{garbageBots}  oversize={oversizeOpen}/{oversizeBots}");
 Console.WriteLine($"heap  start={Mb(startHeap)}  end={Mb(endHeap)}  (samples: {string.Join(", ", samples.Select(Mb))})");
-Console.WriteLine($"players last={finalPlayers} (started {initialPlayers})   bullets peak={finalBullets}");
+Console.WriteLine($"players last={finalPlayers} (started {initialPlayers}; expected {initialPlayers + normalOpen + invalidOpen} = built-in + game-room bots)   bullets peak={finalBullets}");
+if (tickStats.Count > 0)
+{
+    // Rates use each bot's own window (first tick received -> end of the run).
+    var rates = tickStats
+        .Select(t => (t.bytes, t.frames, secs: Math.Max(0.001, measuredSeconds - t.started)))
+        .Select(t => (bps: t.bytes / t.secs, fps: t.frames / t.secs, avg: t.frames > 0 ? (double)t.bytes / t.frames : 0))
+        .ToList();
+    double avgBps = rates.Average(r => r.bps);
+    Console.WriteLine($"tick traffic ({tickStats.Count} spatial clients): per client avg={avgBps / 1024.0:0.0} KB/s " +
+                      $"(min={rates.Min(r => r.bps) / 1024.0:0.0} max={rates.Max(r => r.bps) / 1024.0:0.0}), " +
+                      $"snapshots/s={rates.Average(r => r.fps):0.0}, avg snapshot={rates.Average(r => r.avg):0} B, " +
+                      $"total={rates.Sum(r => r.bps) / 1024.0:0.0} KB/s");
+}
 Console.WriteLine();
 
 var issues = new List<string>();
@@ -153,6 +165,12 @@ if (invalidOpen < invalidBots) issues.Add($"{invalidBots - invalidOpen} invalid-
 // Abusive cohorts must be disconnected.
 if (garbageOpen > 0) issues.Add($"{garbageOpen} garbage bot(s) NOT dropped (abuse policy failed)");
 if (oversizeOpen > 0) issues.Add($"{oversizeOpen} oversize bot(s) NOT dropped (size cap failed)");
+
+// A connection is not a player: only bots that joined the game room have an avatar
+// (normal + invalid cohorts); garbage/oversize bots never leave the lobby.
+int expectedPlayers = initialPlayers + normalOpen + invalidOpen;
+if (finalPlayers != expectedPlayers)
+    issues.Add($"players={finalPlayers}, expected {expectedPlayers} (built-in bots + game-room bots only)");
 
 // Bullet leak regression: with cleanup, alive bullets plateau near
 // normalBots * (lifetime / cooldown) = normalBots * (2 / 0.25) = normalBots * 8.
@@ -200,16 +218,35 @@ static async Task Send(ClientWebSocket ws, byte[] frame, bool eom, CancellationT
         await ws.SendAsync(frame, WebSocketMessageType.Binary, eom, ct);
 }
 
-// Drain incoming frames so the server's send queue / OS buffer never backs up.
-static async Task Drain(ClientWebSocket ws, CancellationToken ct)
+// Drain incoming frames so the server's send queue / OS buffer never backs up. With a
+// stats handle, tick-snapshot messages (first byte = TickTypeId) are counted, whole
+// messages (a message may arrive in several ReceiveAsync chunks).
+async Task Drain(ClientWebSocket ws, CancellationToken ct, BotHandle? stats = null)
 {
     var buf = new byte[16 * 1024];
+    var startOfMessage = true;
+    var isTick = false;
+    long messageBytes = 0;
     try
     {
         while (!ct.IsCancellationRequested && ws.State == WebSocketState.Open)
         {
             var r = await ws.ReceiveAsync(buf, ct);
             if (r.MessageType == WebSocketMessageType.Close) break;
+            if (stats == null) continue;
+            if (startOfMessage)
+            {
+                isTick = r.Count > 0 && buf[0] == TickTypeId;
+                messageBytes = 0;
+            }
+            messageBytes += r.Count;
+            startOfMessage = r.EndOfMessage;
+            if (r.EndOfMessage && isTick)
+            {
+                if (Interlocked.Increment(ref stats.TickFrames) == 1)
+                    stats.TicksSince = runClock.Elapsed.TotalSeconds;
+                Interlocked.Add(ref stats.TickBytes, messageBytes);
+            }
         }
     }
     catch { /* closed / cancelled */ }
@@ -220,7 +257,7 @@ async Task RunNormalBot(BotHandle b, Uri u, IMessageSerializer s, CancellationTo
     try
     {
         await b.Socket.ConnectAsync(u, token);
-        var recv = Drain(b.Socket, token);
+        var recv = Drain(b.Socket, token, b);
 
         await Send(b.Socket, Frame(s, new JoinRoomRequest("game")), true, token);
         await Send(b.Socket, Frame(s, new SetPlayerNameRequest { Name = $"bot{b.Index}" }), true, token);
@@ -231,7 +268,7 @@ async Task RunNormalBot(BotHandle b, Uri u, IMessageSerializer s, CancellationTo
         while (!token.IsCancellationRequested && b.Socket.State == WebSocketState.Open)
         {
             long t = clock.ElapsedMilliseconds;
-            if (t - lastMove >= 50)
+            if (!idleBots && t - lastMove >= 50)
             {
                 float x = Random.Shared.NextSingle() * 1600, y = Random.Shared.NextSingle() * 900;
                 await Send(b.Socket, Frame(s, new UpdatePlayerTargetRequest { AimX = x, AimY = y }), true, token);
@@ -317,5 +354,9 @@ sealed class BotHandle
     public string Cohort { get; }
     public int Index { get; }
     public ClientWebSocket Socket { get; } = new();
+    // Tick-snapshot traffic received (normal bots only); written by the bot's receive loop.
+    public long TickBytes;
+    public long TickFrames;
+    public double TicksSince; // run time (s) of the first tick received
     public BotHandle(string cohort, int index) { Cohort = cohort; Index = index; }
 }

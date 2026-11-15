@@ -9,13 +9,17 @@ public class RoomManager : IDisposable
 {
     private readonly ConcurrentDictionary<string, Room> _rooms = new();
     private readonly ConcurrentDictionary<uint, string> _clientRoomMap = new();
+    private int _nextRoomOrder;
     
     /// <summary>
     /// Create a new room
     /// </summary>
     public Room CreateRoom(string roomId, string roomName, IEnumerable<RoomCompatibility> supportedModes, bool isPersistent = false)
     {
-        var room = new Room(roomId, roomName, supportedModes, isPersistent);
+        var room = new Room(roomId, roomName, supportedModes, isPersistent)
+        {
+            Order = Interlocked.Increment(ref _nextRoomOrder),
+        };
         _rooms.TryAdd(roomId, room);
         return room;
     }
@@ -109,6 +113,18 @@ public class RoomManager : IDisposable
         return GetRoom(roomId);
     }
     
+    /// <summary>
+    /// Update the display name a client is listed under in its current room.
+    /// </summary>
+    public bool RenameClient(uint clientId, string name)
+    {
+        var client = GetClientRoom(clientId)?.GetClient(clientId);
+        if (client == null)
+            return false;
+        client.Name = name;
+        return true;
+    }
+
     /// <summary>
     /// Check if client should receive spatial updates
     /// </summary>

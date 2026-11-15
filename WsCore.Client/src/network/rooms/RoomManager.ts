@@ -1,6 +1,15 @@
 import { CommunicationMode } from './CommunicationMode.js';
 import { Room } from './Room.js';
 
+/** One room as the server describes it (decoded from `RoomInfo`). */
+export interface RoomDescription {
+  id: string;
+  name: string;
+  supportedModes: CommunicationMode[];
+  isPersistent: boolean;
+  userCount: number;
+}
+
 /**
  * Manages all rooms in the client, handles room creation, joining, and client membership
  */
@@ -140,6 +149,42 @@ export class RoomManager {
   }
 
   /**
+   * Insert or update one room from the server's description, keeping its membership.
+   */
+  public upsertRoom(desc: RoomDescription): Room {
+    let room = this.rooms.get(desc.id);
+    if (!room) {
+      room = this.createRoom(desc.id, desc.name, desc.supportedModes, desc.isPersistent);
+    } else {
+      room.name = desc.name;
+      room.isPersistent = desc.isPersistent;
+      room.supportedModes.clear();
+      for (const mode of desc.supportedModes) room.supportedModes.add(mode);
+    }
+    room.userCount = desc.userCount;
+    return room;
+  }
+
+  /**
+   * Replace the room set with the server's list (RoomListEvent — the only source of
+   * rooms): rooms missing from it are dropped (with any membership in them), existing
+   * ones are updated in place, and iteration order follows the server's list.
+   */
+  public syncRooms(list: RoomDescription[]): void {
+    const keep = new Set(list.map(d => d.id));
+    for (const [clientId, roomId] of this.clientRoomMap) {
+      if (!keep.has(roomId)) this.clientRoomMap.delete(clientId);
+    }
+    const previous = this.rooms;
+    this.rooms = new Map();
+    for (const desc of list) {
+      const room = previous.get(desc.id);
+      if (room) this.rooms.set(desc.id, room);
+      this.upsertRoom(desc);
+    }
+  }
+
+  /**
    * Remove all clients and dispose all rooms
    */
   public clearAll(): void {
@@ -148,9 +193,8 @@ export class RoomManager {
   }
 
   /**
-   * Drop all client membership but KEEP room definitions. Used on reconnect,
-   * where the session resets but the persistent rooms (lobby/voice/game) must
-   * survive so a subsequent joinRoom() still finds them.
+   * Drop all client membership but KEEP room definitions. Used on reconnect: the
+   * session resets, the rooms stay until the next RoomListEvent replaces them.
    */
   public resetClients(): void {
     this.clientRoomMap.clear();

@@ -6,12 +6,12 @@
 #   dev-down.sh client   # stop only the client
 #
 # The client port is read from .run/client.port (written by dev-up.sh), defaulting
-# to 5173.
+# to 5001.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RUN="$ROOT/.run"
-CLIENT_PORT="$(cat "$RUN/client.port" 2>/dev/null || echo 5173)"
+CLIENT_PORT="$(cat "$RUN/client.port" 2>/dev/null || echo 5001)"
 
 target="${1:-all}"
 case "$target" in

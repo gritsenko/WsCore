@@ -16,6 +16,12 @@ public partial class HitPlayerStateData
 
     public HitPlayerStateData(HitInfo hitInfo)
     {
+        CopyFrom(hitInfo);
+    }
+
+    // Overwrites every field from `hitInfo`; lets the tick snapshot reuse instances.
+    public void CopyFrom(HitInfo hitInfo)
+    {
         PlayerId = hitInfo.PlayerId;
         HitterId = hitInfo.HitterId;
         NewHp = hitInfo.NewHp;

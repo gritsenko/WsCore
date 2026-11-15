@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { lerp } from '../utils/Common';
+import { advanceFrame } from '../utils/Common';
 import Player from './Player';
 
 interface SpriteDef {
@@ -13,13 +13,19 @@ interface SpriteDef {
 
 /**
  * The 3D visual for a Player. Owned by the GameScene in a Map<id, PlayerView>;
- * created on enter/join, disposed on exit/leave. Reads state from its Player each
- * frame in update(). Sprite-sheet textures are cached statically (shared asset),
+ * created on enter/join, disposed on exit/leave. Each frame update() samples the
+ * player's snapshot-interpolation buffer at the render time the scene passes in and
+ * draws it there — no extra smoothing on top. Sprite-sheet textures are cached statically (shared asset),
  * but each view clones the texture it renders so every avatar animates on its own
  * UV cursor (the pre-split code mutated one shared texture → all knights in lockstep).
  */
 export default class PlayerView {
   static nickOffset = 60;
+
+  /** Interpolated speed (units/s) above which the run animation plays. */
+  static readonly RUN_SPEED = 10;
+  /** Horizontal speed (units/s) needed to turn the sprite; below it, keep facing. */
+  static readonly FACING_SPEED = 5;
 
   // Shared, loaded-once sprite-sheet assets. Disposed only on final app shutdown.
   static spriteSheets: Map<string, THREE.Texture> = new Map();
@@ -35,8 +41,8 @@ export default class PlayerView {
   private scaleFactor = 80;
   private currentAnimationState = '';
   private currentFrame = 0;
-  private frameCounter = 0;
-  private frameRate = 8;
+  private frameTime = 0; // seconds accumulated toward the next animation frame
+  private frameRate = 8; // animation frames per second
   private tilesHorizontal = 3;
   private tilesVertical = 4;
   private renderedNameVersion = -1;
@@ -186,23 +192,30 @@ export default class PlayerView {
     this.renderedNameVersion = this.player.nameVersion;
   }
 
-  update(): void {
+  /**
+   * Per-frame update. `dt` is the (clamped) frame time in seconds; `renderT` the server
+   * time to draw this player at (ServerClock.now − interpolation delay; NaN = newest).
+   */
+  update(dt: number, renderT: number): void {
     const p = this.player;
     if (!this.sprite) this.ensureSprite();
 
-    let x = p.x;
-    let z = p.y;
+    p.updateRender(renderT);
+    const x = p.renderX;
+    const z = p.renderY;
     if (this.sprite) {
-      x = lerp(this.sprite.position.x, p.x, 0.09);
-      z = lerp(this.sprite.position.z, p.y, 0.09);
       this.sprite.position.set(x, 50, z);
 
-      this.updateAnimation(p.getVelocity() > 10 ? 'knight_run' : 'knight_idle');
+      this.updateAnimation(
+        p.getVelocity() > PlayerView.RUN_SPEED ? 'knight_run' : 'knight_idle',
+        dt
+      );
 
-      // Face movement direction (flip sprite horizontally).
-      if (p.targetX > x && this.sprite.scale.x < 0) {
+      // Face the movement direction (flip sprite horizontally). The server moves an
+      // avatar straight at its target, so this is the click-to-move target side too.
+      if (p.speed.x > PlayerView.FACING_SPEED && this.sprite.scale.x < 0) {
         this.sprite.scale.x = this.scaleFactor;
-      } else if (p.targetX < x && this.sprite.scale.x > 0) {
+      } else if (p.speed.x < -PlayerView.FACING_SPEED && this.sprite.scale.x > 0) {
         this.sprite.scale.x = -this.scaleFactor;
       }
     }
@@ -213,7 +226,7 @@ export default class PlayerView {
     }
   }
 
-  private updateAnimation(stateName: string): void {
+  private updateAnimation(stateName: string, dt: number): void {
     if (!PlayerView.spritesLoaded || !this.sprite) return;
     const material = this.sprite.material as THREE.SpriteMaterial;
 
@@ -227,17 +240,16 @@ export default class PlayerView {
         this.tilesVertical = def.rows;
         this.currentAnimationState = stateName;
         this.currentFrame = 0;
-        this.frameCounter = 0;
+        this.frameTime = 0;
       }
     }
 
     const def = PlayerView.spriteDefinitions.get(stateName);
     const tex = material.map;
     if (def && tex) {
-      if (++this.frameCounter >= 60 / this.frameRate) {
-        this.currentFrame = (this.currentFrame + 1) % def.count;
-        this.frameCounter = 0;
-      }
+      const next = advanceFrame(this.currentFrame, this.frameTime, dt, this.frameRate, def.count);
+      this.currentFrame = next.frame;
+      this.frameTime = next.accumulator;
       const col = this.currentFrame % this.tilesHorizontal;
       const row = Math.floor(this.currentFrame / this.tilesHorizontal);
       tex.offset.x = col / this.tilesHorizontal;

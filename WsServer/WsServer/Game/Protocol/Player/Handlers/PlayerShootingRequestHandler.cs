@@ -17,6 +17,6 @@ public class PlayerShootingRequestHandler(GameModel gameModel, IGameMessenger me
         var bulletIds = gameModel.SpawnBullet(player.MovementState.Pos, player.MovementState.AimPos, clientId);
         if (bulletIds.Length == 0) return; // degenerate aim, nothing spawned
 
-        messenger.Broadcast(new PlayerShootingEvent(clientId, request.Weapon, bulletIds));
+        messenger.BroadcastToSpatial(new PlayerShootingEvent(clientId, request.Weapon, bulletIds));
     }
 }

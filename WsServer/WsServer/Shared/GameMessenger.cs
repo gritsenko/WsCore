@@ -50,43 +50,90 @@ public class GameMessenger : IGameMessenger
     /// <summary>
     /// Broadcast spatial updates only to clients that should receive them based on room membership.
     /// When room manager is active, uses ShouldReceiveSpatialUpdates to filter recipients.
+    /// Delivered as unreliable "latest state": a newer update replaces an unsent older one
+    /// in each connection's send slot (IClientConnection.SendLatest).
     /// </summary>
-    public void BroadcastSpatialUpdates<TEventMessage>(TEventMessage @event) where TEventMessage : IServerEvent
+    public void BroadcastSpatialUpdates<TEventMessage>(TEventMessage @event, bool keyframe = false) where TEventMessage : IServerEvent
     {
-        var segment = _messageSerializer.Serialize(@event);
-        
+        // Serialize lazily, on the first actual recipient: with nobody in a spatial room
+        // the snapshot is never serialized.
+        ArraySegment<byte> segment = default;
+        var serialized = false;
+
         foreach (var connection in _connectionManager.Connections)
         {
-            // Only send spatial updates to clients that should receive them
-            if (_roomManager?.ShouldReceiveSpatialUpdates(connection.Id) ?? true)
+            if (!IsSpatialRecipient(connection.Id))
+                continue;
+
+            if (!serialized)
             {
-                connection.Send(segment);
+                segment = _messageSerializer.Serialize(@event);
+                serialized = true;
             }
+            connection.SendLatest(segment, keyframe);
         }
     }
+
+    public bool HasSpatialRecipients()
+    {
+        foreach (var connection in _connectionManager.Connections)
+        {
+            if (IsSpatialRecipient(connection.Id))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Reliable send to every client in a spatial room (the game world's audience), except
+    /// <paramref name="exceptClientId"/> (0 = nobody; client ids start at 1). Serialized
+    /// once, lazily — nothing is serialized when there are no recipients.
+    /// </summary>
+    public void BroadcastToSpatial<TEventMessage>(TEventMessage @event, uint exceptClientId = 0) where TEventMessage : IServerEvent
+        => BroadcastWhere(@event, id => id != exceptClientId && IsSpatialRecipient(id));
+
+    /// <summary>
+    /// Reliable send to every client that is NOT in a spatial room (lobby-UI clients).
+    /// </summary>
+    public void BroadcastToNonSpatial<TEventMessage>(TEventMessage @event) where TEventMessage : IServerEvent
+        => BroadcastWhere(@event, id => !IsSpatialRecipient(id));
+
+    private void BroadcastWhere<TEventMessage>(TEventMessage @event, Func<uint, bool> filter) where TEventMessage : IServerEvent
+    {
+        ArraySegment<byte> segment = default;
+        var serialized = false;
+        foreach (var connection in _connectionManager.Connections)
+        {
+            if (!filter(connection.Id))
+                continue;
+            if (!serialized)
+            {
+                segment = _messageSerializer.Serialize(@event);
+                serialized = true;
+            }
+            connection.Send(segment);
+        }
+    }
+
+    // Without a room manager every client gets spatial updates.
+    private bool IsSpatialRecipient(uint clientId) => _roomManager?.ShouldReceiveSpatialUpdates(clientId) ?? true;
 
     /// <summary>
     /// Broadcast chat messages to clients in the same room (or all clients if rooms are inactive).
     /// </summary>
     public void BroadcastToRoomOrAll<TEventMessage>(uint senderId, TEventMessage @event) where TEventMessage : IServerEvent
     {
-        var segment = _messageSerializer.Serialize(@event);
-        
-        if (_roomManager == null)
+        var senderRoom = _roomManager?.GetClientRoom(senderId);
+
+        if (senderRoom == null)
         {
-            // No room system active, broadcast to all
+            // No room system active, or sender not in a room: broadcast to all
+            // (Broadcast serializes once itself).
             Broadcast(@event);
             return;
         }
 
-        var senderRoom = _roomManager.GetClientRoom(senderId);
-        
-        if (senderRoom == null)
-        {
-            // Sender not in a room, broadcast to all
-            Broadcast(@event);
-            return;
-        }
+        var segment = _messageSerializer.Serialize(@event);
 
         // Send to all clients in the sender's room
         foreach (var clientId in senderRoom.GetClientIds())

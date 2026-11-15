@@ -6,12 +6,14 @@ export class RoomInfo {
     name: string | null;
     userCount: number;
     supportedModes: (string | null)[] | null;
+    isPersistent: boolean;
 
     constructor() {
         this.id = null;
         this.name = null;
         this.userCount = 0;
         this.supportedModes = null;
+        this.isPersistent = false;
 
     }
 
@@ -27,11 +29,12 @@ export class RoomInfo {
             return;
         }
 
-        writer.writeObjectHeader(4);
+        writer.writeObjectHeader(5);
         writer.writeString(value.id);
         writer.writeString(value.name);
         writer.writeInt32(value.userCount);
         writer.writeArray(value.supportedModes, (writer, x) => writer.writeString(x));
+        writer.writeBoolean(value.isPersistent);
 
     }
 
@@ -56,14 +59,15 @@ export class RoomInfo {
         }
 
         const value = new RoomInfo();
-        if (count == 4) {
+        if (count == 5) {
             value.id = reader.readString();
             value.name = reader.readString();
             value.userCount = reader.readInt32();
             value.supportedModes = reader.readArray(reader => reader.readString());
+            value.isPersistent = reader.readBoolean();
 
         }
-        else if (count > 4) {
+        else if (count > 5) {
             throw new Error("Current object's property count is larger than type schema, can't deserialize about versioning.");
         }
         else {
@@ -72,6 +76,7 @@ export class RoomInfo {
             value.name = reader.readString(); if (count == 2) return value;
             value.userCount = reader.readInt32(); if (count == 3) return value;
             value.supportedModes = reader.readArray(reader => reader.readString()); if (count == 4) return value;
+            value.isPersistent = reader.readBoolean(); if (count == 5) return value;
 
         }
         return value;

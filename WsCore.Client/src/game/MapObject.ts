@@ -11,19 +11,24 @@ export default class MapObject {
   static cellSize = 50; // Mirrors World.cellSize
   static textures: Map<string, THREE.Texture> = new Map();
 
-  static preloadTextures(loader: THREE.TextureLoader) {
-    const textureLoader = loader;
-    textureLoader.load('/map/objects/trees/tree_1.png', texture => {
-      MapObject.textures.set('tree1', texture);
-    });
-    textureLoader.load('/map/objects/trees/tree_2.png', texture => {
-      MapObject.textures.set('tree2', texture);
-    });
-    textureLoader.load('/map/objects/trees/tree_3.png', texture => {
-      MapObject.textures.set('tree3', texture);
-    });
-    textureLoader.load('/map/objects/trees/tree_4.png', texture => {
-      MapObject.textures.set('tree4', texture);
+  /** Load the shared tree textures; `onDone` fires once every load has settled. */
+  static preloadTextures(loader: THREE.TextureLoader, onDone?: () => void) {
+    const keys = ['tree1', 'tree2', 'tree3', 'tree4'];
+    let pending = keys.length;
+    const settle = () => {
+      if (--pending === 0) onDone?.();
+    };
+    keys.forEach((key, i) => {
+      if (MapObject.textures.has(key)) return settle();
+      loader.load(
+        `/map/objects/trees/tree_${i + 1}.png`,
+        texture => {
+          MapObject.textures.set(key, texture);
+          settle();
+        },
+        undefined,
+        settle
+      );
     });
   }
 

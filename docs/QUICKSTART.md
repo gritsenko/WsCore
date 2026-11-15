@@ -97,7 +97,7 @@ WsCore/
 ./scripts/build.sh wscore-game-server latest
 
 # Expected output: Successfully built image (379 MB)
-# - Vite: 56 modules, 2,071.75 kB single-file HTML
+# - Vite: index.html + hashed chunks (entry ~76 kB, lazy three.js chunk ~566 kB)
 # - .NET 10: WsServer, Game, WsServer.Shared compiled
 # - Docker: ~2-3 minutes first run
 ```

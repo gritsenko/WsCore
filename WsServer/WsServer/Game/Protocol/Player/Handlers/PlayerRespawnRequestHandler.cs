@@ -16,6 +16,6 @@ public class PlayerRespawnRequestHandler(GameModel gameModel, IGameMessenger mes
         if (respawnPlayer == null)
             return;
 
-        messenger.Broadcast(new PlayerRespawnEvent(respawnPlayer));
+        messenger.BroadcastToSpatial(new PlayerRespawnEvent(respawnPlayer));
     }
 }

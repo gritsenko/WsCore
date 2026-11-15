@@ -1,4 +1,4 @@
-﻿using System.Linq;
+using System.Linq;
 using Game.Core;
 using Game.ServerLogic.Map.Events;
 using Game.ServerLogic.Map.Requests;
@@ -11,9 +11,11 @@ public class SetMapObjectRequestHandler(IGameMessenger messenger, GameModel game
 {
     protected override void Handle(uint clientId, SetMapObjectRequest request)
     {
-        var player = gameModel.GetPlayer(clientId);
+        // Only clients with an avatar (i.e. in the game world) may edit the map.
+        if (gameModel.GetPlayer(clientId) == null)
+            return;
         gameModel.World.SetMapObject(request.MapX, request.MapY, request.ObjectType);
         var data = gameModel.World.GetTileBlockObjects(0, 0).ToArray();
-        messenger.Broadcast(new UpdateMapObjectsEvent(data));
+        messenger.BroadcastToSpatial(new UpdateMapObjectsEvent(data));
     }
 }

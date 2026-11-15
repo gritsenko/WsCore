@@ -1,5 +1,5 @@
 # Build stage 1: Build the client (Vite + Node)
-FROM node:20-alpine AS client-builder
+FROM node:24-alpine AS client-builder
 
 WORKDIR /app/client
 
@@ -23,11 +23,17 @@ WORKDIR /app/server
 
 # The server is a single self-contained project (WsServer/WsServer).
 # The TestClient and any benchmark projects are intentionally not copied.
-COPY WsServer/WsServer ./WsServer
-
-# Restore and publish in Release mode
+# Copy only the project file first and restore, so the NuGet restore layer stays cached
+# until the csproj (package references) changes rather than on every source edit.
+COPY WsServer/WsServer/WsServer.csproj ./WsServer/
 RUN dotnet restore WsServer/WsServer.csproj
-RUN dotnet publish WsServer/WsServer.csproj -c Release -o /app/publish --no-restore
+
+# Then the sources, and publish in Release mode. No --no-restore: .dockerignore's `obj/`
+# only matches the context root, so a host-side WsServer/WsServer/obj can be copied over
+# the restore output; publish's implicit restore is a no-op when the assets are current
+# and otherwise re-resolves from the NuGet cache filled by the layer above.
+COPY WsServer/WsServer ./WsServer
+RUN dotnet publish WsServer/WsServer.csproj -c Release -o /app/publish
 
 # Runtime stage: Create final image
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
@@ -45,10 +51,11 @@ COPY --from=server-builder /app/publish ./
 # Copy built client assets
 COPY --from=client-builder /app/client/dist ./wwwroot
 
-# Create non-root user for security (use UID 1001 to avoid conflicts)
-RUN useradd -m -u 1001 gameserver && \
-    chown -R gameserver:gameserver /app
-USER gameserver
+# Run as the non-root `app` user built into the .NET images (UID in $APP_UID, 1654).
+# Copied files are root-owned but world-readable, which is all the server needs: it
+# doesn't write under /app. Binding :80 as non-root works because Docker sets
+# net.ipv4.ip_unprivileged_port_start=0 in the container (it already ran as UID 1001).
+USER $APP_UID
 
 # Expose port (the app listens on :80; TLS/443 is terminated by the nginx sidecar)
 EXPOSE 80

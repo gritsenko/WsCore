@@ -16,6 +16,8 @@ export default class World {
   private groundMaterial: THREE.MeshStandardMaterial | null = null;
   private grassTexture: THREE.Texture | null = null;
   private lights: THREE.Light[] = [];
+  // Latest map payload from the server; kept so it can be (re)built once the scene exists.
+  private mapData: (MapObjectData | null)[] | null = null;
 
   constructor() {
     this.textureLoader = new THREE.TextureLoader();
@@ -27,8 +29,15 @@ export default class World {
     // Create ground plane with checkerboard pattern
     this.createGround();
 
-    // Preload map object textures
-    MapObject.preloadTextures(this.textureLoader);
+    // Preload map object textures; once they are in, rebuild so objects created
+    // meanwhile swap their placeholder cubes for the real sprites.
+    MapObject.preloadTextures(this.textureLoader, () => {
+      if (this.scene === scene) this.rebuildMapObjects();
+    });
+
+    // The map can arrive before the scene exists (assets still loading on the first
+    // game entry) — it was kept in mapData, build it now.
+    this.rebuildMapObjects();
   }
 
   createGround() {
@@ -44,7 +53,6 @@ export default class World {
       metalness: 0.0,
     });
     this.groundPlane = new THREE.Mesh(this.groundGeometry, this.groundMaterial);
-    this.groundPlane.receiveShadow = true;
     this.groundPlane.rotation.x = -Math.PI / 2; // Rotate to be horizontal
     this.groundPlane.position.set(0, 0, 0);
 
@@ -56,15 +64,7 @@ export default class World {
 
     const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
     directionalLight.position.set(100, 200, 100);
-    directionalLight.castShadow = true;
-    directionalLight.shadow.mapSize.width = 2048;
-    directionalLight.shadow.mapSize.height = 2048;
-    directionalLight.shadow.camera.near = 0.5;
-    directionalLight.shadow.camera.far = 1000;
-    directionalLight.shadow.camera.left = -500;
-    directionalLight.shadow.camera.right = 500;
-    directionalLight.shadow.camera.top = 500;
-    directionalLight.shadow.camera.bottom = -500;
+    // No shadows: renderer.shadowMap is off and nothing casts — sprites are billboards.
     this.scene.add(directionalLight);
 
     // Add hemisphere light for better overall illumination
@@ -126,6 +126,14 @@ export default class World {
   }
 
   updateMapObjects(objs: (MapObjectData | null)[] | null) {
+    this.mapData = objs;
+    this.rebuildMapObjects();
+  }
+
+  private rebuildMapObjects() {
+    if (!this.scene) return; // not created yet (or disposed): create() rebuilds from mapData
+    const objs = this.mapData;
+
     // Destroy old objects
     for (const obj of this.objects) {
       obj.destroy();
@@ -158,6 +166,7 @@ export default class World {
   dispose() {
     for (const obj of this.objects) obj.destroy();
     this.objects = [];
+    this.mapData = null;
 
     if (this.groundPlane) {
       this.groundPlane.parent?.remove(this.groundPlane);
@@ -172,8 +181,8 @@ export default class World {
 
     for (const light of this.lights) {
       light.parent?.remove(light);
-      // DirectionalLight.dispose() cascades into shadow.dispose(), which frees the
-      // 2048×2048 shadow map render target — no manual shadow/map plumbing needed.
+      // Shadows are disabled, so no shadow map was ever allocated; dispose() is
+      // still called for completeness (it's a no-op beyond the light's own state).
       light.dispose();
     }
     this.lights = [];

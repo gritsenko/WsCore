@@ -16,7 +16,9 @@ public class MessageSerializer : IMessageSerializer
 
     public ArraySegment<byte> Serialize<TEventMessage>(TEventMessage message) where TEventMessage : IServerEvent
     {
-        var messageType = _serverLogicProvider.FindServerEventIdByType(typeof(TEventMessage));
+        // IMessageType.TypeId is static abstract, so TEventMessage is always the concrete
+        // message type here (an interface can't be a type argument) — no registry lookup.
+        var messageType = TEventMessage.TypeId;
         var writer = new ArrayBufferWriter<byte>(1024);
         writer.GetSpan(1)[0] = messageType; // Reserve and set header
         writer.Advance(1);
@@ -44,7 +46,7 @@ public class MessageSerializer : IMessageSerializer
 
     public ArraySegment<byte> SerializeClientRequest<TRequest>(TRequest request) where TRequest : IClientRequest
     {
-        var messageType = _serverLogicProvider.FindClientRequestIdByType(typeof(TRequest));
+        var messageType = TRequest.TypeId;
         var writer = new ArrayBufferWriter<byte>(1024);
         writer.GetSpan(1)[0] = messageType; // header
         writer.Advance(1);

@@ -15,6 +15,10 @@ public class Room
     public ConcurrentDictionary<uint, RoomClient> Clients { get; }
     public DateTime CreatedAt { get; }
     public uint? HostClientId { get; set; }
+
+    // Creation sequence number assigned by RoomManager: a stable order for room lists
+    // (the room dictionary itself is unordered).
+    public int Order { get; init; }
     
     public int ClientCount => Clients.Count;
     
@@ -85,7 +89,9 @@ public class Room
 public class RoomClient
 {
     public uint Id { get; }
-    public string Name { get; }
+    // Mutable: a rename (SetPlayerNameRequest) updates it so later RoomUsersUpdateEvents
+    // report the current name rather than the one captured at join time.
+    public string Name { get; set; }
     public DateTime JoinedAt { get; }
     public RoomCompatibility CurrentMode { get; set; }
     

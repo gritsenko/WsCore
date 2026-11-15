@@ -30,10 +30,10 @@ public class GameModelTests
         // Advance in realistic ~33ms ticks — a single huge jump would be clamped to
         // MaxDeltaTimeSeconds (audit's dt-clamp fix), so simulate enough real ticks to
         // clear Bullet.MaxLifetime (2s) without hitting anyone.
-        var t = DateTime.UtcNow;
+        var t = TimeSpan.Zero;
         for (int i = 0; i < 80; i++)
         {
-            t = t.AddMilliseconds(33);
+            t += TimeSpan.FromMilliseconds(33);
             model.UpdateGameState(t, () => { });
         }
 
@@ -67,7 +67,7 @@ public class GameModelTests
         model.SpawnBullet(new Vector2(0, 0), new Vector2(1, 0), shooterId);
 
         var hits = new List<HitInfo>();
-        model.UpdateGameState(DateTime.UtcNow, () => model.GetHits(hits));
+        model.UpdateGameState(TimeSpan.FromSeconds(1), () => model.GetHits(hits));
 
         Assert.Single(hits);
         Assert.Equal(targetId, hits[0].PlayerId);
@@ -83,7 +83,7 @@ public class GameModelTests
         player.Hp = 0; // simulate death by any means; RespawnTime defaults to 0
 
         var respawned = new List<uint>();
-        model.UpdateGameState(DateTime.UtcNow, () => model.GetRespawnedPlayerIds(respawned));
+        model.UpdateGameState(TimeSpan.FromSeconds(1), () => model.GetRespawnedPlayerIds(respawned));
 
         Assert.Contains(playerId, respawned);
         Assert.Equal(player.MaxHp, model.GetPlayer(playerId).Hp);

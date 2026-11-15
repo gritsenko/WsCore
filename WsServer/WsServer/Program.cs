@@ -1,14 +1,10 @@
-﻿using Game.ServerLogic.Chat.Events;
-using Microsoft.AspNetCore.Builder;
+﻿using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Logging.Debug;
-using Game.Core;
 using WsServer;
-using WsServer.Abstract;
-using WsServer.ServerInfo;
 using WsServer.Prototype; // added for prototype
 
 var builder = WebApplication.CreateBuilder(args);
@@ -20,33 +16,12 @@ builder.Services.AddLogging(b =>
         .AddFilter<DebugLoggerProvider>(category: null, level: LogLevel.Debug);
 });
 
-builder.Services.AddSingleton<IServerLogicProvider, ReflectionServerLogicProvider>(sc =>
-    //pass our Game.ServerLogic assembly for parsing messages and handlers from it
-    new ReflectionServerLogicProvider(typeof(ChatMessageEvent).Assembly, new ClientRequestHandlerFactory(sc)));
-
-// Tick rate, buffer sizes, rate-limit cooldowns and validation limits — configurable via
-// the "GameServer" section of appsettings.json instead of scattered magic numbers.
-builder.Services.Configure<GameServerOptions>(builder.Configuration.GetSection("GameServer"));
-builder.Services.AddSingleton(sp => sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<GameServerOptions>>().Value);
-
-//init game server
-builder.Services.AddSingleton<IClientConnectionManager, ConnectionManager>();
-builder.Services.AddSingleton<IMessageSerializer, MessageSerializer>();
-// Add RoomManager to DI container
-builder.Services.AddSingleton<WsServer.Rooms.RoomManager>();
-// Register unified GameMessenger with room awareness
-builder.Services.AddSingleton<IGameMessenger>(sp =>
-    new GameMessenger(
-        sp.GetRequiredService<IClientConnectionManager>(),
-        sp.GetRequiredService<IMessageSerializer>(),
-        sp.GetRequiredService<WsServer.Rooms.RoomManager>()));
-// server info provider for dashboard
-builder.Services.AddSingleton<ServerInfoProvider>();
-
-builder.Services.AddSingleton<GameModel>();
-builder.Services.AddSingleton<IGameServer, GameServer>();
-
-builder.Services.AddTransient<WebSocketHandlerFactory>();
+// Game server + its dependencies (shared with LoadTest / TestClient / the test fixture).
+// Tick rate, buffer sizes, rate-limit cooldowns, keep-alive and validation limits are
+// configurable via the "GameServer" section of appsettings.json. The game server is a
+// hosted service: its tick loop starts with the host, and the host's graceful shutdown
+// (SIGTERM/Ctrl+C) closes every socket, stops the loop and drops room state (audit §1.15).
+builder.Services.AddGameServer(builder.Configuration.GetSection("GameServer"));
 
 // Prototype synthetic client: Development-only, and disabled there too unless WS_PROTO_CLIENT=1
 if (builder.Environment.IsDevelopment())
@@ -62,31 +37,12 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseDefaultFiles();
-app.UseStaticFiles();
+// Hashed Vite chunks (/assets/name-HASH.js) are immutable; index.html is revalidated on
+// every load so a deploy is picked up immediately (see StaticFileCaching).
+app.UseStaticFiles(new StaticFileOptions { OnPrepareResponse = StaticFileCaching.Apply });
 
-// WebSocket handling
-app.UseWebSockets();
-app.Map("/ws", WebSocketHandler.HandleWebSocket);
-
-// Simple server info endpoint for dashboard
-app.MapGet("/info", (ServerInfoProvider provider) => provider.GetInfo());
-
-// Lightweight health endpoint for Docker/orchestration probes
-app.MapGet("/health", () => Results.Ok("healthy"));
-
-// Graceful shutdown (audit §1.15): on SIGTERM/Ctrl+C, stop the tick loop and close every
-// open socket instead of leaving the process to drop connections mid-write when the host
-// process actually exits.
-app.Lifetime.ApplicationStopping.Register(() =>
-{
-    var logger = app.Services.GetRequiredService<ILogger<WsServer.GameServer>>();
-    var connections = app.Services.GetRequiredService<IClientConnectionManager>().Connections.ToList();
-    logger.LogInformation("Graceful shutdown: closing {Count} connection(s)", connections.Count);
-    foreach (var connection in connections)
-        connection.Terminate();
-
-    (app.Services.GetRequiredService<IGameServer>() as IDisposable)?.Dispose();
-    app.Services.GetRequiredService<WsServer.Rooms.RoomManager>().Dispose();
-});
+// WebSockets (with keep-alive) at /ws, /health for Docker/orchestration probes (503 if
+// the tick loop stops ticking) and the /info dashboard JSON.
+app.UseGameServer();
 
 app.Run();

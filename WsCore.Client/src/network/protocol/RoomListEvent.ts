@@ -3,11 +3,9 @@ import { MemoryPackReader } from "./MemoryPackReader.js";
 import { RoomInfo } from "./RoomInfo.js";
 
 export class RoomListEvent {
-    eventType: string | null;
     rooms: (RoomInfo | null)[] | null;
 
     constructor() {
-        this.eventType = null;
         this.rooms = null;
 
     }
@@ -24,8 +22,7 @@ export class RoomListEvent {
             return;
         }
 
-        writer.writeObjectHeader(2);
-        writer.writeString(value.eventType);
+        writer.writeObjectHeader(1);
         writer.writeArray(value.rooms, (writer, x) => RoomInfo.serializeCore(writer, x));
 
     }
@@ -51,18 +48,16 @@ export class RoomListEvent {
         }
 
         const value = new RoomListEvent();
-        if (count == 2) {
-            value.eventType = reader.readString();
+        if (count == 1) {
             value.rooms = reader.readArray(reader => RoomInfo.deserializeCore(reader));
 
         }
-        else if (count > 2) {
+        else if (count > 1) {
             throw new Error("Current object's property count is larger than type schema, can't deserialize about versioning.");
         }
         else {
             if (count == 0) return value;
-            value.eventType = reader.readString(); if (count == 1) return value;
-            value.rooms = reader.readArray(reader => RoomInfo.deserializeCore(reader)); if (count == 2) return value;
+            value.rooms = reader.readArray(reader => RoomInfo.deserializeCore(reader)); if (count == 1) return value;
 
         }
         return value;

@@ -5,28 +5,12 @@ export class MovementStateData {
     playerId: number;
     x: number;
     y: number;
-    aimX: number;
-    aimY: number;
-    targetX: number;
-    targetY: number;
-    bodyAngle: number;
-    controlsState: number;
-    velocityX: number;
-    velocityY: number;
     animationState: number;
 
     constructor() {
         this.playerId = 0;
         this.x = 0;
         this.y = 0;
-        this.aimX = 0;
-        this.aimY = 0;
-        this.targetX = 0;
-        this.targetY = 0;
-        this.bodyAngle = 0;
-        this.controlsState = 0;
-        this.velocityX = 0;
-        this.velocityY = 0;
         this.animationState = 0;
 
     }
@@ -43,19 +27,11 @@ export class MovementStateData {
             return;
         }
 
-        writer.writeObjectHeader(12);
+        writer.writeObjectHeader(4);
         writer.writeUint32(value.playerId);
         writer.writeFloat32(value.x);
         writer.writeFloat32(value.y);
-        writer.writeFloat32(value.aimX);
-        writer.writeFloat32(value.aimY);
-        writer.writeFloat32(value.targetX);
-        writer.writeFloat32(value.targetY);
-        writer.writeInt32(value.bodyAngle);
-        writer.writeInt32(value.controlsState);
-        writer.writeFloat32(value.velocityX);
-        writer.writeFloat32(value.velocityY);
-        writer.writeInt32(value.animationState);
+        writer.writeUint8(value.animationState);
 
     }
 
@@ -80,22 +56,14 @@ export class MovementStateData {
         }
 
         const value = new MovementStateData();
-        if (count == 12) {
+        if (count == 4) {
             value.playerId = reader.readUint32();
             value.x = reader.readFloat32();
             value.y = reader.readFloat32();
-            value.aimX = reader.readFloat32();
-            value.aimY = reader.readFloat32();
-            value.targetX = reader.readFloat32();
-            value.targetY = reader.readFloat32();
-            value.bodyAngle = reader.readInt32();
-            value.controlsState = reader.readInt32();
-            value.velocityX = reader.readFloat32();
-            value.velocityY = reader.readFloat32();
-            value.animationState = reader.readInt32();
+            value.animationState = reader.readUint8();
 
         }
-        else if (count > 12) {
+        else if (count > 4) {
             throw new Error("Current object's property count is larger than type schema, can't deserialize about versioning.");
         }
         else {
@@ -103,15 +71,7 @@ export class MovementStateData {
             value.playerId = reader.readUint32(); if (count == 1) return value;
             value.x = reader.readFloat32(); if (count == 2) return value;
             value.y = reader.readFloat32(); if (count == 3) return value;
-            value.aimX = reader.readFloat32(); if (count == 4) return value;
-            value.aimY = reader.readFloat32(); if (count == 5) return value;
-            value.targetX = reader.readFloat32(); if (count == 6) return value;
-            value.targetY = reader.readFloat32(); if (count == 7) return value;
-            value.bodyAngle = reader.readInt32(); if (count == 8) return value;
-            value.controlsState = reader.readInt32(); if (count == 9) return value;
-            value.velocityX = reader.readFloat32(); if (count == 10) return value;
-            value.velocityY = reader.readFloat32(); if (count == 11) return value;
-            value.animationState = reader.readInt32(); if (count == 12) return value;
+            value.animationState = reader.readUint8(); if (count == 4) return value;
 
         }
         return value;

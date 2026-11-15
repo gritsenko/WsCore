@@ -1,4 +1,4 @@
-﻿using System.Linq;
+using System.Linq;
 using Game.Core;
 using Game.ServerLogic.Map.Events;
 using Game.ServerLogic.Map.Requests;
@@ -11,6 +11,9 @@ public class GetMapObjectsRequestHandler(IGameMessenger messenger, GameModel gam
 {
     protected override void Handle(uint clientId, GetMapObjectsRequest request)
     {
+        // The map is game-world state: only for clients in the world.
+        if (gameModel.GetPlayer(clientId) == null)
+            return;
         var objects = gameModel.World.GetTileBlockObjects(request.MapX, request.MapY).ToArray();
         messenger.Send(clientId, new UpdateMapObjectsEvent(objects));
     }

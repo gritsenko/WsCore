@@ -24,9 +24,10 @@ export default class ChatUI {
   }
 
   /**
-   * Inject the chat CSS. Imported via `?inline` so it survives the single-file
-   * production build — the old `<link href="/src/utils/ChatUI.css">` 404'd there
-   * and left the in-game chat unstyled (audit §5).
+   * Inject the chat CSS. Imported via `?inline` so it is bundled as a string into
+   * the (lazily-loaded) game chunk and injected only when the chat is built — the
+   * old `<link href="/src/utils/ChatUI.css">` 404'd in production builds and left
+   * the in-game chat unstyled (audit §5).
    */
   private static loadCSS(): void {
     const styleElement = document.createElement('style');

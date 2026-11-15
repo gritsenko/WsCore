@@ -26,30 +26,22 @@ public class Player
     public int WeaponIndex { get; set; }
     public int ArmorIndex { get; set; }
 
-    public int AnimationState { get; set; }
+    public byte AnimationState { get; set; } // 0 idle, 1 walk, 2 dead
     public bool IsDead => Hp <= 0;
 
     public double RespawnTime = 0;
 
-    // Server-side rate limits (audit §2), sourced from GameServerOptions by GameModel at
-    // creation time. Ticked down in Update so no wall-clock or timestamps are needed and
-    // everything stays on the single tick thread.
+    // Server-side fire-rate limit (audit §2), sourced from GameServerOptions by GameModel
+    // at creation time. Ticked down in Update so no wall-clock or timestamps are needed and
+    // everything stays on the single tick thread. (The chat limit lives on the client
+    // session — chat works without an avatar.)
     public float ShootCooldownDuration = 0.25f; // max ~4 shots/sec
-    public float ChatCooldownDuration = 0.5f;   // max ~2 messages/sec
     public float ShootCooldown;
-    public float ChatCooldown;
 
     public bool TryConsumeShootCooldown()
     {
         if (ShootCooldown > 0f) return false;
         ShootCooldown = ShootCooldownDuration;
-        return true;
-    }
-
-    public bool TryConsumeChatCooldown()
-    {
-        if (ChatCooldown > 0f) return false;
-        ChatCooldown = ChatCooldownDuration;
         return true;
     }
 
@@ -77,7 +69,6 @@ public class Player
     public virtual void Update(float dt)
     {
         if (ShootCooldown > 0f) ShootCooldown -= dt;
-        if (ChatCooldown > 0f) ChatCooldown -= dt;
 
         if (IsDead)
         {

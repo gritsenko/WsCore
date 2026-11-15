@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { RoomManager } from './RoomManager';
-import { CommunicationMode } from './CommunicationMode';
+import { CommunicationMode, parseServerModes } from './CommunicationMode';
 
 // Replaces the old ad-hoc Tests/*.js scripts (root Tests/ dir), which reimplemented
 // this logic from scratch in plain JS against stale Spatial2D/Spatial3D concepts and
@@ -115,5 +115,59 @@ describe('RoomManager', () => {
 
     expect(manager.getClientRoom(1)).toBeUndefined();
     expect(manager.getRoom('lobby')).toBeUndefined();
+  });
+
+  it('upsertRoom creates a room from a server description, then updates it in place', () => {
+    const room = manager.upsertRoom({
+      id: 'game',
+      name: 'Game',
+      supportedModes: [CommunicationMode.Spatial],
+      isPersistent: true,
+      userCount: 3,
+    });
+    manager.joinRoom(1, 'Alice', 'game');
+
+    const same = manager.upsertRoom({
+      id: 'game',
+      name: 'Arena',
+      supportedModes: [CommunicationMode.TextChat],
+      isPersistent: false,
+      userCount: 4,
+    });
+
+    expect(same).toBe(room);
+    expect(room.name).toBe('Arena');
+    expect(room.supportsMode(CommunicationMode.Spatial)).toBe(false);
+    expect(room.supportsMode(CommunicationMode.TextChat)).toBe(true);
+    expect(room.isPersistent).toBe(false);
+    expect(room.userCount).toBe(4);
+    expect(manager.getClientRoom(1)).toBe(room); // membership kept
+  });
+
+  it('syncRooms makes the server list the room set: order, removals, kept membership', () => {
+    const desc = (id: string) => ({
+      id,
+      name: id,
+      supportedModes: [CommunicationMode.TextChat],
+      isPersistent: true,
+      userCount: 0,
+    });
+    manager.syncRooms([desc('lobby'), desc('voice'), desc('old')]);
+    manager.joinRoom(1, 'Alice', 'lobby');
+    manager.joinRoom(2, 'Bob', 'old');
+
+    manager.syncRooms([desc('voice'), desc('lobby'), desc('new')]);
+
+    expect(manager.getAllRooms().map(r => r.id)).toEqual(['voice', 'lobby', 'new']);
+    expect(manager.getClientRoom(1)?.id).toBe('lobby');
+    expect(manager.getClientRoom(2)).toBeUndefined(); // its room is gone
+  });
+
+  it('parseServerModes maps RoomCompatibility names and ignores unknown ones', () => {
+    expect(parseServerModes(['TextChat', 'Spatial', 'Hologram', null, 'Spatial'])).toEqual([
+      CommunicationMode.TextChat,
+      CommunicationMode.Spatial,
+    ]);
+    expect(parseServerModes(null)).toEqual([]);
   });
 });
