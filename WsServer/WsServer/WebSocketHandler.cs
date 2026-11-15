@@ -221,7 +221,7 @@ public class WebSocketHandler(
             }
             else
             {
-                logger.LogWarning("JSON request missing typeId: {Json}", json);
+                logger.LogWarning("JSON request missing typeId ({Length} chars)", json.Length); // never log bodies: they may carry a password
                 return;
             }
 

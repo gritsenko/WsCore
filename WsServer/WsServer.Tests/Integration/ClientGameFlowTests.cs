@@ -1,3 +1,7 @@
+using Game.ServerLogic.Presence.Requests;
+using Game.ServerLogic.Presence.Events;
+using Game.ServerLogic.Account.Requests;
+using System.Net;
 using System.Collections.Concurrent;
 using System.Net.Http.Json;
 using System.Net.WebSockets;
@@ -51,6 +55,40 @@ public class ClientGameFlowTests(EmbeddedServerFixture fixture) : IClassFixture<
         // 4. tick — the ~30Hz tick loop is running and broadcasting spatial state.
         var tick = await ReceiveUntil<GameTickUpdateEvent>(socket, cts.Token);
         Assert.NotNull(tick.MovementStates);
+
+        await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", cts.Token);
+    }
+
+    /// <summary>
+    /// The profile over the real transports: the avatar goes up through the WebSocket
+    /// and comes back over HTTP, cacheable forever under its versioned URL.
+    /// </summary>
+    [Fact]
+    public async Task Avatar_UploadedOverTheSocket_IsServedOverHttp()
+    {
+        using var socket = new ClientWebSocket();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        await socket.ConnectAsync(fixture.WsUri, cts.Token);
+        await ReceiveUntil<InitPlayerEvent>(socket, cts.Token);
+
+        await Send(socket, new IdentifyRequest { UserKey = "avatar-test-key-0123456789", Name = "Pic" }, cts.Token);
+        var snapshot = await ReceiveUntil<PresenceSnapshotEvent>(socket, cts.Token);
+
+        byte[] png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 42, 43, 44];
+        await Send(socket, new SetAvatarRequest { Image = png }, cts.Token);
+        var update = await ReceiveUntil<PresenceUpdateEvent>(
+            socket, cts.Token, e => e.User.UserId == snapshot.YourUserId && e.User.AvatarVersion != 0);
+
+        using var http = new HttpClient { BaseAddress = fixture.HttpUri };
+        using var response = await http.GetAsync($"/avatars/{snapshot.YourUserId}?v={update.User.AvatarVersion}", cts.Token);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("image/png", response.Content.Headers.ContentType?.MediaType);
+        Assert.Equal(png, await response.Content.ReadAsByteArrayAsync(cts.Token));
+        Assert.Contains("immutable", response.Headers.CacheControl?.ToString());
+        Assert.Equal("nosniff", response.Headers.GetValues("X-Content-Type-Options").Single());
+
+        using var missing = await http.GetAsync("/avatars/999999", cts.Token);
+        Assert.Equal(HttpStatusCode.NotFound, missing.StatusCode);
 
         await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", cts.Token);
     }

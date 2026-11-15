@@ -2,7 +2,14 @@ import WsClient from '../network/WsClient';
 import Player from '../game/Player';
 import LobbyUI, { LobbyMember, LobbyMessage } from '../lobby/LobbyUI';
 import { ChatEntry, ChatLogChange } from '../network/ChatLog';
-import { PresenceStatus, PresenceUser } from '../network/ClientEvents';
+import {
+  AccountAction,
+  AccountResult,
+  PresenceStatus,
+  PresenceUser,
+} from '../network/ClientEvents';
+import ProfileDialog, { ProfileSection, ProfileView } from '../lobby/ProfileDialog';
+import { prepareAvatar } from '../utils/AvatarImage';
 import { Unsubscribe } from '../utils/Emitter';
 import { RoomUsersUpdateEvent } from '../network/protocol/RoomUsersUpdateEvent';
 import { CommunicationMode } from '../network/rooms/CommunicationMode';
@@ -21,12 +28,44 @@ import { CommunicationMode } from '../network/rooms/CommunicationMode';
  * cached at once, then only the missed messages / older pages are added to the DOM.
  * The member list is the server's presence roster (online, away and offline users),
  * plus any anonymous connections currently in the room.
+ *
+ * It also owns the profile dialog (name, avatar, about, claiming the account): the
+ * dialog reports what the user did, this state sends it and shows the server's answer.
  */
+
+/** Server `AccountError` codes, as the profile dialog words them. */
+const ACCOUNT_ERRORS: Record<string, string> = {
+  not_identified: 'Сервер ещё не знает вас — попробуйте через секунду',
+  invalid_login: 'Логин: 3–32 символа — латиница, цифры, точка, _ и -',
+  invalid_password: 'Пароль должен быть не короче 8 символов',
+  login_taken: 'Этот логин уже занят',
+  already_claimed: 'Аккаунт уже закреплён',
+  not_claimed: 'Сначала закрепите аккаунт',
+  too_fast: 'Слишком часто — попробуйте через секунду',
+  busy: 'Предыдущий запрос ещё выполняется',
+  invalid_image: 'Не удалось сохранить изображение',
+};
+
+const ACCOUNT_SECTIONS: Record<AccountAction, ProfileSection> = {
+  [AccountAction.Claim]: 'account',
+  [AccountAction.Login]: 'account',
+  [AccountAction.Logout]: 'account',
+  [AccountAction.Profile]: 'profile',
+  [AccountAction.Avatar]: 'avatar',
+};
+
+const ACCOUNT_DONE: Partial<Record<AccountAction, string>> = {
+  [AccountAction.Claim]: 'Аккаунт закреплён',
+  [AccountAction.Profile]: 'Сохранено',
+  [AccountAction.Avatar]: 'Аватар обновлён',
+};
+
 export default class LobbyState {
   private readonly client: WsClient<Player>;
   private readonly onEnterGame: (roomId: string) => void;
   private ui!: LobbyUI;
   private unsubs: Unsubscribe[] = [];
+  private profile: ProfileDialog | null = null;
 
   constructor(client: WsClient<Player>, onEnterGame: (roomId: string) => void) {
     this.client = client;
@@ -41,6 +80,7 @@ export default class LobbyState {
     this.ui.setOnRoomJoinCallback(roomId => this.requestJoin(roomId));
     this.ui.setOnPlayCallback(roomId => this.onEnterGame(roomId));
     this.ui.setOnLoadOlderCallback(() => this.loadOlder());
+    this.ui.setOnProfileCallback(() => this.openProfile());
 
     this.unsubs.push(
       this.client.on('roomList', () => this.renderRooms()),
@@ -50,7 +90,11 @@ export default class LobbyState {
       this.client.on('roomUsers', (msg: RoomUsersUpdateEvent) => this.handleRoomUsersUpdate(msg)),
       this.client.on('chat', (roomId, entry) => this.handleChat(roomId, entry)),
       this.client.on('chatHistory', (roomId, change) => this.handleChatHistory(roomId, change)),
-      this.client.on('presence', () => this.renderMembers())
+      this.client.on('presence', () => {
+        this.renderMembers();
+        this.profile?.update(this.profileView());
+      }),
+      this.client.on('account', result => this.handleAccount(result))
     );
 
     // Rooms may already be known (coming back from the game).
@@ -78,6 +122,7 @@ export default class LobbyState {
   exit(): void {
     for (const off of this.unsubs) off();
     this.unsubs = [];
+    this.closeProfile();
     this.ui.destroy();
   }
 
@@ -116,6 +161,7 @@ export default class LobbyState {
     text: entry.text,
     sentAtMs: entry.sentAtMs,
     own: this.client.isOwnMessage(entry),
+    avatarUrl: this.client.avatarUrl(this.client.presence.get(entry.userId)),
   });
 
   private renderChat(roomId: string): void {
@@ -192,6 +238,8 @@ export default class LobbyState {
         status,
         isSelf: user.userId === client.myUserId,
         detail: this.memberDetail(user, room?.id ?? null),
+        avatarUrl: client.avatarUrl(user),
+        about: user.about,
         rank: status === 'online' ? 0 : status === 'away' ? 1 : 2,
         // Offline: most recently seen first.
         sort: status === 'offline' ? -user.lastSeenMs : 0,
@@ -234,6 +282,70 @@ export default class LobbyState {
         : null;
     if (user.status === PresenceStatus.Away) return elsewhere ? `Отошёл · ${elsewhere}` : 'Отошёл';
     return elsewhere ?? undefined;
+  }
+
+  // ==================== profile ====================
+
+  private profileView(): ProfileView {
+    const me = this.client.me;
+    return {
+      name: me?.name ?? this.client.myPlayerName,
+      about: me?.about ?? '',
+      avatarUrl: this.client.avatarUrl(me),
+      login: this.client.myLogin,
+      identified: me !== undefined,
+    };
+  }
+
+  private openProfile(): void {
+    if (this.profile) return;
+    this.profile = new ProfileDialog(this.profileView(), {
+      onSave: (name, about) => {
+        // The name is renamed through the usual request (it is announced by presence);
+        // "about" is the one that is answered — and rate-limited — as a profile change.
+        const view = this.profileView();
+        if (name !== view.name) this.client.rename(name);
+        if (about !== view.about) this.client.setAbout(about);
+        else this.profile?.showStatus('profile', 'Сохранено');
+      },
+      onAvatarPicked: file => void this.uploadAvatar(file),
+      onAvatarRemoved: () => this.client.setAvatar(null),
+      onClaim: (login, password) => {
+        this.profile?.showStatus('account', '');
+        this.client.claimAccount(login, password);
+      },
+      onLogout: () => this.client.logout(),
+      onClose: () => this.closeProfile(),
+    });
+  }
+
+  private closeProfile(): void {
+    this.profile?.destroy();
+    this.profile = null;
+  }
+
+  private async uploadAvatar(file: File): Promise<void> {
+    const dialog = this.profile;
+    dialog?.showStatus('avatar', 'Загрузка…');
+    try {
+      const image = await prepareAvatar(file);
+      this.client.setAvatar(image);
+    } catch {
+      if (this.profile === dialog)
+        dialog?.showStatus('avatar', 'Не удалось прочитать изображение', true);
+    }
+  }
+
+  private handleAccount(result: AccountResult): void {
+    if (!this.profile) return;
+    const section = ACCOUNT_SECTIONS[result.action];
+    if (result.success) {
+      this.profile.update(this.profileView()); // a claim turns the form into "claimed"
+      this.profile.showStatus(section, ACCOUNT_DONE[result.action] ?? '');
+    } else {
+      const text = ACCOUNT_ERRORS[result.error ?? ''] ?? 'Не получилось. Попробуйте ещё раз';
+      this.profile.showStatus(section, text, true);
+    }
   }
 
   private handlePlayerName(id: number, name: string): void {

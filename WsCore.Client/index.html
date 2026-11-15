@@ -41,7 +41,7 @@
             letter-spacing: 0.18em;
         }
 
-        #name-text-input {
+        #name-form input {
             width: 100%;
             box-sizing: border-box;
             height: 46px;
@@ -56,11 +56,11 @@
             transition: border-color 0.15s;
         }
 
-        #name-text-input::placeholder {
+        #name-form input::placeholder {
             color: #8d928f;
         }
 
-        #name-text-input:focus {
+        #name-form input:focus {
             outline: none;
             border-color: #a3dcb8;
         }
@@ -82,20 +82,60 @@
         #name-form button:hover {
             background: #b6e8c8;
         }
+
+        /* Two modes: quick entry by name (guest) / logging in to a claimed account. */
+        #name-form[data-mode='guest'] #login-fields,
+        #name-form[data-mode='login'] #name-fields {
+            display: none;
+        }
+
+        #name-form-error {
+            margin: -8px 0 16px 0;
+            font-size: 13px;
+            color: #e58a8a;
+        }
+
+        #name-form-toggle {
+            display: block;
+            margin-top: 18px;
+            text-align: center;
+            font-size: 13px;
+            color: #8d928f;
+            text-decoration: none;
+        }
+
+        #name-form-toggle:hover {
+            color: #a3dcb8;
+        }
     </style>
 </head>
 <body style="margin: 0;">
     <div id="game"></div>
 
-    <div id="name-form">
+    <div id="name-form" data-mode="guest">
         <p>Connect to Server</p>
-        
-        <label for="name-text-input">Username:</label>
-        <input id="name-text-input" value="" placeholder="Enter your username" />
 
-        <button onclick="onStartGameClicked();">
+        <div id="name-fields">
+            <label for="name-text-input">Username:</label>
+            <input id="name-text-input" value="" placeholder="Enter your username" maxlength="32" />
+        </div>
+
+        <div id="login-fields">
+            <label for="login-text-input">Login:</label>
+            <input id="login-text-input" value="" placeholder="Your account login" maxlength="32"
+                   autocomplete="username" autocapitalize="none" spellcheck="false" />
+            <label for="password-text-input">Password:</label>
+            <input id="password-text-input" type="password" value="" placeholder="Password" maxlength="128"
+                   autocomplete="current-password" />
+        </div>
+
+        <div id="name-form-error" hidden></div>
+
+        <button id="name-form-submit" onclick="onStartGameClicked();">
             Enter Lobby
         </button>
+
+        <a id="name-form-toggle" href="#">I have an account</a>
     </div>
 
     <script type="module" src="/src/main.ts"></script>

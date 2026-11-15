@@ -5,10 +5,12 @@ import { PresenceUserInfo } from "./PresenceUserInfo.js";
 export class PresenceSnapshotEvent {
     yourUserId: number;
     users: (PresenceUserInfo | null)[] | null;
+    yourLogin: string | null;
 
     constructor() {
         this.yourUserId = 0;
         this.users = null;
+        this.yourLogin = null;
 
     }
 
@@ -24,9 +26,10 @@ export class PresenceSnapshotEvent {
             return;
         }
 
-        writer.writeObjectHeader(2);
+        writer.writeObjectHeader(3);
         writer.writeUint32(value.yourUserId);
         writer.writeArray(value.users, (writer, x) => PresenceUserInfo.serializeCore(writer, x));
+        writer.writeString(value.yourLogin);
 
     }
 
@@ -51,18 +54,20 @@ export class PresenceSnapshotEvent {
         }
 
         const value = new PresenceSnapshotEvent();
-        if (count == 2) {
+        if (count == 3) {
             value.yourUserId = reader.readUint32();
             value.users = reader.readArray(reader => PresenceUserInfo.deserializeCore(reader));
+            value.yourLogin = reader.readString();
 
         }
-        else if (count > 2) {
+        else if (count > 3) {
             throw new Error("Current object's property count is larger than type schema, can't deserialize about versioning.");
         }
         else {
             if (count == 0) return value;
             value.yourUserId = reader.readUint32(); if (count == 1) return value;
             value.users = reader.readArray(reader => PresenceUserInfo.deserializeCore(reader)); if (count == 2) return value;
+            value.yourLogin = reader.readString(); if (count == 3) return value;
 
         }
         return value;

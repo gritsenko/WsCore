@@ -24,6 +24,10 @@ public partial class PresenceUserInfo
     public string? RoomId;
     // Unix ms the user was last connected (for offline users: when they left).
     public double LastSeenMs;
+    // "About me" text; empty if not set.
+    public string About = string.Empty;
+    // 0 = no avatar; otherwise the image is at /avatars/{UserId}?v={AvatarVersion}.
+    public uint AvatarVersion;
 }
 
 /// <summary>
@@ -41,6 +45,9 @@ public partial class PresenceSnapshotEvent : IServerEvent
 
     [MemoryPackAllowSerialize]
     public List<PresenceUserInfo> Users = new();
+
+    // The login of your account if it is claimed; null for a guest (see ClaimAccountRequest).
+    public string? YourLogin;
 }
 
 /// <summary>

@@ -84,4 +84,19 @@ public class GameServerOptions
     // Away (afk) toggles are announced at most this often (they are client-driven, so
     // this bounds what a toggling client can make the server broadcast).
     public double PresenceFlushIntervalSeconds { get; set; } = 1.0;
+
+    // ---- accounts & profiles -----------------------------------------------------------
+
+    // PBKDF2-HMAC-SHA512 iterations for account passwords (hashed off the tick thread).
+    public int PasswordHashIterations { get; set; } = 210_000;
+    // Minimum time between account / profile requests of one connection (claim, login,
+    // logout, about, avatar).
+    public double AccountRequestCooldownSeconds { get; set; } = 1.0;
+    // Wrong passwords in a row after which a login is locked for LoginLockoutSeconds
+    // (devices already logged in are not affected: they identify with their key).
+    public int LoginMaxFailures { get; set; } = 5;
+    public double LoginLockoutSeconds { get; set; } = 60;
+    public int MaxAboutLength { get; set; } = 190;
+    // Largest accepted avatar file. Must fit a WebSocket message (WebSocketMaxMessageSizeBytes).
+    public int MaxAvatarBytes { get; set; } = 48 * 1024;
 }

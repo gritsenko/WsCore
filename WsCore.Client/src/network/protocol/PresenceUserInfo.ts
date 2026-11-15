@@ -7,6 +7,8 @@ export class PresenceUserInfo {
     status: number;
     roomId: string | null;
     lastSeenMs: number;
+    about: string | null;
+    avatarVersion: number;
 
     constructor() {
         this.userId = 0;
@@ -14,6 +16,8 @@ export class PresenceUserInfo {
         this.status = 0;
         this.roomId = null;
         this.lastSeenMs = 0;
+        this.about = null;
+        this.avatarVersion = 0;
 
     }
 
@@ -29,12 +33,14 @@ export class PresenceUserInfo {
             return;
         }
 
-        writer.writeObjectHeader(5);
+        writer.writeObjectHeader(7);
         writer.writeUint32(value.userId);
         writer.writeString(value.name);
         writer.writeUint8(value.status);
         writer.writeString(value.roomId);
         writer.writeFloat64(value.lastSeenMs);
+        writer.writeString(value.about);
+        writer.writeUint32(value.avatarVersion);
 
     }
 
@@ -59,15 +65,17 @@ export class PresenceUserInfo {
         }
 
         const value = new PresenceUserInfo();
-        if (count == 5) {
+        if (count == 7) {
             value.userId = reader.readUint32();
             value.name = reader.readString();
             value.status = reader.readUint8();
             value.roomId = reader.readString();
             value.lastSeenMs = reader.readFloat64();
+            value.about = reader.readString();
+            value.avatarVersion = reader.readUint32();
 
         }
-        else if (count > 5) {
+        else if (count > 7) {
             throw new Error("Current object's property count is larger than type schema, can't deserialize about versioning.");
         }
         else {
@@ -77,6 +85,8 @@ export class PresenceUserInfo {
             value.status = reader.readUint8(); if (count == 3) return value;
             value.roomId = reader.readString(); if (count == 4) return value;
             value.lastSeenMs = reader.readFloat64(); if (count == 5) return value;
+            value.about = reader.readString(); if (count == 6) return value;
+            value.avatarVersion = reader.readUint32(); if (count == 7) return value;
 
         }
         return value;

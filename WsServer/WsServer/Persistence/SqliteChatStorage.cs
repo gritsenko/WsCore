@@ -29,6 +29,13 @@ public sealed class SqliteChatStorage : IChatStorage
     private sealed record AppendOp(ChatMessage Message) : Op;
     private sealed record SaveUserOp(StoredUser User) : Op;
     private sealed record DeleteUserOp(uint UserId) : Op;
+    private sealed record SaveUserKeyOp(StoredUserKey Key) : Op;
+    private sealed record DeleteUserKeyOp(string KeyHash) : Op;
+    private sealed record SaveAvatarOp(uint UserId, StoredAvatar? Avatar) : Op;
+    private sealed record LoadAvatarOp(uint UserId, Action<StoredAvatar?> OnResult) : Op
+    {
+        public StoredAvatar? Result;
+    }
     private sealed record QueryOp(string RoomId, uint BeforeId, int Limit, Action<IReadOnlyList<ChatMessage>> OnResult) : Op
     {
         public IReadOnlyList<ChatMessage> Result = [];
@@ -48,6 +55,13 @@ public sealed class SqliteChatStorage : IChatStorage
     private SqliteCommand _upsertUser = null!;
     private SqliteCommand _deleteUser = null!;
     private SqliteCommand _selectBefore = null!;
+    private SqliteCommand _deleteKeysOfUser = null!;
+    private SqliteCommand _upsertUserKey = null!;
+    private SqliteCommand _deleteUserKey = null!;
+    private SqliteCommand _upsertAvatar = null!;
+    private SqliteCommand _deleteAvatar = null!;
+    private SqliteCommand _selectAvatar = null!;
+    private SqliteCommand[] _commands = [];
 
     public bool IsPersistent => true;
 
@@ -86,13 +100,62 @@ public sealed class SqliteChatStorage : IChatStorage
                 sent_at INTEGER NOT NULL
             );
             CREATE INDEX IF NOT EXISTS ix_messages_room_id ON messages(room_id, id);
-            CREATE TABLE IF NOT EXISTS users(
-                id        INTEGER PRIMARY KEY,
-                key_hash  TEXT    NOT NULL UNIQUE,
-                name      TEXT    NOT NULL,
-                last_seen INTEGER NOT NULL
+            """);
+        MigrateUsers();
+    }
+
+    // Schema version (PRAGMA user_version) of the user tables:
+    //   0 — users(id, key_hash UNIQUE, name, last_seen): one key per user, or no table yet;
+    //   1 — accounts: a user has any number of keys (user_keys), optional credentials
+    //       (login + password hash), a profile (about, avatar_version) and an avatar blob.
+    private const int SchemaVersion = 1;
+
+    private void MigrateUsers()
+    {
+        var version = Scalar("PRAGMA user_version;");
+        if (version >= SchemaVersion)
+            return;
+
+        using var tx = _db.BeginTransaction();
+        var hadUsers = Scalar("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'users';") > 0;
+        if (hadUsers)
+            Execute("ALTER TABLE users RENAME TO users_v0;");
+
+        Execute("""
+            CREATE TABLE users(
+                id             INTEGER PRIMARY KEY,
+                name           TEXT    NOT NULL,
+                last_seen      INTEGER NOT NULL,
+                login          TEXT,
+                password_hash  TEXT,
+                about          TEXT    NOT NULL DEFAULT '',
+                avatar_version INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE UNIQUE INDEX ix_users_login ON users(login) WHERE login IS NOT NULL;
+            CREATE TABLE user_keys(
+                key_hash TEXT    PRIMARY KEY,
+                user_id  INTEGER NOT NULL
+            ) WITHOUT ROWID;
+            CREATE INDEX ix_user_keys_user ON user_keys(user_id);
+            CREATE TABLE avatars(
+                user_id      INTEGER PRIMARY KEY,
+                content_type TEXT    NOT NULL,
+                data         BLOB    NOT NULL
             );
             """);
+        if (hadUsers)
+        {
+            Execute("""
+                INSERT INTO users(id, name, last_seen) SELECT id, name, last_seen FROM users_v0;
+                INSERT INTO user_keys(key_hash, user_id) SELECT key_hash, id FROM users_v0;
+                DROP TABLE users_v0;
+                """);
+        }
+        Execute($"PRAGMA user_version = {SchemaVersion};");
+        tx.Commit();
+
+        if (hadUsers)
+            _logger.LogInformation("Chat storage: user tables migrated to schema v{Version}", SchemaVersion);
     }
 
     // ---- startup ----------------------------------------------------------------------
@@ -108,10 +171,27 @@ public sealed class SqliteChatStorage : IChatStorage
         var users = new List<StoredUser>();
         using (var cmd = _db.CreateCommand())
         {
-            cmd.CommandText = "SELECT id, key_hash, name, last_seen FROM users;";
+            cmd.CommandText = "SELECT id, name, last_seen, login, password_hash, about, avatar_version FROM users;";
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
-                users.Add(new StoredUser((uint)reader.GetInt64(0), reader.GetString(1), reader.GetString(2), reader.GetInt64(3)));
+            {
+                users.Add(new StoredUser((uint)reader.GetInt64(0), reader.GetString(1), reader.GetInt64(2))
+                {
+                    Login = reader.IsDBNull(3) ? null : reader.GetString(3),
+                    PasswordHash = reader.IsDBNull(4) ? null : reader.GetString(4),
+                    About = reader.GetString(5),
+                    AvatarVersion = (uint)reader.GetInt64(6),
+                });
+            }
+        }
+
+        var userKeys = new List<StoredUserKey>();
+        using (var cmd = _db.CreateCommand())
+        {
+            cmd.CommandText = "SELECT key_hash, user_id FROM user_keys;";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+                userKeys.Add(new StoredUserKey(reader.GetString(0), (uint)reader.GetInt64(1)));
         }
 
         PrepareCommands();
@@ -132,7 +212,7 @@ public sealed class SqliteChatStorage : IChatStorage
         _logger.LogInformation(
             "Chat storage opened: {Users} user(s), {Rooms} room(s) with history, next message id {NextId}",
             users.Count, rooms.Count, nextMessageId);
-        return new StorageSnapshot(epoch, nextMessageId, nextUserId, users, rooms);
+        return new StorageSnapshot(epoch, nextMessageId, nextUserId, users, userKeys, rooms);
     }
 
     private uint ReadOrCreateEpoch()
@@ -172,10 +252,14 @@ public sealed class SqliteChatStorage : IChatStorage
 
         _upsertUser = _db.CreateCommand();
         _upsertUser.CommandText = """
-            INSERT INTO users(id, key_hash, name, last_seen) VALUES($id, $hash, $name, $seen)
-            ON CONFLICT(id) DO UPDATE SET name = excluded.name, last_seen = excluded.last_seen;
+            INSERT INTO users(id, name, last_seen, login, password_hash, about, avatar_version)
+            VALUES($id, $name, $seen, $login, $password, $about, $avatar)
+            ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name, last_seen = excluded.last_seen, login = excluded.login,
+                password_hash = excluded.password_hash, about = excluded.about,
+                avatar_version = excluded.avatar_version;
             """;
-        AddParameters(_upsertUser, "$id", "$hash", "$name", "$seen");
+        AddParameters(_upsertUser, "$id", "$name", "$seen", "$login", "$password", "$about", "$avatar");
 
         _deleteUser = _db.CreateCommand();
         _deleteUser.CommandText = "DELETE FROM users WHERE id = $id;";
@@ -188,6 +272,36 @@ public sealed class SqliteChatStorage : IChatStorage
             ORDER BY id DESC LIMIT $limit;
             """;
         AddParameters(_selectBefore, "$room", "$before", "$limit");
+
+        _deleteKeysOfUser = _db.CreateCommand();
+        _deleteKeysOfUser.CommandText = "DELETE FROM user_keys WHERE user_id = $id;";
+        AddParameters(_deleteKeysOfUser, "$id");
+
+        _upsertUserKey = _db.CreateCommand();
+        _upsertUserKey.CommandText = "INSERT OR REPLACE INTO user_keys(key_hash, user_id) VALUES($hash, $id);";
+        AddParameters(_upsertUserKey, "$hash", "$id");
+
+        _deleteUserKey = _db.CreateCommand();
+        _deleteUserKey.CommandText = "DELETE FROM user_keys WHERE key_hash = $hash;";
+        AddParameters(_deleteUserKey, "$hash");
+
+        _upsertAvatar = _db.CreateCommand();
+        _upsertAvatar.CommandText = "INSERT OR REPLACE INTO avatars(user_id, content_type, data) VALUES($id, $type, $data);";
+        AddParameters(_upsertAvatar, "$id", "$type", "$data");
+
+        _deleteAvatar = _db.CreateCommand();
+        _deleteAvatar.CommandText = "DELETE FROM avatars WHERE user_id = $id;";
+        AddParameters(_deleteAvatar, "$id");
+
+        _selectAvatar = _db.CreateCommand();
+        _selectAvatar.CommandText = "SELECT content_type, data FROM avatars WHERE user_id = $id;";
+        AddParameters(_selectAvatar, "$id");
+
+        _commands =
+        [
+            _insertMessage, _upsertUser, _deleteUser, _selectBefore, _deleteKeysOfUser,
+            _upsertUserKey, _deleteUserKey, _upsertAvatar, _deleteAvatar, _selectAvatar,
+        ];
     }
 
     private static void AddParameters(SqliteCommand command, params string[] names)
@@ -201,6 +315,15 @@ public sealed class SqliteChatStorage : IChatStorage
     public void Append(ChatMessage message) => EnqueueWrite(new AppendOp(message));
     public void SaveUser(StoredUser user) => EnqueueWrite(new SaveUserOp(user));
     public void DeleteUser(uint userId) => EnqueueWrite(new DeleteUserOp(userId));
+    public void SaveUserKey(StoredUserKey key) => EnqueueWrite(new SaveUserKeyOp(key));
+    public void DeleteUserKey(string keyHash) => EnqueueWrite(new DeleteUserKeyOp(keyHash));
+    public void SaveAvatar(uint userId, StoredAvatar? avatar) => EnqueueWrite(new SaveAvatarOp(userId, avatar));
+
+    public void LoadAvatar(uint userId, Action<StoredAvatar?> onResult)
+    {
+        if (!TryEnqueue(new LoadAvatarOp(userId, onResult)))
+            ThreadPool.QueueUserWorkItem(_ => onResult(null));
+    }
 
     public void QueryBefore(string roomId, uint beforeId, int limit, Action<IReadOnlyList<ChatMessage>> onResult)
     {
@@ -268,10 +391,8 @@ public sealed class SqliteChatStorage : IChatStorage
         try
         {
             using var tx = _db.BeginTransaction();
-            _insertMessage.Transaction = tx;
-            _upsertUser.Transaction = tx;
-            _deleteUser.Transaction = tx;
-            _selectBefore.Transaction = tx;
+            foreach (var command in _commands)
+                command.Transaction = tx;
 
             foreach (var op in batch)
             {
@@ -288,14 +409,47 @@ public sealed class SqliteChatStorage : IChatStorage
                         break;
                     case SaveUserOp(var u):
                         _upsertUser.Parameters[0].Value = (long)u.Id;
-                        _upsertUser.Parameters[1].Value = u.KeyHash;
-                        _upsertUser.Parameters[2].Value = u.Name;
-                        _upsertUser.Parameters[3].Value = u.LastSeenMs;
+                        _upsertUser.Parameters[1].Value = u.Name;
+                        _upsertUser.Parameters[2].Value = u.LastSeenMs;
+                        _upsertUser.Parameters[3].Value = (object?)u.Login ?? DBNull.Value;
+                        _upsertUser.Parameters[4].Value = (object?)u.PasswordHash ?? DBNull.Value;
+                        _upsertUser.Parameters[5].Value = u.About;
+                        _upsertUser.Parameters[6].Value = (long)u.AvatarVersion;
                         _upsertUser.ExecuteNonQuery();
                         break;
                     case DeleteUserOp(var id):
                         _deleteUser.Parameters[0].Value = (long)id;
                         _deleteUser.ExecuteNonQuery();
+                        _deleteKeysOfUser.Parameters[0].Value = (long)id;
+                        _deleteKeysOfUser.ExecuteNonQuery();
+                        _deleteAvatar.Parameters[0].Value = (long)id;
+                        _deleteAvatar.ExecuteNonQuery();
+                        break;
+                    case SaveUserKeyOp(var k):
+                        _upsertUserKey.Parameters[0].Value = k.KeyHash;
+                        _upsertUserKey.Parameters[1].Value = (long)k.UserId;
+                        _upsertUserKey.ExecuteNonQuery();
+                        break;
+                    case DeleteUserKeyOp(var hash):
+                        _deleteUserKey.Parameters[0].Value = hash;
+                        _deleteUserKey.ExecuteNonQuery();
+                        break;
+                    case SaveAvatarOp(var id, var avatar):
+                        if (avatar == null)
+                        {
+                            _deleteAvatar.Parameters[0].Value = (long)id;
+                            _deleteAvatar.ExecuteNonQuery();
+                        }
+                        else
+                        {
+                            _upsertAvatar.Parameters[0].Value = (long)id;
+                            _upsertAvatar.Parameters[1].Value = avatar.ContentType;
+                            _upsertAvatar.Parameters[2].Value = avatar.Data;
+                            _upsertAvatar.ExecuteNonQuery();
+                        }
+                        break;
+                    case LoadAvatarOp a:
+                        a.Result = SelectAvatar(a.UserId);
                         break;
                     case QueryOp q:
                         // Same connection, same transaction: sees the appends just above.
@@ -320,6 +474,7 @@ public sealed class SqliteChatStorage : IChatStorage
                 switch (op)
                 {
                     case QueryOp q: q.OnResult(q.Result); break;
+                    case LoadAvatarOp a: a.OnResult(a.Result); break;
                     case FlushOp f: f.Done.TrySetResult(); break;
                 }
             }
@@ -347,6 +502,13 @@ public sealed class SqliteChatStorage : IChatStorage
         return result;
     }
 
+    private StoredAvatar? SelectAvatar(uint userId)
+    {
+        _selectAvatar.Parameters[0].Value = (long)userId;
+        using var reader = _selectAvatar.ExecuteReader();
+        return reader.Read() ? new StoredAvatar(reader.GetString(0), (byte[])reader[1]) : null;
+    }
+
     // ---- retention --------------------------------------------------------------------
 
     private void Prune()
@@ -371,7 +533,12 @@ public sealed class SqliteChatStorage : IChatStorage
         if (_userRetentionDays > 0)
         {
             using var cmd = _db.CreateCommand();
-            cmd.CommandText = "DELETE FROM users WHERE last_seen < $cutoff;";
+            // Guests only: a claimed account is somebody's, however long they stay away.
+            cmd.CommandText = """
+                DELETE FROM users WHERE last_seen < $cutoff AND login IS NULL;
+                DELETE FROM user_keys WHERE user_id NOT IN (SELECT id FROM users);
+                DELETE FROM avatars WHERE user_id NOT IN (SELECT id FROM users);
+                """;
             cmd.Parameters.AddWithValue("$cutoff",
                 DateTimeOffset.UtcNow.AddDays(-_userRetentionDays).ToUnixTimeMilliseconds());
             cmd.ExecuteNonQuery();
@@ -403,10 +570,8 @@ public sealed class SqliteChatStorage : IChatStorage
         if (_worker != null && !_worker.Join(TimeSpan.FromSeconds(10)))
             _logger.LogWarning("Chat storage worker did not finish in time; some writes may be lost");
 
-        _insertMessage?.Dispose();
-        _upsertUser?.Dispose();
-        _deleteUser?.Dispose();
-        _selectBefore?.Dispose();
+        foreach (var command in _commands)
+            command.Dispose();
         _db.Dispose();
     }
 }

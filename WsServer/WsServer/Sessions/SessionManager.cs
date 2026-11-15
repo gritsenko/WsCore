@@ -1,9 +1,13 @@
+using System.Collections.Concurrent;
+using System.Diagnostics;
 using Game.Core;
+using Game.ServerLogic.Account.Events;
 using Game.ServerLogic.GameState.Events;
 using Game.ServerLogic.Player.Events;
 using Game.ServerLogic.Presence.Events;
 using Game.ServerLogic.Rooms.Events;
 using WsServer.Abstract;
+using WsServer.Persistence;
 using WsServer.Rooms;
 
 namespace WsServer.Sessions;
@@ -29,6 +33,13 @@ namespace WsServer.Sessions;
 /// (stable across reconnects). Users are online / away / offline in the member list —
 /// they are never removed from it just because their connection went away.
 ///
+/// Accounts: a user starts as a guest known only by the key in one browser. ClaimAccount
+/// gives it a login + password; Login then binds another device's key to it; Logout
+/// drops this device's key. Passwords are hashed / verified on the thread pool and the
+/// outcome is applied on a later tick (<see cref="DeliverCompleted"/>). Each answers the
+/// requester with an AccountResultEvent. The profile (about, avatar version) travels with
+/// presence.
+///
 /// Threading: tick thread only (connects, disconnects and requests all arrive through
 /// GameServerBase's command queue), so the session map is a plain Dictionary.
 /// </summary>
@@ -49,6 +60,13 @@ public sealed class SessionManager(
     // Users whose away state changed since the last flush (see FlushPresence).
     private readonly HashSet<UserAccount> _presenceDirty = new();
     private long _lastPresenceFlush;
+
+    // Outcomes of password hashing done off-thread, applied on the tick thread.
+    private readonly ConcurrentQueue<Action> _completed = new();
+    // Logins being claimed right now (their password is still being hashed).
+    private readonly HashSet<string> _pendingLogins = new();
+    // Wrong-password streaks per (existing) login: count, and until when it is locked.
+    private readonly Dictionary<string, (int Failures, long LockedUntil)> _loginFailures = new();
 
     public int Count => Volatile.Read(ref _count);
 
@@ -78,12 +96,7 @@ public sealed class SessionManager(
 
         // The user stays in the member list — as offline, unless another of its
         // connections (a second tab, the reconnect that replaced this socket) is alive.
-        if (session.User is { } user)
-        {
-            user.Sessions.Remove(session);
-            session.User = null;
-            PublishPresence(user);
-        }
+        Detach(session);
 
         if (room != null)
         {
@@ -228,7 +241,7 @@ public sealed class SessionManager(
     public bool Identify(uint clientId, string userKey, string name)
     {
         var session = Get(clientId);
-        if (session == null || session.User != null)
+        if (session == null || session.User != null || session.AuthPending)
             return false;
         if (!UserDirectory.IsValidKey(userKey))
         {
@@ -236,28 +249,330 @@ public sealed class SessionManager(
             return false;
         }
 
+        var keyHash = UserDirectory.HashKey(userKey);
+        var user = users.FindByKeyHash(keyHash);
+
+        // Not bound yet → no presence noise from the rename. An empty name keeps what a
+        // known user is called.
         if (name.Length > 0)
-            SetName(clientId, name); // not bound yet → no presence noise from the rename
+            SetName(clientId, name);
+        else if (user != null)
+            SetName(clientId, user.Name);
 
-        var user = users.GetOrCreate(userKey, session.Name);
-        user.Name = session.Name;
-        user.Sessions.Add(session);
-        session.User = user;
-
-        // The snapshot first (it already shows this user as online), then the update that
-        // tells everyone else.
-        PublishPresence(user, announce: false);
-        messenger.Send(clientId, BuildPresenceSnapshot(user));
-        BroadcastPresence(user, exceptClientId: clientId);
-
-        // The room's user list was sent before the connection had a user id.
-        var room = roomManager.GetClientRoom(clientId);
-        if (room != null)
-            BroadcastRoomUsers(room.Id);
+        if (user == null)
+            user = users.Create(keyHash, session.Name);
+        else
+            users.BindKey(keyHash, user); // re-persisted, see UserDirectory.BindKey
+        Bind(session, user, keyHash);
 
         logger.LogInformation("Client {ClientId} identified as user {UserId}", clientId, user.Id);
         return true;
     }
+
+    // Makes the (anonymous, already named) session a connection of the user and tells
+    // everyone concerned.
+    private void Bind(ClientSession session, UserAccount user, string keyHash)
+    {
+        user.Name = session.Name;
+        user.Sessions.Add(session);
+        session.User = user;
+        session.KeyHash = keyHash;
+
+        // The snapshot first (it already shows this user as online), then the update that
+        // tells everyone else.
+        PublishPresence(user, announce: false);
+        messenger.Send(session.Id, BuildPresenceSnapshot(user));
+        BroadcastPresence(user, exceptClientId: session.Id);
+
+        // The room's user list was sent before the connection had a user id.
+        var room = roomManager.GetClientRoom(session.Id);
+        if (room != null)
+            BroadcastRoomUsers(room.Id);
+    }
+
+    // The session stops being a connection of its user, who stays in the member list —
+    // as offline, unless another of its connections (a second tab, the reconnect that
+    // replaced this socket) is alive.
+    private void Detach(ClientSession session)
+    {
+        if (session.User is not { } user)
+            return;
+        user.Sessions.Remove(session);
+        session.User = null;
+        session.KeyHash = null;
+        PublishPresence(user);
+    }
+
+    // ---- accounts ---------------------------------------------------------------------
+
+    /// <summary>
+    /// Claims the session's guest user with a login and a password (see the class
+    /// comment). The password is hashed off-thread; the answer follows on a later tick.
+    /// </summary>
+    public void ClaimAccount(uint clientId, string login, string password)
+    {
+        const byte action = AccountAction.Claim;
+        if (BeginAccountRequest(clientId, action) is not { } session)
+            return;
+        if (session.User is not { } user)
+        {
+            Fail(session, action, AccountError.NotIdentified);
+            return;
+        }
+        if (user.IsClaimed)
+        {
+            Fail(session, action, AccountError.AlreadyClaimed);
+            return;
+        }
+        if (UserDirectory.NormalizeLogin(login) is not { } normalized)
+        {
+            Fail(session, action, AccountError.InvalidLogin);
+            return;
+        }
+        if (!UserDirectory.IsValidPassword(password))
+        {
+            Fail(session, action, AccountError.InvalidPassword);
+            return;
+        }
+        if (users.FindByLogin(normalized) != null || !_pendingLogins.Add(normalized))
+        {
+            Fail(session, action, AccountError.LoginTaken);
+            return;
+        }
+
+        session.AuthPending = true;
+        var iterations = options.PasswordHashIterations;
+        RunOffThread(() => PasswordHasher.Hash(password, iterations), hash =>
+        {
+            _pendingLogins.Remove(normalized);
+            if (!ReferenceEquals(Get(clientId), session))
+                return; // disconnected meanwhile
+            session.AuthPending = false;
+
+            if (hash == null || session.User != user)
+                Fail(session, action, AccountError.Busy);
+            else if (!users.SetCredentials(user, normalized, hash))
+                Fail(session, action, user.IsClaimed ? AccountError.AlreadyClaimed : AccountError.LoginTaken);
+            else
+            {
+                logger.LogInformation("User {UserId} claimed the account \"{Login}\"", user.Id, normalized);
+                Succeed(session, action);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Enters the claimed account <paramref name="login"/> from this connection and makes
+    /// <paramref name="userKey"/> one of its keys, so later connects just identify with
+    /// it. A connection that was a guest leaves that user. The password is verified
+    /// off-thread; the answer (and the member list) follows on a later tick.
+    /// </summary>
+    public void Login(uint clientId, string login, string password, string userKey)
+    {
+        const byte action = AccountAction.Login;
+        if (BeginAccountRequest(clientId, action) is not { } session)
+            return;
+        if (!UserDirectory.IsValidKey(userKey))
+        {
+            Fail(session, action, AccountError.InvalidKey);
+            return;
+        }
+
+        var normalized = UserDirectory.NormalizeLogin(login);
+        var account = normalized == null ? null : users.FindByLogin(normalized);
+        if (account?.PasswordHash is not { } passwordHash || password.Length > UserDirectory.MaxPasswordLength)
+        {
+            Fail(session, action, AccountError.BadCredentials);
+            return;
+        }
+        if (_loginFailures.TryGetValue(normalized!, out var streak) && Stopwatch.GetTimestamp() < streak.LockedUntil)
+        {
+            Fail(session, action, AccountError.TooManyAttempts);
+            return;
+        }
+
+        session.AuthPending = true;
+        RunOffThread(() => PasswordHasher.Verify(password, passwordHash), ok =>
+        {
+            if (!ok)
+                RecordLoginFailure(normalized!);
+            else
+                _loginFailures.Remove(normalized!);
+
+            if (!ReferenceEquals(Get(clientId), session))
+                return; // disconnected meanwhile
+            session.AuthPending = false;
+            if (!ok)
+            {
+                Fail(session, action, AccountError.BadCredentials);
+                return;
+            }
+
+            Detach(session); // from its guest user, if it had identified
+            SetName(clientId, account.Name);
+            var keyHash = UserDirectory.HashKey(userKey);
+            users.BindKey(keyHash, account);
+            Succeed(session, action, account.Login);
+            Bind(session, account, keyHash);
+            logger.LogInformation("Client {ClientId} logged in as user {UserId}", clientId, account.Id);
+        });
+    }
+
+    /// <summary>
+    /// Leaves the claimed account on this device: the key the connection identified with
+    /// stops working and the connection becomes anonymous. (A guest cannot log out — its
+    /// key is the only way back to it.)
+    /// </summary>
+    public void Logout(uint clientId)
+    {
+        const byte action = AccountAction.Logout;
+        if (BeginAccountRequest(clientId, action) is not { } session)
+            return;
+        if (session.User is not { } user)
+        {
+            Fail(session, action, AccountError.NotIdentified);
+            return;
+        }
+        if (!user.IsClaimed)
+        {
+            Fail(session, action, AccountError.NotClaimed);
+            return;
+        }
+
+        var keyHash = session.KeyHash;
+        Detach(session);
+        if (keyHash != null)
+            users.UnbindKey(keyHash);
+
+        var room = roomManager.GetClientRoom(clientId);
+        if (room != null)
+            BroadcastRoomUsers(room.Id); // the connection no longer has a user id
+        Succeed(session, action);
+        logger.LogInformation("Client {ClientId} logged out of user {UserId}", clientId, user.Id);
+    }
+
+    /// <summary>Sets the user's "about me" text.</summary>
+    public void UpdateProfile(uint clientId, string about)
+    {
+        const byte action = AccountAction.Profile;
+        if (BeginAccountRequest(clientId, action) is not { } session)
+            return;
+        if (session.User is not { } user)
+        {
+            Fail(session, action, AccountError.NotIdentified);
+            return;
+        }
+
+        about = InputSanitizer.Clean(about, options.MaxAboutLength);
+        if (about != user.About)
+        {
+            user.About = about;
+            users.Save(user);
+            PublishPresence(user);
+        }
+        Succeed(session, action);
+    }
+
+    /// <summary>Sets (or, with an empty image, removes) the user's avatar.</summary>
+    public void SetAvatar(uint clientId, byte[] image)
+    {
+        const byte action = AccountAction.Avatar;
+        if (BeginAccountRequest(clientId, action) is not { } session)
+            return;
+        if (session.User is not { } user)
+        {
+            Fail(session, action, AccountError.NotIdentified);
+            return;
+        }
+
+        if (image.Length == 0)
+        {
+            if (user.AvatarVersion != 0)
+            {
+                user.AvatarVersion = 0;
+                users.SaveAvatar(user, null);
+                users.Save(user);
+                PublishPresence(user);
+            }
+            Succeed(session, action);
+            return;
+        }
+
+        var contentType = image.Length <= options.MaxAvatarBytes ? AvatarImage.DetectContentType(image) : null;
+        if (contentType == null)
+        {
+            Fail(session, action, AccountError.InvalidImage);
+            return;
+        }
+
+        // The version is part of the image URL, which clients cache forever: it must
+        // never repeat for a different image — hence time-based rather than a counter
+        // (which would restart after the avatar was removed).
+        var now = (uint)DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        user.AvatarVersion = Math.Max(now, user.AvatarVersion + 1);
+        users.SaveAvatar(user, new StoredAvatar(contentType, image));
+        users.Save(user);
+        PublishPresence(user);
+        Succeed(session, action);
+    }
+
+    /// <summary>Tick thread, every tick: applies the outcomes of finished password work.</summary>
+    public void DeliverCompleted()
+    {
+        while (_completed.TryDequeue(out var complete))
+            complete();
+    }
+
+    // The session if the request may be handled now; otherwise it was answered (too fast
+    // / another one in flight) or the client is gone.
+    private ClientSession? BeginAccountRequest(uint clientId, byte action)
+    {
+        var session = Get(clientId);
+        if (session == null)
+            return null;
+        if (session.AuthPending)
+        {
+            Fail(session, action, AccountError.Busy);
+            return null;
+        }
+        if (!session.TryConsumeAccountCooldown(options.AccountRequestCooldownSeconds))
+        {
+            Fail(session, action, AccountError.TooFast);
+            return null;
+        }
+        return session;
+    }
+
+    private void Succeed(ClientSession session, byte action, string? login = null)
+        => messenger.Send(session.Id,
+            new AccountResultEvent { Action = action, Success = true, Login = login ?? session.User?.Login });
+
+    private void Fail(ClientSession session, byte action, string error)
+        => messenger.Send(session.Id,
+            new AccountResultEvent { Action = action, Success = false, Error = error, Login = session.User?.Login });
+
+    private void RecordLoginFailure(string login)
+    {
+        var failures = _loginFailures.GetValueOrDefault(login).Failures + 1;
+        if (failures < Math.Max(1, options.LoginMaxFailures))
+        {
+            _loginFailures[login] = (failures, 0);
+            return;
+        }
+        // Locked: the streak starts over once the lock expires.
+        _loginFailures[login] = (0, Stopwatch.GetTimestamp() + (long)(options.LoginLockoutSeconds * Stopwatch.Frequency));
+        logger.LogWarning("Login \"{Login}\" locked for {Seconds}s after repeated wrong passwords", login, options.LoginLockoutSeconds);
+    }
+
+    // Password hashing is deliberately slow (tens of ms): never on the tick thread.
+    private void RunOffThread<T>(Func<T> work, Action<T?> complete)
+        => Task.Run(() =>
+        {
+            T? result = default;
+            try { result = work(); }
+            catch (Exception e) { logger.LogError(e, "Password hashing failed"); }
+            _completed.Enqueue(() => complete(result));
+        });
 
     /// <summary>
     /// The client's user went idle / came back. Applied at once, announced by the next
@@ -298,7 +613,8 @@ public sealed class SessionManager(
     {
         var status = user.Status;
         var roomId = PresenceRoomId(user);
-        if (status == user.PublishedStatus && roomId == user.PublishedRoomId && user.Name == user.PublishedName)
+        if (status == user.PublishedStatus && roomId == user.PublishedRoomId && user.Name == user.PublishedName
+            && user.About == user.PublishedAbout && user.AvatarVersion == user.PublishedAvatarVersion)
             return;
 
         var cameOrWent = (status == PresenceStatus.Offline) != (user.PublishedStatus == PresenceStatus.Offline);
@@ -311,6 +627,8 @@ public sealed class SessionManager(
         user.PublishedStatus = status;
         user.PublishedRoomId = roomId;
         user.PublishedName = user.Name;
+        user.PublishedAbout = user.About;
+        user.PublishedAvatarVersion = user.AvatarVersion;
 
         if (announce)
             BroadcastPresence(user);
@@ -344,13 +662,15 @@ public sealed class SessionManager(
         Status = user.PublishedStatus,
         RoomId = user.PublishedRoomId,
         LastSeenMs = user.LastSeenMs,
+        About = user.PublishedAbout,
+        AvatarVersion = user.PublishedAvatarVersion,
     };
 
     // Everyone online, plus the most recently seen offline users (bounded: the directory
     // remembers far more users than a member list should show).
     private PresenceSnapshotEvent BuildPresenceSnapshot(UserAccount self)
     {
-        var snapshot = new PresenceSnapshotEvent { YourUserId = self.Id };
+        var snapshot = new PresenceSnapshotEvent { YourUserId = self.Id, YourLogin = self.Login };
         var offline = new List<UserAccount>();
         foreach (var user in users.Users)
         {

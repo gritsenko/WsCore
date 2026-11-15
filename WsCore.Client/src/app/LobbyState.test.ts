@@ -53,6 +53,9 @@ vi.mock('../lobby/LobbyUI', () => ({
     addSystemMessage(text: string) {
       ui.calls.push(`system:${text}`);
     }
+    setOnProfileCallback(cb: () => void) {
+      (ui as any).profile = cb;
+    }
     setOnLoadOlderCallback(cb: () => void) {
       (ui as any).loadOlder = cb;
     }

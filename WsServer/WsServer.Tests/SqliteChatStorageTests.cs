@@ -75,10 +75,10 @@ public class SqliteChatStorageTests
         using (var storage = Open(db.Path))
         {
             storage.Load(10);
-            storage.SaveUser(new StoredUser(1, "hash-1", "Ann", 100));
-            storage.SaveUser(new StoredUser(2, "hash-2", "Bob", 200));
-            storage.SaveUser(new StoredUser(1, "hash-1", "Annie", 300)); // rename + seen later
-            storage.SaveUser(new StoredUser(3, "hash-3", "Cy", 400));
+            storage.SaveUser(new StoredUser(1, "Ann", 100));
+            storage.SaveUser(new StoredUser(2, "Bob", 200));
+            storage.SaveUser(new StoredUser(1, "Annie", 300)); // rename + seen later
+            storage.SaveUser(new StoredUser(3, "Cy", 400));
             storage.DeleteUser(2);
             await storage.FlushAsync();
         }
@@ -87,7 +87,7 @@ public class SqliteChatStorageTests
         var snapshot = reopened.Load(10);
 
         Assert.Equal(
-            [new StoredUser(1, "hash-1", "Annie", 300), new StoredUser(3, "hash-3", "Cy", 400)],
+            [new StoredUser(1, "Annie", 300), new StoredUser(3, "Cy", 400)],
             snapshot.Users.OrderBy(u => u.Id));
         Assert.Equal(4u, snapshot.NextUserId);
     }
@@ -102,8 +102,8 @@ public class SqliteChatStorageTests
             storage.Load(10);
             for (uint id = 1; id <= 10; id++) storage.Append(Message(id));
             storage.Append(Message(11, "game"));
-            storage.SaveUser(new StoredUser(1, "old", "Old", now - TimeSpan.FromDays(40).Ticks / TimeSpan.TicksPerMillisecond));
-            storage.SaveUser(new StoredUser(2, "new", "New", now));
+            storage.SaveUser(new StoredUser(1, "Old", now - TimeSpan.FromDays(40).Ticks / TimeSpan.TicksPerMillisecond));
+            storage.SaveUser(new StoredUser(2, "New", now));
             await storage.FlushAsync();
         }
 
@@ -115,6 +115,113 @@ public class SqliteChatStorageTests
         Assert.Equal([11u], snapshot.Rooms.Single(r => r.RoomId == "game").Recent.Select(m => m.Id));
         Assert.Equal(["New"], snapshot.Users.Select(u => u.Name));
         Assert.Equal(12u, snapshot.NextMessageId); // ids are never reused
+    }
+
+    private static Task<StoredAvatar?> Avatar(IChatStorage storage, uint userId)
+    {
+        var done = new TaskCompletionSource<StoredAvatar?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        storage.LoadAvatar(userId, done.SetResult);
+        return done.Task;
+    }
+
+    [Fact]
+    public async Task Accounts_Keys_AndAvatars_AreStored_AndRemovedWithTheUser()
+    {
+        using var db = new TempDatabase();
+        var ann = new StoredUser(1, "Ann", 100) { Login = "ann", PasswordHash = "hash", About = "hello", AvatarVersion = 7 };
+        using (var storage = Open(db.Path))
+        {
+            storage.Load(10);
+            storage.SaveUser(ann);
+            storage.SaveUser(new StoredUser(2, "Bob", 200));
+            storage.SaveUserKey(new StoredUserKey("key-a1", 1));
+            storage.SaveUserKey(new StoredUserKey("key-a2", 1));
+            storage.SaveUserKey(new StoredUserKey("key-b", 2));
+            storage.SaveUserKey(new StoredUserKey("key-b", 1)); // the key moved to Ann
+            storage.DeleteUserKey("key-a2");
+            storage.SaveAvatar(1, new StoredAvatar("image/png", [1, 2, 3]));
+            storage.SaveAvatar(2, new StoredAvatar("image/jpeg", [4]));
+            storage.SaveAvatar(2, null);
+
+            var avatar = await Avatar(storage, 1); // ordered behind the writes above
+            Assert.Equal("image/png", avatar!.ContentType);
+            Assert.Equal([1, 2, 3], avatar.Data);
+            Assert.Null(await Avatar(storage, 2));
+        }
+
+        using var reopened = Open(db.Path);
+        var snapshot = reopened.Load(10);
+        Assert.Equal(ann, snapshot.Users.Single(u => u.Id == 1));
+        Assert.Equal(
+            [new StoredUserKey("key-a1", 1), new StoredUserKey("key-b", 1)],
+            snapshot.UserKeys.OrderBy(k => k.KeyHash));
+
+        reopened.DeleteUser(1);
+        Assert.Null(await Avatar(reopened, 1));
+        await reopened.FlushAsync();
+        reopened.Dispose();
+
+        using var last = Open(db.Path);
+        var final = last.Load(10);
+        Assert.Equal([2u], final.Users.Select(u => u.Id));
+        Assert.Empty(final.UserKeys);
+    }
+
+    [Fact]
+    public async Task Retention_NeverForgetsAClaimedAccount()
+    {
+        using var db = new TempDatabase();
+        var longAgo = DateTimeOffset.UtcNow.AddDays(-400).ToUnixTimeMilliseconds();
+        using (var storage = Open(db.Path))
+        {
+            storage.Load(10);
+            storage.SaveUser(new StoredUser(1, "Guest", longAgo));
+            storage.SaveUserKey(new StoredUserKey("guest-key", 1));
+            storage.SaveUser(new StoredUser(2, "Owner", longAgo) { Login = "owner", PasswordHash = "hash" });
+            storage.SaveUserKey(new StoredUserKey("owner-key", 2));
+            await storage.FlushAsync();
+        }
+
+        using var reopened = Open(db.Path, userRetentionDays: 30);
+        var snapshot = reopened.Load(10);
+        Assert.Equal(["Owner"], snapshot.Users.Select(u => u.Name));
+        Assert.Equal([new StoredUserKey("owner-key", 2)], snapshot.UserKeys);
+    }
+
+    [Fact]
+    public void ADatabaseFromBeforeAccounts_IsMigrated_KeepingUsersAndTheirKeys()
+    {
+        using var db = new TempDatabase();
+        Directory.CreateDirectory(Path.GetDirectoryName(db.Path)!);
+        using (var old = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db.Path};Pooling=False"))
+        {
+            old.Open();
+            using var cmd = old.CreateCommand();
+            cmd.CommandText = """
+                CREATE TABLE users(
+                    id        INTEGER PRIMARY KEY,
+                    key_hash  TEXT    NOT NULL UNIQUE,
+                    name      TEXT    NOT NULL,
+                    last_seen INTEGER NOT NULL
+                );
+                INSERT INTO users VALUES(4, 'hash-ann', 'Ann', 100), (9, 'hash-bob', 'Bob', 200);
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        using (var storage = Open(db.Path))
+        {
+            var snapshot = storage.Load(10);
+            Assert.Equal([new StoredUser(4, "Ann", 100), new StoredUser(9, "Bob", 200)], snapshot.Users.OrderBy(u => u.Id));
+            Assert.Equal(
+                [new StoredUserKey("hash-ann", 4), new StoredUserKey("hash-bob", 9)],
+                snapshot.UserKeys.OrderBy(k => k.UserId));
+            Assert.Equal(10u, snapshot.NextUserId);
+        }
+
+        // Migrating is a one-off: reopening leaves the data alone.
+        using var again = Open(db.Path);
+        Assert.Equal(2, again.Load(10).Users.Count);
     }
 
     [Fact]

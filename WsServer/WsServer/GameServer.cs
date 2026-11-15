@@ -87,6 +87,7 @@ public class GameServer : GameServerBase<GameModel>
         SendHeartbeatIfDue();
         // History pages the storage thread finished loading, and pending away changes.
         _chatHistory.DeliverCompleted();
+        _sessions.DeliverCompleted(); // finished password hashing (claim / login)
         _sessions.FlushPresence();
 
         // Nobody in a spatial room (e.g. everyone is in the lobby): skip building and

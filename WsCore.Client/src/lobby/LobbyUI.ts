@@ -17,6 +17,10 @@ const ICONS = {
       '<path d="M7.500 10v3M6 11.500h3M15.500 10.500h.010M17.500 12.500h.010"/>'
   ),
   send: svg('<path d="M21 3 10.500 13.500M21 3l-6.500 18-4-7.500L3 9.500 21 3z"/>'),
+  settings: svg(
+    '<circle cx="12" cy="12" r="3"/><path d="M19.400 15a1.700 1.700 0 0 0 .300 1.800l.100.100a2 2 0 1 1-2.800 2.800l-.100-.100a1.700 1.700 0 0 0-2.800 1.200V21a2 2 0 1 1-4 0v-.100a1.700 1.700 0 0 0-2.900-1.200l-.100.100a2 2 0 1 1-2.800-2.800l.100-.100a1.700 1.700 0 0 0-1.200-2.800H3a2 2 0 1 1 0-4h.100a1.700 1.700 0 0 0 1.200-2.900l-.100-.100a2 2 0 1 1 2.800-2.800l.100.100a1.700 1.700 0 0 0 2.800-1.200V3a2 2 0 1 1 4 0v.100a1.700 1.700 0 0 0 2.900 1.200l.100-.100a2 2 0 1 1 2.800 2.800l-.100.100a1.700 1.700 0 0 0 1.200 2.800H21a2 2 0 1 1 0 4h-.100a1.700 1.700 0 0 0-1.500 1.100z"/>',
+    18
+  ),
 };
 
 const ROOM_ICONS: Record<string, string> = {
@@ -25,7 +29,7 @@ const ROOM_ICONS: Record<string, string> = {
   game: ICONS.game,
 };
 
-function el<K extends keyof HTMLElementTagNameMap>(
+export function el<K extends keyof HTMLElementTagNameMap>(
   tag: K,
   className?: string,
   text?: string
@@ -36,11 +40,16 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-/** Initials avatar; the tint is derived from the name so a user looks the same everywhere. */
-function createAvatar(
+/**
+ * A user's avatar: their picture if they set one, otherwise initials on a tint derived
+ * from the name (so a user looks the same everywhere). The initials stay underneath the
+ * picture — they are what shows while it loads, or if it fails to.
+ */
+export function createAvatar(
   name: string,
-  size: 'sm' | 'md',
-  status?: 'online' | 'away' | 'offline'
+  size: 'sm' | 'md' | 'lg',
+  status?: 'online' | 'away' | 'offline',
+  imageUrl?: string | null
 ): HTMLDivElement {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0;
@@ -62,6 +71,15 @@ function createAvatar(
   );
   avatar.style.background = `hsl(${hue} 22% 26%)`;
   avatar.style.color = `hsl(${hue} 45% 82%)`;
+
+  if (imageUrl) {
+    const image = el('img', 'lobby-avatar-img');
+    image.alt = '';
+    image.decoding = 'async';
+    image.onerror = () => image.remove();
+    image.src = imageUrl;
+    avatar.appendChild(image);
+  }
   return avatar;
 }
 
@@ -84,6 +102,8 @@ export interface LobbyMessage {
   text: string;
   sentAtMs: number;
   own: boolean;
+  /** The author's avatar image, if they have one (and are still in the member list). */
+  avatarUrl?: string | null;
 }
 
 /** An entry of the member list. Users stay listed when they leave — as offline. */
@@ -95,6 +115,9 @@ export interface LobbyMember {
   isSelf: boolean;
   /** Secondary line: another room's name, "отошёл", "был(а) 5 мин назад"… */
   detail?: string;
+  avatarUrl?: string | null;
+  /** "About me" text, shown in the user's card. */
+  about?: string;
 }
 
 /** A room as the lobby displays it (the list itself comes from the server). */
@@ -129,6 +152,9 @@ export default class LobbyUI {
   private playCallback: ((roomId: string) => void) | null = null;
   private members: LobbyMember[] = [];
   private loadOlderCallback: (() => void) | null = null;
+  private profileCallback: (() => void) | null = null;
+  /** The profile card of a member (opened by clicking them in the list). */
+  private userCard: HTMLDivElement | null = null;
   /** Top row of the message list: "loading…" while older history exists, else its start. */
   private historyStatus: HTMLDivElement | null = null;
   private newMessagesButton: HTMLButtonElement | null = null;
@@ -152,7 +178,14 @@ export default class LobbyUI {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
       e.preventDefault();
       this.userSearchInput?.focus();
+    } else if (e.key === 'Escape') {
+      this.closeUserCard();
     }
+  };
+
+  // A click anywhere else closes the open user card.
+  private readonly onGlobalPointerDown = (e: PointerEvent): void => {
+    if (this.userCard && !this.userCard.contains(e.target as Node)) this.closeUserCard();
   };
 
   constructor() {
@@ -187,6 +220,7 @@ export default class LobbyUI {
     document.body.style.overflow = 'hidden';
 
     document.addEventListener('keydown', this.onGlobalKeyDown);
+    document.addEventListener('pointerdown', this.onGlobalPointerDown);
 
     this.updateRoomsList();
     this.updateUsersList();
@@ -224,7 +258,18 @@ export default class LobbyUI {
     usersSection.appendChild(this.usersList);
     sidebar.appendChild(usersSection);
 
+    // Our own entry; a click opens the profile (name, avatar, about, account).
     this.meSection = el('div', 'lobby-me');
+    this.meSection.setAttribute('role', 'button');
+    this.meSection.tabIndex = 0;
+    this.meSection.title = 'Профиль';
+    this.meSection.onclick = () => this.profileCallback?.();
+    this.meSection.onkeydown = e => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        this.profileCallback?.();
+      }
+    };
     sidebar.appendChild(this.meSection);
 
     return sidebar;
@@ -315,6 +360,11 @@ export default class LobbyUI {
    */
   setOnPlayCallback(callback: (roomId: string) => void): void {
     this.playCallback = callback;
+  }
+
+  /** Set callback for a click on our own entry (open the profile). */
+  setOnProfileCallback(callback: () => void): void {
+    this.profileCallback = callback;
   }
 
   /**
@@ -470,12 +520,57 @@ export default class LobbyUI {
   private buildMemberItem(member: LobbyMember): HTMLDivElement {
     const item = el('div', `lobby-user-item lobby-user-${member.status}`);
     if (member.isSelf) item.classList.add('lobby-current-user');
-    item.appendChild(createAvatar(member.name, 'sm', member.status));
+    item.appendChild(createAvatar(member.name, 'sm', member.status, member.avatarUrl));
     const text = el('div', 'lobby-user-text');
     text.appendChild(el('span', 'lobby-user-name', member.name));
     if (member.detail) text.appendChild(el('span', 'lobby-user-detail', member.detail));
     item.appendChild(text);
+    item.onclick = () => this.openUserCard(member, item);
     return item;
+  }
+
+  /** The member's profile card (picture, name, status, about), next to their entry. */
+  private openUserCard(member: LobbyMember, anchor: HTMLElement): void {
+    const reopen = this.userCard?.dataset.key !== member.key;
+    this.closeUserCard();
+    if (!reopen || !this.container) return; // a second click on the same member closes it
+
+    const card = el('div', 'lobby-user-card');
+    card.dataset.key = member.key;
+    card.appendChild(createAvatar(member.name, 'lg', undefined, member.avatarUrl));
+    card.appendChild(el('div', 'lobby-user-card-name', member.name));
+    const status =
+      member.status === 'online' ? 'В сети' : member.status === 'away' ? 'Отошёл' : 'Не в сети';
+    card.appendChild(
+      el('div', `lobby-user-card-status lobby-user-card-${member.status}`, member.detail || status)
+    );
+    if (member.about) {
+      card.appendChild(el('div', 'lobby-user-card-label', 'О себе'));
+      card.appendChild(el('div', 'lobby-user-card-about', member.about));
+    }
+    if (member.isSelf) {
+      const edit = el('button', 'lobby-user-card-edit', 'Редактировать профиль');
+      edit.type = 'button';
+      edit.onclick = () => {
+        this.closeUserCard();
+        this.profileCallback?.();
+      };
+      card.appendChild(edit);
+    }
+
+    this.container.appendChild(card);
+    this.userCard = card;
+
+    // To the right of the member list, level with the entry, kept inside the window.
+    const rect = anchor.getBoundingClientRect();
+    const top = Math.max(12, Math.min(rect.top - 12, window.innerHeight - card.offsetHeight - 12));
+    card.style.top = `${top}px`;
+    card.style.left = `${Math.min(rect.right + 12, window.innerWidth - card.offsetWidth - 12)}px`;
+  }
+
+  private closeUserCard(): void {
+    this.userCard?.remove();
+    this.userCard = null;
   }
 
   private updateMeSection(): void {
@@ -488,11 +583,14 @@ export default class LobbyUI {
     if (!name) return;
 
     const away = self?.status === 'away';
-    this.meSection.appendChild(createAvatar(name, 'sm', away ? 'away' : 'online'));
+    this.meSection.appendChild(createAvatar(name, 'sm', away ? 'away' : 'online', self?.avatarUrl));
     const text = el('div', 'lobby-me-text');
     text.appendChild(el('div', 'lobby-me-name', name));
     text.appendChild(el('div', 'lobby-me-status', away ? 'Отошёл' : 'В сети'));
     this.meSection.appendChild(text);
+    const gear = el('span', 'lobby-me-settings');
+    gear.innerHTML = ICONS.settings;
+    this.meSection.appendChild(gear);
   }
 
   // ==================== messages ====================
@@ -501,7 +599,7 @@ export default class LobbyUI {
     const messageElement = el('div', 'lobby-message');
     if (message.own) messageElement.classList.add('lobby-message-own');
 
-    messageElement.appendChild(createAvatar(message.name, 'md'));
+    messageElement.appendChild(createAvatar(message.name, 'md', undefined, message.avatarUrl));
 
     const body = el('div', 'lobby-message-body');
     const meta = el('div', 'lobby-message-meta');
@@ -679,6 +777,8 @@ export default class LobbyUI {
    */
   destroy(): void {
     document.removeEventListener('keydown', this.onGlobalKeyDown);
+    document.removeEventListener('pointerdown', this.onGlobalPointerDown);
+    this.closeUserCard();
     if (this.container && this.container.parentNode) {
       this.container.parentNode.removeChild(this.container);
     }

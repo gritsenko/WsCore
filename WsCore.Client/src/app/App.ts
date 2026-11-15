@@ -3,6 +3,8 @@ import { ConnectionStatus } from '../network/WsConnection';
 import Player from '../game/Player';
 import LobbyState from './LobbyState';
 import IdleDetector from '../utils/IdleDetector';
+import { AccountAction, AccountResult } from '../network/ClientEvents';
+import { clearIdentity, saveName, saveUserKey } from './IdentityStorage';
 // GameScene (and three.js with it) is imported dynamically in enterGame() — a
 // static import here would pull three into the entry chunk.
 
@@ -20,7 +22,9 @@ interface AppState {
 /**
  * The unified client shell. Creates ONE WsClient that lives the whole session,
  * connects once, and swaps between lobby and game states (never recreating the
- * client). Owns the connection banner and the reconnect re-init dispatch.
+ * client). Owns the connection banner and the reconnect re-init dispatch, and keeps
+ * what the browser remembers about our identity (the user key, the name) in step with
+ * the account events: a login adopts the new key, a logout forgets everything.
  */
 export default class App {
   private readonly url: string;
@@ -33,6 +37,8 @@ export default class App {
   private banner: HTMLDivElement;
   /** Reports the user away (afk) after a while without input, in the lobby or in game. */
   private readonly idle: IdleDetector;
+  /** Called (once) if the login this app was started with is refused. */
+  private onLoginFailed: ((error: string) => void) | null = null;
 
   constructor(url: string) {
     this.url = url;
@@ -46,6 +52,12 @@ export default class App {
     // rejoins its room under the new clientId and rebuilds from server events.
     this.client.on('sessionInit', () => this.activeState?.onSessionInit());
     this.client.on('connectionStatus', (status: ConnectionStatus) => this.onStatus(status));
+    this.client.on('account', result => this.onAccount(result));
+    // Our name as the server has it (the account's name after a login, a rename in the
+    // profile) is what the name form offers next time.
+    this.client.on('playerName', (id, name) => {
+      if (id === this.client.clientId && name) saveName(name);
+    });
   }
 
   setPlayerName(name: string): void {
@@ -55,6 +67,48 @@ export default class App {
   /** The stable identity sent on every (re)connect; see WsClient.userKey. */
   setUserKey(userKey: string): void {
     this.client.userKey = userKey;
+  }
+
+  /**
+   * Start by entering the claimed account `login` instead of as a guest. `userKey` is
+   * a fresh key that becomes this device's key for the account — it is stored only
+   * once the server accepted the password. `onFailed` gets the server's error code.
+   */
+  loginWith(
+    login: string,
+    password: string,
+    userKey: string,
+    onFailed: (error: string) => void
+  ): void {
+    this.onLoginFailed = onFailed;
+    this.client.loginOnConnect(login, password, userKey);
+  }
+
+  private onAccount(result: AccountResult): void {
+    switch (result.action) {
+      case AccountAction.Login:
+        if (result.success) saveUserKey(this.client.userKey);
+        else this.onLoginFailed?.(result.error ?? 'failed');
+        this.onLoginFailed = null;
+        break;
+      case AccountAction.Logout:
+        if (result.success) {
+          // This device is nobody now: forget the key and start over at the entry form.
+          clearIdentity();
+          location.reload();
+        }
+        break;
+    }
+  }
+
+  /** Tear everything down (a refused login): UI, socket, timers. The app is done. */
+  stop(): void {
+    this.transitionSeq++;
+    this.activeState?.exit();
+    this.activeState = null;
+    this.idle.stop();
+    this.client.disconnect();
+    this.banner.remove();
   }
 
   start(): void {

@@ -20,6 +20,7 @@ export enum ServerEventType {
   ChatHistoryEvent = 201,
   PresenceSnapshotEvent = 110,
   PresenceUpdateEvent = 111,
+  AccountResultEvent = 112,
   RoomListEvent = 250,
   RoomUsersUpdateEvent = 251,
   JoinRoomResultEvent = 252,
@@ -39,6 +40,11 @@ export enum ClientMessageType {
   ChatHistoryRequest = 201,
   IdentifyRequest = 110,
   SetAwayRequest = 111,
+  ClaimAccountRequest = 112,
+  LoginRequest = 113,
+  LogoutRequest = 114,
+  UpdateProfileRequest = 115,
+  SetAvatarRequest = 116,
   GetRoomListRequest = 250,
   JoinRoomRequest = 251,
 }
@@ -78,6 +84,12 @@ import { IdentifyRequest } from './protocol/IdentifyRequest';
 import { SetAwayRequest } from './protocol/SetAwayRequest';
 import { PresenceSnapshotEvent } from './protocol/PresenceSnapshotEvent';
 import { PresenceUpdateEvent } from './protocol/PresenceUpdateEvent';
+import { AccountResultEvent } from './protocol/AccountResultEvent';
+import { ClaimAccountRequest } from './protocol/ClaimAccountRequest';
+import { LoginRequest } from './protocol/LoginRequest';
+import { LogoutRequest } from './protocol/LogoutRequest';
+import { UpdateProfileRequest } from './protocol/UpdateProfileRequest';
+import { SetAvatarRequest } from './protocol/SetAvatarRequest';
 import { GetRoomListRequest } from './protocol/GetRoomListRequest';
 import { JoinRoomRequest } from './protocol/JoinRoomRequest';
 
@@ -109,6 +121,7 @@ export interface ServerEventHandlers {
   onChatHistoryEvent(msg: ChatHistoryEvent): void;
   onPresenceSnapshotEvent(msg: PresenceSnapshotEvent): void;
   onPresenceUpdateEvent(msg: PresenceUpdateEvent): void;
+  onAccountResultEvent(msg: AccountResultEvent): void;
   onRoomListEvent(msg: RoomListEvent): void;
   onRoomUsersUpdateEvent(msg: RoomUsersUpdateEvent): void;
   onJoinRoomResultEvent(msg: JoinRoomResultEvent): void;
@@ -187,6 +200,9 @@ export const SERVER_EVENT_ROUTES: { readonly [K in ServerEventType]: ServerEvent
   ),
   [ServerEventType.PresenceUpdateEvent]: route(PresenceUpdateEvent, (h, m) =>
     h.onPresenceUpdateEvent(m)
+  ),
+  [ServerEventType.AccountResultEvent]: route(AccountResultEvent, (h, m) =>
+    h.onAccountResultEvent(m)
   ),
   [ServerEventType.RoomListEvent]: route(RoomListEvent, (h, m) => h.onRoomListEvent(m)),
   [ServerEventType.RoomUsersUpdateEvent]: route(RoomUsersUpdateEvent, (h, m) =>
@@ -273,6 +289,7 @@ export default class WsConnection<T extends IPlayer = IPlayer> implements Server
   onChatHistoryEvent(_msg: ChatHistoryEvent): void {}
   onPresenceSnapshotEvent(_msg: PresenceSnapshotEvent): void {}
   onPresenceUpdateEvent(_msg: PresenceUpdateEvent): void {}
+  onAccountResultEvent(_msg: AccountResultEvent): void {}
   onRoomListEvent(_msg: RoomListEvent): void {}
   onRoomUsersUpdateEvent(_msg: RoomUsersUpdateEvent): void {}
   onJoinRoomResultEvent(_msg: JoinRoomResultEvent): void {}
@@ -570,6 +587,46 @@ export default class WsConnection<T extends IPlayer = IPlayer> implements Server
     request.away = away;
     const data = SetAwayRequest.serialize(request);
     this.sendMessage(ClientMessageType.SetAwayRequest, data);
+  }
+
+  /** Claim our guest user: give it a login + password (answered by AccountResultEvent). */
+  sendClaimAccountRequest(login: string, password: string): void {
+    const request = new ClaimAccountRequest();
+    request.login = login;
+    request.password = password;
+    const data = ClaimAccountRequest.serialize(request);
+    this.sendMessage(ClientMessageType.ClaimAccountRequest, data);
+  }
+
+  /** Enter a claimed account; `userKey` becomes this device's key for it. */
+  sendLoginRequest(login: string, password: string, userKey: string): void {
+    const request = new LoginRequest();
+    request.login = login;
+    request.password = password;
+    request.userKey = userKey;
+    const data = LoginRequest.serialize(request);
+    this.sendMessage(ClientMessageType.LoginRequest, data);
+  }
+
+  sendLogoutRequest(): void {
+    const request = new LogoutRequest();
+    const data = LogoutRequest.serialize(request);
+    this.sendMessage(ClientMessageType.LogoutRequest, data);
+  }
+
+  sendUpdateProfileRequest(about: string): void {
+    const request = new UpdateProfileRequest();
+    request.about = about;
+    const data = UpdateProfileRequest.serialize(request);
+    this.sendMessage(ClientMessageType.UpdateProfileRequest, data);
+  }
+
+  /** A small PNG / JPEG / WebP file; empty removes the avatar. */
+  sendSetAvatarRequest(image: Uint8Array): void {
+    const request = new SetAvatarRequest();
+    request.image = image;
+    const data = SetAvatarRequest.serialize(request);
+    this.sendMessage(ClientMessageType.SetAvatarRequest, data);
   }
 
   sendGetRoomListRequest(): void {

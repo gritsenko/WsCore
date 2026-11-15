@@ -81,6 +81,7 @@ public static class GameServerHostingExtensions
         app.MapGameHealth();
         // Dashboard JSON: connections, game-world players, room occupancy, process stats.
         app.MapGet("/info", (ServerInfoProvider provider) => provider.GetInfo());
+        app.MapAvatars();
         return app;
     }
 

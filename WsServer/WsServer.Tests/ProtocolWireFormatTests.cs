@@ -1,3 +1,5 @@
+using Game.ServerLogic.Account.Events;
+using Game.ServerLogic.Account.Requests;
 using Game.ServerLogic.Chat.Events;
 using Game.ServerLogic.Chat.Requests;
 using Game.ServerLogic.Connection.Events;
@@ -90,12 +92,14 @@ public class ProtocolWireFormatTests
         Assert.True(MemoryPackSerializer.Deserialize<SetAwayRequest>([1, 1])!.Away);
     }
 
-    private static readonly byte[] PresenceUserBytes = [5, 3, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 65, 108, 2,
-        251, 255, 255, 255, 4, 0, 0, 0, 103, 97, 109, 101, 0, 0, 0, 0, 0, 64, 143, 64];
+    private static readonly byte[] PresenceUserBytes = [7, 3, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 65, 108, 2,
+        251, 255, 255, 255, 4, 0, 0, 0, 103, 97, 109, 101, 0, 0, 0, 0, 0, 64, 143, 64,
+        253, 255, 255, 255, 2, 0, 0, 0, 104, 105, 9, 0, 0, 0];
 
     private static PresenceUserInfo PresenceUser() => new()
     {
         UserId = 3, Name = "Al", Status = PresenceStatus.Away, RoomId = "game", LastSeenMs = 1000,
+        About = "hi", AvatarVersion = 9,
     };
 
     [Fact]
@@ -105,8 +109,33 @@ public class ProtocolWireFormatTests
 
     [Fact]
     public void PresenceSnapshotEvent_MatchesPinnedBytes()
-        => Assert.Equal([2, 3, 0, 0, 0, 1, 0, 0, 0, .. PresenceUserBytes],
-            MemoryPackSerializer.Serialize(new PresenceSnapshotEvent { YourUserId = 3, Users = [PresenceUser()] }));
+        => Assert.Equal([3, 3, 0, 0, 0, 1, 0, 0, 0, .. PresenceUserBytes, 253, 255, 255, 255, 2, 0, 0, 0, 97, 108],
+            MemoryPackSerializer.Serialize(
+                new PresenceSnapshotEvent { YourUserId = 3, Users = [PresenceUser()], YourLogin = "al" }));
+
+    // ---- accounts ----
+
+    [Fact]
+    public void AccountResultEvent_MatchesPinnedBytes()
+    {
+        byte[] expected = [4, 2, 1, 255, 255, 255, 255, 253, 255, 255, 255, 2, 0, 0, 0, 97, 108];
+        Assert.Equal(expected, MemoryPackSerializer.Serialize(
+            new AccountResultEvent { Action = AccountAction.Login, Success = true, Login = "al" }));
+    }
+
+    [Fact]
+    public void LoginRequest_MatchesPinnedBytes()
+    {
+        byte[] expected = [3, 253, 255, 255, 255, 2, 0, 0, 0, 97, 108, 253, 255, 255, 255, 2, 0, 0, 0, 112, 119,
+            254, 255, 255, 255, 1, 0, 0, 0, 107];
+        Assert.Equal(expected, MemoryPackSerializer.Serialize(
+            new LoginRequest { Login = "al", Password = "pw", UserKey = "k" }));
+    }
+
+    [Fact]
+    public void SetAvatarRequest_MatchesPinnedBytes()
+        => Assert.Equal([1, 3, 0, 0, 0, 1, 2, 3],
+            MemoryPackSerializer.Serialize(new SetAvatarRequest { Image = [1, 2, 3] }));
 
     // ---- stage D: the tick snapshot ----
 

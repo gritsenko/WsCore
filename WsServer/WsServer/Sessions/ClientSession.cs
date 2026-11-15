@@ -23,6 +23,12 @@ public sealed class ClientSession(uint id)
     /// </summary>
     public UserAccount? User { get; set; }
 
+    /// <summary>Hash of the key this connection identified / logged in with (null = anonymous).</summary>
+    public string? KeyHash { get; set; }
+
+    /// <summary>A password is being hashed / verified for this session (one at a time).</summary>
+    public bool AuthPending { get; set; }
+
     /// <summary>The client reported its user idle (SetAwayRequest).</summary>
     public bool IsAway { get; set; }
 
@@ -31,6 +37,22 @@ public sealed class ClientSession(uint id)
 
     // Stopwatch timestamp before which further chat messages are dropped (audit §2).
     private long _chatAllowedAt;
+
+    private long _accountAllowedAt;
+
+    /// <summary>
+    /// True (and starts a new cooldown) if an account / profile request may be handled now.
+    /// They are rare for a real user and costly for the server (password hashing, a
+    /// presence broadcast, a database write), so they are rate-limited per connection.
+    /// </summary>
+    public bool TryConsumeAccountCooldown(double cooldownSeconds)
+    {
+        var now = Stopwatch.GetTimestamp();
+        if (now < _accountAllowedAt)
+            return false;
+        _accountAllowedAt = now + (long)(cooldownSeconds * Stopwatch.Frequency);
+        return true;
+    }
 
     public static string DefaultName(uint id) => "Player " + id;
 

@@ -20,7 +20,8 @@ import { ChatMessageData } from './protocol/ChatMessageData';
 import { PresenceSnapshotEvent } from './protocol/PresenceSnapshotEvent';
 import { PresenceUpdateEvent } from './protocol/PresenceUpdateEvent';
 import { PresenceUserInfo } from './protocol/PresenceUserInfo';
-import { PresenceStatus } from './ClientEvents';
+import { AccountAction, PresenceStatus } from './ClientEvents';
+import { AccountResultEvent } from './protocol/AccountResultEvent';
 
 // Session-level behaviour of WsClient: rooms come from the server, joins are
 // server-confirmed, and players exist only while we're in a spatial room. Messages are
@@ -558,6 +559,146 @@ function tick(serverTimeMs: number, ...states: MovementStateData[]): GameTickUpd
   e.hitPlayersState = [];
   return e;
 }
+
+describe('WsClient accounts and profiles', () => {
+  beforeEach(() => vi.spyOn(console, 'log').mockImplementation(() => {}));
+  afterEach(() => vi.restoreAllMocks());
+
+  function result(action: AccountAction, success: boolean, login: string | null, error?: string) {
+    const e = new AccountResultEvent();
+    e.action = action;
+    e.success = success;
+    e.login = login;
+    e.error = error ?? null;
+    return e;
+  }
+
+  function snapshot(yourUserId: number, yourLogin: string | null, about = '', avatarVersion = 0) {
+    const me = new PresenceUserInfo();
+    me.userId = yourUserId;
+    me.name = 'Ann';
+    me.status = PresenceStatus.Online;
+    me.about = about;
+    me.avatarVersion = avatarVersion;
+    const e = new PresenceSnapshotEvent();
+    e.yourUserId = yourUserId;
+    e.yourLogin = yourLogin;
+    e.users = [me];
+    return e;
+  }
+
+  it('a guest identifies with its key; the snapshot tells whether the account is claimed', () => {
+    const client = new WsClient<Player>();
+    client.userKey = 'guest-key-0123456789';
+    const identify = vi.spyOn(client, 'sendIdentifyRequest');
+    client.onInitPlayerEvent(init(5));
+    expect(identify).toHaveBeenCalledWith('guest-key-0123456789', client.myPlayerName);
+
+    client.onPresenceSnapshotEvent(snapshot(9, null));
+    expect(client.myLogin).toBeNull();
+    client.onPresenceSnapshotEvent(snapshot(9, 'ann'));
+    expect(client.myLogin).toBe('ann');
+  });
+
+  it('claiming keeps the user and learns the login', () => {
+    const client = new WsClient<Player>();
+    client.onInitPlayerEvent(init(5));
+    client.onPresenceSnapshotEvent(snapshot(9, null));
+    const results: unknown[] = [];
+    client.on('account', r => results.push(r));
+
+    client.onAccountResultEvent(result(AccountAction.Claim, false, null, 'login_taken'));
+    expect(client.myLogin).toBeNull();
+    client.onAccountResultEvent(result(AccountAction.Claim, true, 'ann'));
+
+    expect([client.myLogin, client.myUserId]).toEqual(['ann', 9]);
+    expect(results).toEqual([
+      { action: AccountAction.Claim, success: false, error: 'login_taken' },
+      { action: AccountAction.Claim, success: true, error: null },
+    ]);
+  });
+
+  it('logging in is sent instead of the identify, and adopts the new key only on success', () => {
+    const client = new WsClient<Player>();
+    const login = vi.spyOn(client, 'sendLoginRequest');
+    const identify = vi.spyOn(client, 'sendIdentifyRequest');
+    client.loginOnConnect('ann', 'secret-password', 'device-key-0123456789');
+
+    client.onInitPlayerEvent(init(5));
+    expect(login).toHaveBeenCalledWith('ann', 'secret-password', 'device-key-0123456789');
+    expect(identify).not.toHaveBeenCalled();
+    expect(client.userKey).toBe(''); // not ours until the server says so
+
+    // A reconnect before the answer repeats the login.
+    client.onInitPlayerEvent(init(6));
+    expect(login).toHaveBeenCalledTimes(2);
+
+    client.onAccountResultEvent(result(AccountAction.Login, true, 'ann'));
+    expect([client.userKey, client.myLogin]).toEqual(['device-key-0123456789', 'ann']);
+
+    // From now on this device identifies with its key; the password is gone.
+    client.onInitPlayerEvent(init(7));
+    expect(login).toHaveBeenCalledTimes(2);
+    expect(identify).toHaveBeenCalledWith('device-key-0123456789', client.myPlayerName);
+  });
+
+  it('a refused login leaves the client anonymous and does not retry', () => {
+    const client = new WsClient<Player>();
+    const login = vi.spyOn(client, 'sendLoginRequest');
+    client.loginOnConnect('ann', 'wrong', 'device-key-0123456789');
+    client.onInitPlayerEvent(init(5));
+    const errors: (string | null)[] = [];
+    client.on('account', r => errors.push(r.error));
+
+    client.onAccountResultEvent(result(AccountAction.Login, false, null, 'bad_credentials'));
+
+    expect(errors).toEqual(['bad_credentials']);
+    expect([client.userKey, client.myLogin]).toEqual(['', null]);
+    client.onInitPlayerEvent(init(6));
+    expect(login).toHaveBeenCalledTimes(1);
+  });
+
+  it('logging out forgets the key and the user', () => {
+    const client = new WsClient<Player>();
+    client.userKey = 'device-key-0123456789';
+    client.onInitPlayerEvent(init(5));
+    client.onPresenceSnapshotEvent(snapshot(9, 'ann'));
+
+    client.onAccountResultEvent(result(AccountAction.Logout, true, null));
+
+    expect([client.userKey, client.myLogin, client.myUserId, client.me]).toEqual([
+      '',
+      null,
+      0,
+      undefined,
+    ]);
+  });
+
+  it('exposes the profile and an immutable avatar url on the game server', () => {
+    const client = new WsClient<Player>();
+    client.overrideUrl = 'ws://localhost:5000/ws';
+    client.onInitPlayerEvent(init(5));
+    client.onPresenceSnapshotEvent(snapshot(9, null, 'hello', 0));
+    expect(client.me?.about).toBe('hello');
+    expect(client.avatarUrl(client.me)).toBeNull(); // no avatar
+
+    const update = new PresenceUpdateEvent();
+    update.user = snapshot(9, null, 'hello', 1700000000).users![0];
+    client.onPresenceUpdateEvent(update);
+    expect(client.avatarUrl(client.me)).toBe('http://localhost:5000/avatars/9?v=1700000000');
+
+    client.overrideUrl = 'wss://play.example.com/ws';
+    expect(client.avatarUrl(client.me)).toBe('https://play.example.com/avatars/9?v=1700000000');
+    expect(client.avatarUrl(undefined)).toBeNull();
+  });
+
+  it('an empty avatar upload is a removal', () => {
+    const client = new WsClient<Player>();
+    const send = vi.spyOn(client, 'sendSetAvatarRequest');
+    client.setAvatar(null);
+    expect(send.mock.calls[0][0]).toHaveLength(0);
+  });
+});
 
 describe('WsClient delta tick snapshots', () => {
   beforeEach(() => {

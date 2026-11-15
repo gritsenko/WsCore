@@ -29,6 +29,8 @@ internal sealed class ServerHarness : IAsyncDisposable
             o.ChatCooldownSeconds = 0;
             o.HeartbeatIntervalSeconds = 0;
             o.PresenceFlushIntervalSeconds = 0;
+            o.AccountRequestCooldownSeconds = 0;
+            o.PasswordHashIterations = 1000; // real hashing, test-speed cost
             configure?.Invoke(o);
         });
         Server = _services.GetRequiredService<GameServer>();

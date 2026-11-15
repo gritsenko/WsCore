@@ -66,7 +66,25 @@ export type ClientEvents<T extends IPlayer = IPlayer> = {
   chatHistory: (roomId: string, change: ChatLogChange) => void;
   /** The member list (WsClient.presence) or our own user id changed. */
   presence: () => void;
+  /** The server answered an account request (claim / login / logout / profile / avatar). */
+  account: (result: AccountResult) => void;
 };
+
+/** AccountResultEvent.action on the wire (server `AccountAction`). */
+export enum AccountAction {
+  Claim = 1,
+  Login = 2,
+  Logout = 3,
+  Profile = 4,
+  Avatar = 5,
+}
+
+export interface AccountResult {
+  action: AccountAction;
+  success: boolean;
+  /** Server `AccountError` code ("login_taken", "bad_credentials"…); null on success. */
+  error: string | null;
+}
 
 /** PresenceUserInfo.status on the wire (server `PresenceStatus`). */
 export enum PresenceStatus {
@@ -84,4 +102,8 @@ export interface PresenceUser {
   roomId: string | null;
   /** Unix ms the user was last connected. */
   lastSeenMs: number;
+  /** "About me" text ('' if not set). */
+  about: string;
+  /** 0 = no avatar; otherwise part of the image URL (see WsClient.avatarUrl). */
+  avatarVersion: number;
 }

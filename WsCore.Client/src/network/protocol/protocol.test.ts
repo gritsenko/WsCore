@@ -17,6 +17,9 @@ import { SetAwayRequest } from './SetAwayRequest';
 import { PresenceUserInfo } from './PresenceUserInfo';
 import { PresenceUpdateEvent } from './PresenceUpdateEvent';
 import { PresenceSnapshotEvent } from './PresenceSnapshotEvent';
+import { AccountResultEvent } from './AccountResultEvent';
+import { LoginRequest } from './LoginRequest';
+import { SetAvatarRequest } from './SetAvatarRequest';
 
 // Fixed binary samples captured from a known-good encode of each message (see the
 // roadmap's stage-4 test item). These pin the wire format independently of whatever
@@ -129,9 +132,12 @@ describe('protocol round-trip against fixed binary samples', () => {
     user.status = 2;
     user.roomId = 'game';
     user.lastSeenMs = 1000;
+    user.about = 'hi';
+    user.avatarVersion = 9;
     const userBytes = [
-      5, 3, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 65, 108, 2, 251, 255, 255, 255, 4, 0, 0, 0,
-      103, 97, 109, 101, 0, 0, 0, 0, 0, 64, 143, 64,
+      7, 3, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 65, 108, 2, 251, 255, 255, 255, 4, 0, 0, 0,
+      103, 97, 109, 101, 0, 0, 0, 0, 0, 64, 143, 64, 253, 255, 255, 255, 2, 0, 0, 0, 104, 105, 9, 0,
+      0, 0,
     ];
 
     const update = new PresenceUpdateEvent();
@@ -141,17 +147,59 @@ describe('protocol round-trip against fixed binary samples', () => {
     const decodedUpdate = PresenceUpdateEvent.deserialize(new Uint8Array(updateBytes).buffer)!;
     expect(decodedUpdate.user!.status).toBe(2);
     expect(decodedUpdate.user!.roomId).toBe('game');
+    expect(decodedUpdate.user!.about).toBe('hi');
+    expect(decodedUpdate.user!.avatarVersion).toBe(9);
 
     const snapshot = new PresenceSnapshotEvent();
     snapshot.yourUserId = 3;
     snapshot.users = [user];
+    snapshot.yourLogin = 'al';
     const snapshotBytes = Array.from(PresenceSnapshotEvent.serialize(snapshot));
-    expect(snapshotBytes).toEqual([2, 3, 0, 0, 0, 1, 0, 0, 0, ...userBytes]);
+    expect(snapshotBytes).toEqual([
+      3,
+      3,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0,
+      0,
+      ...userBytes,
+      ...[253, 255, 255, 255, 2, 0, 0, 0, 97, 108],
+    ]);
     const decodedSnapshot = PresenceSnapshotEvent.deserialize(
       new Uint8Array(snapshotBytes).buffer
     )!;
     expect(decodedSnapshot.yourUserId).toBe(3);
     expect(decodedSnapshot.users![0]!.lastSeenMs).toBe(1000);
+    expect(decodedSnapshot.yourLogin).toBe('al');
+  });
+
+  // Accounts. The same byte arrays are pinned in ProtocolWireFormatTests.cs.
+  it('AccountResultEvent / LoginRequest / SetAvatarRequest match the pinned byte layouts', () => {
+    const resultBytes = [4, 2, 1, 255, 255, 255, 255, 253, 255, 255, 255, 2, 0, 0, 0, 97, 108];
+    const result = AccountResultEvent.deserialize(new Uint8Array(resultBytes).buffer)!;
+    expect([result.action, result.success, result.error, result.login]).toEqual([
+      2,
+      true,
+      null,
+      'al',
+    ]);
+    expect(Array.from(AccountResultEvent.serialize(result))).toEqual(resultBytes);
+
+    const login = new LoginRequest();
+    login.login = 'al';
+    login.password = 'pw';
+    login.userKey = 'k';
+    expect(Array.from(LoginRequest.serialize(login))).toEqual([
+      3, 253, 255, 255, 255, 2, 0, 0, 0, 97, 108, 253, 255, 255, 255, 2, 0, 0, 0, 112, 119, 254,
+      255, 255, 255, 1, 0, 0, 0, 107,
+    ]);
+
+    const avatar = new SetAvatarRequest();
+    avatar.image = new Uint8Array([1, 2, 3]);
+    expect(Array.from(SetAvatarRequest.serialize(avatar))).toEqual([1, 3, 0, 0, 0, 1, 2, 3]);
   });
 
   it('JoinRoomRequest("game") matches the pinned byte layout', () => {

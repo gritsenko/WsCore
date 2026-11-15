@@ -1,5 +1,7 @@
 ﻿import WsConnection from './WsConnection';
+import { AccountAction } from './ClientEvents';
 import type { IPlayer, PresenceUser } from './ClientEvents';
+import { AccountResultEvent } from './protocol/AccountResultEvent';
 import { InitPlayerEvent } from './protocol/InitPlayerEvent';
 import { PlayerJoinedEvent } from './protocol/PlayerJoinedEvent';
 import { PlayerLeftEvent } from './protocol/PlayerLeftEvent';
@@ -32,6 +34,8 @@ function toPresenceUser(info: PresenceUserInfo): PresenceUser {
     status: info.status,
     roomId: info.roomId || null,
     lastSeenMs: info.lastSeenMs,
+    about: info.about || '',
+    avatarVersion: info.avatarVersion,
   };
 }
 
@@ -91,6 +95,13 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
   myUserId = 0;
   /** The member list: every known user — online, away and offline. */
   readonly presence = new Map<number, PresenceUser>();
+  /**
+   * The login of our account once it is claimed; null while we are a guest (a user
+   * that exists only through the key in this browser).
+   */
+  myLogin: string | null = null;
+  /** Credentials to enter an account with instead of identifying (see loginOnConnect). */
+  private pendingLogin: { login: string; password: string; userKey: string } | null = null;
   /** Whether we last reported ourselves idle; re-sent on every new session. */
   private away = false;
 
@@ -110,7 +121,11 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
     console.log('Player initialized', this.clientId);
     // Session identity (kept server-side even without an avatar) and the room list.
     // Identifying also sets the name; an anonymous client only sets the name.
-    if (this.userKey) this.sendIdentifyRequest(this.userKey, this.myPlayerName);
+    // Entering an account from this device replaces the identify until it is answered.
+    if (this.pendingLogin) {
+      const { login, password, userKey } = this.pendingLogin;
+      this.sendLoginRequest(login, password, userKey);
+    } else if (this.userKey) this.sendIdentifyRequest(this.userKey, this.myPlayerName);
     else this.sendSetPlayerNameRequest(this.myPlayerName);
     if (this.away) this.sendSetAwayRequest(true); // a new session starts as "active"
     this.sendUpdatePlayerSlotsRequest(0, 0, 0);
@@ -186,6 +201,7 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
 
   override onPresenceSnapshotEvent(msg: PresenceSnapshotEvent): void {
     this.myUserId = msg.yourUserId;
+    this.myLogin = msg.yourLogin || null;
     this.presence.clear();
     for (const info of msg.users ?? []) {
       if (info) this.presence.set(info.userId, toPresenceUser(info));
@@ -197,6 +213,90 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
     if (!msg.user) return;
     this.presence.set(msg.user.userId, toPresenceUser(msg.user));
     this.emitter.emit('presence');
+  }
+
+  override onAccountResultEvent(msg: AccountResultEvent): void {
+    const login = msg.login || null;
+    switch (msg.action) {
+      case AccountAction.Login:
+        // Success: the key we made up is now a key of the account — from here on this
+        // device identifies with it (the member list follows as a presence snapshot).
+        if (msg.success && this.pendingLogin) {
+          this.userKey = this.pendingLogin.userKey;
+          this.myLogin = login;
+        }
+        this.pendingLogin = null;
+        break;
+      case AccountAction.Claim:
+        if (msg.success) this.myLogin = login;
+        break;
+      case AccountAction.Logout:
+        if (msg.success) {
+          // The key no longer identifies anyone, and this connection is anonymous.
+          this.userKey = '';
+          this.myLogin = null;
+          this.myUserId = 0;
+        }
+        break;
+    }
+    this.emitter.emit('account', {
+      action: msg.action,
+      success: msg.success,
+      error: msg.success ? null : msg.error || 'failed',
+    });
+  }
+
+  /**
+   * Enter the claimed account `login` instead of identifying as a guest: sent on the
+   * next session init (call before connect()). `userKey` is a fresh random key that
+   * becomes this device's key for the account if the login succeeds — it is adopted as
+   * `userKey` then; the outcome arrives as an `account` event.
+   */
+  loginOnConnect(login: string, password: string, userKey: string): void {
+    this.pendingLogin = { login, password, userKey };
+  }
+
+  /** Give our guest user a login + password, so it can be entered from other devices. */
+  claimAccount(login: string, password: string): void {
+    this.sendClaimAccountRequest(login, password);
+  }
+
+  /** Leave the account on this device (its key stops working). */
+  logout(): void {
+    this.sendLogoutRequest();
+  }
+
+  setAbout(about: string): void {
+    this.sendUpdateProfileRequest(about);
+  }
+
+  /** Upload an avatar file (already downsized — see utils/AvatarImage); null removes it. */
+  setAvatar(image: Uint8Array | null): void {
+    this.sendSetAvatarRequest(image ?? new Uint8Array(0));
+  }
+
+  rename(name: string): void {
+    this.sendSetPlayerNameRequest(name);
+  }
+
+  /** Our own entry of the member list (undefined until identified). */
+  get me(): PresenceUser | undefined {
+    return this.myUserId ? this.presence.get(this.myUserId) : undefined;
+  }
+
+  /**
+   * Where a user's avatar image is served (null if they have none): the game server's
+   * HTTP side — the same host the socket talks to, which in dev is not the page's.
+   * The version makes the URL immutable, so the browser caches it forever.
+   */
+  avatarUrl(
+    user: Pick<PresenceUser, 'userId' | 'avatarVersion'> | undefined | null
+  ): string | null {
+    if (!user || !user.avatarVersion) return null;
+    const socketUrl = this.overrideUrl || this.serverUrl;
+    if (!socketUrl) return null;
+    const base = socketUrl.replace(/^ws/, 'http').replace(/\/ws\/?$/, '');
+    return `${base}/avatars/${user.userId}?v=${user.avatarVersion}`;
   }
 
   /** Whether a chat entry was written by us (by user — so it holds across reconnects). */

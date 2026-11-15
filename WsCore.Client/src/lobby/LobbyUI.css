@@ -622,3 +622,321 @@
 .lobby-new-messages:hover {
   background: var(--accent-strong);
 }
+
+/* ==================== Profiles: avatars, user card, profile dialog ==================== */
+.lobby-avatar-lg {
+  width: 84px;
+  height: 84px;
+  font-size: 28px;
+}
+
+/* The picture covers the initials (which show while it loads or if it fails). */
+.lobby-avatar-img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.lobby-user-item {
+  cursor: pointer;
+}
+
+.lobby-me {
+  cursor: pointer;
+}
+
+.lobby-me-text {
+  flex: 1;
+}
+
+.lobby-me-settings {
+  color: var(--text-muted);
+  transition: color 0.15s;
+}
+
+.lobby-me:hover .lobby-me-settings,
+.lobby-me:focus-visible .lobby-me-settings {
+  color: var(--accent);
+}
+
+.lobby-me:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+  border-radius: 10px;
+}
+
+/* A member's card, opened next to their entry in the list. */
+.lobby-user-card {
+  position: fixed;
+  z-index: 900;
+  width: 280px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+
+.lobby-user-card-name {
+  margin-top: 12px;
+  font-size: 18px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.lobby-user-card-status {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.lobby-user-card-online {
+  color: #6fcf97;
+}
+
+.lobby-user-card-away {
+  color: #e2b34a;
+}
+
+.lobby-user-card-label {
+  margin-top: 16px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.lobby-user-card-about {
+  margin-top: 6px;
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.lobby-user-card-edit {
+  width: 100%;
+  margin-top: 16px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.lobby-user-card-edit:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Our own profile */
+.lobby-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(8, 10, 9, 0.66);
+}
+
+.lobby-dialog {
+  width: min(440px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 28px;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--bg-sidebar);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.lobby-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.lobby-dialog-title {
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.lobby-dialog-close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-muted);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.lobby-dialog-close:hover {
+  background: var(--surface-hover);
+  color: var(--text);
+}
+
+.lobby-dialog-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 8px;
+}
+
+.lobby-dialog-avatar-actions {
+  min-width: 0;
+}
+
+.lobby-dialog-label {
+  display: flex;
+  justify-content: space-between;
+  margin: 16px 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.lobby-dialog-counter {
+  letter-spacing: 0;
+  font-weight: 400;
+}
+
+.lobby-dialog-input {
+  display: block;
+  width: 100%;
+  padding: 11px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+  transition: border-color 0.15s;
+}
+
+.lobby-dialog-input::placeholder {
+  color: var(--text-muted);
+}
+
+.lobby-dialog-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.lobby-dialog-textarea {
+  resize: vertical;
+  min-height: 78px;
+  line-height: 1.45;
+}
+
+.lobby-dialog-buttons {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.lobby-dialog-avatar-actions .lobby-dialog-buttons {
+  margin-top: 0;
+}
+
+.lobby-dialog-button {
+  padding: 9px 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s;
+}
+
+.lobby-dialog-button:hover {
+  background: var(--surface-hover);
+}
+
+.lobby-dialog-button-primary {
+  border-color: transparent;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.lobby-dialog-button-primary:hover {
+  background: var(--accent-strong);
+}
+
+.lobby-dialog-button-quiet {
+  background: none;
+  color: var(--text-muted);
+}
+
+.lobby-dialog-button-quiet:hover {
+  color: var(--text);
+}
+
+.lobby-dialog-button:focus-visible,
+.lobby-dialog-close:focus-visible,
+.lobby-user-card-edit:focus-visible {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+
+.lobby-dialog-status {
+  font-size: 13px;
+  color: var(--accent);
+}
+
+.lobby-dialog-avatar-actions .lobby-dialog-status {
+  margin-top: 8px;
+}
+
+.lobby-dialog-status-error {
+  color: #e58a8a;
+}
+
+.lobby-dialog-account {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--line);
+}
+
+.lobby-dialog-account .lobby-dialog-input {
+  margin-top: 10px;
+}
+
+.lobby-dialog-section-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.lobby-dialog-hint {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+.lobby-dialog-login {
+  color: var(--text);
+}

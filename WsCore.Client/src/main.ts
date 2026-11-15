@@ -1,4 +1,5 @@
 import App from './app/App';
+import { createUserKey, loadOrCreateUserKey, loadSavedName, saveName } from './app/IdentityStorage';
 
 let app: App | null = null;
 
@@ -19,69 +20,83 @@ function getWebSocketUrl(): string {
   return `${protocol}//${hostname}${port}/ws`;
 }
 
-const NAME_STORAGE_KEY = 'wscore.userName';
+// The entry form has two modes: quick entry (just a name — we are a guest known by the
+// key in this browser) and logging in to a claimed account (login + password).
+const form = document.getElementById('name-form');
+const nameInput = document.getElementById('name-text-input') as HTMLInputElement | null;
+const loginInput = document.getElementById('login-text-input') as HTMLInputElement | null;
+const passwordInput = document.getElementById('password-text-input') as HTMLInputElement | null;
+const errorLine = document.getElementById('name-form-error');
+const toggle = document.getElementById('name-form-toggle');
+const submit = document.getElementById('name-form-submit');
+let loginMode = false;
 
-/** Last login name; storage can be unavailable (private mode, blocked site data). */
-function loadSavedName(): string {
-  try {
-    return localStorage.getItem(NAME_STORAGE_KEY) ?? '';
-  } catch {
-    return '';
-  }
+const LOGIN_ERRORS: Record<string, string> = {
+  bad_credentials: 'Wrong login or password.',
+  too_many_attempts: 'Too many attempts. Try again in a minute.',
+};
+
+function setMode(login: boolean): void {
+  loginMode = login;
+  if (form) form.dataset.mode = login ? 'login' : 'guest';
+  if (toggle) toggle.textContent = login ? 'Continue as a guest' : 'I have an account';
+  if (submit) submit.textContent = login ? 'Log in' : 'Enter Lobby';
+  showError('');
+  (login ? loginInput : nameInput)?.focus();
 }
 
-function saveName(name: string): void {
-  try {
-    localStorage.setItem(NAME_STORAGE_KEY, name);
-  } catch {
-    // Not persisted — the name still works for this session.
-  }
-}
-
-const USER_KEY_STORAGE_KEY = 'wscore.userKey';
-
-/**
- * Our stable identity: a random secret created on the first visit and sent to the
- * server on every connect, so it knows us as the same user across reloads (member
- * list presence, "own" messages in the history). If storage is unavailable the key
- * lasts for this page load only.
- */
-function loadOrCreateUserKey(): string {
-  try {
-    const saved = localStorage.getItem(USER_KEY_STORAGE_KEY);
-    if (saved && /^[A-Za-z0-9_-]{16,64}$/.test(saved)) return saved;
-  } catch {
-    // Fall through: a per-page-load key.
-  }
-
-  const bytes = crypto.getRandomValues(new Uint8Array(24));
-  const key = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
-  try {
-    localStorage.setItem(USER_KEY_STORAGE_KEY, key);
-  } catch {
-    // Not persisted — we are a new user on the next load.
-  }
-  return key;
+function showError(text: string): void {
+  if (!errorLine) return;
+  errorLine.textContent = text;
+  errorLine.hidden = !text;
 }
 
 /** Entry point wired to the #name-form submit button. */
 function onStartGameClicked(): void {
-  const form = document.getElementById('name-form');
-  const textbox = document.getElementById('name-text-input') as HTMLInputElement | null;
+  if (app) return;
+
+  if (loginMode) {
+    const login = loginInput?.value.trim() ?? '';
+    const password = passwordInput?.value ?? '';
+    if (!login || !password) {
+      showError('Enter your login and password.');
+      return;
+    }
+    app = new App(getWebSocketUrl());
+    app.setPlayerName(login); // shown until the account's name arrives
+    // A new key for this device; it is saved only once the server accepted the login.
+    app.loginWith(login, password, createUserKey(), error => {
+      // Back to the form: nothing of the failed attempt is kept.
+      app?.stop();
+      app = null;
+      if (form) form.style.display = '';
+      if (passwordInput) passwordInput.value = '';
+      showError(LOGIN_ERRORS[error] ?? 'Could not log in. Try again.');
+    });
+  } else {
+    const userName = nameInput?.value.trim() || 'User';
+    if (nameInput?.value.trim()) saveName(userName);
+    app = new App(getWebSocketUrl());
+    app.setPlayerName(userName);
+    app.setUserKey(loadOrCreateUserKey());
+  }
+
   if (form) form.style.display = 'none';
-
-  const userName = textbox?.value.trim() || 'User';
-  if (textbox?.value.trim()) saveName(userName);
-
-  app = new App(getWebSocketUrl());
-  app.setPlayerName(userName);
-  app.setUserKey(loadOrCreateUserKey());
   app.start();
 }
 
 // Prefill the name form with the last login.
-const nameInput = document.getElementById('name-text-input') as HTMLInputElement | null;
 if (nameInput && !nameInput.value) nameInput.value = loadSavedName();
+
+toggle?.addEventListener('click', e => {
+  e.preventDefault();
+  setMode(!loginMode);
+});
+for (const input of [nameInput, loginInput, passwordInput]) {
+  input?.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.isComposing) onStartGameClicked();
+  });
+}
 
 // Expose for the inline onclick handler in index.html.
 (window as any).onStartGameClicked = onStartGameClicked;
