@@ -2,6 +2,7 @@ import type { MapObjectData } from './protocol/MapObjectData';
 import type { RoomUsersUpdateEvent } from './protocol/RoomUsersUpdateEvent';
 import type { Room } from './rooms/Room';
 import type { PositionBuffer } from '../utils/SnapshotInterpolation';
+import type { ChatEntry, ChatLogChange } from './ChatLog';
 
 export type ConnectionStatus = 'connecting' | 'open' | 'reconnecting' | 'closed';
 
@@ -59,5 +60,28 @@ export type ClientEvents<T extends IPlayer = IPlayer> = {
   /** The server refused a join; our room membership is unchanged. */
   roomJoinFailed: (roomId: string, error: string) => void;
   mapObjects: (objects: (MapObjectData | null)[] | null) => void;
-  chat: (name: string, text: string, isOwn: boolean) => void;
+  /** A live chat message was added to `roomId`'s log (our current room). */
+  chat: (roomId: string, entry: ChatEntry) => void;
+  /** `roomId`'s chat log changed through history (reset / catch-up / older page). */
+  chatHistory: (roomId: string, change: ChatLogChange) => void;
+  /** The member list (WsClient.presence) or our own user id changed. */
+  presence: () => void;
 };
+
+/** PresenceUserInfo.status on the wire (server `PresenceStatus`). */
+export enum PresenceStatus {
+  Offline = 0,
+  Online = 1,
+  Away = 2,
+}
+
+/** A known user in the member list. */
+export interface PresenceUser {
+  userId: number;
+  name: string;
+  status: PresenceStatus;
+  /** The room the user is in; null while offline. */
+  roomId: string | null;
+  /** Unix ms the user was last connected. */
+  lastSeenMs: number;
+}

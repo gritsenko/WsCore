@@ -17,6 +17,9 @@ export enum ServerEventType {
   UpdateMapObjectsEvent = 52,
   InitPlayerEvent = 255,
   ChatMessageEvent = 200,
+  ChatHistoryEvent = 201,
+  PresenceSnapshotEvent = 110,
+  PresenceUpdateEvent = 111,
   RoomListEvent = 250,
   RoomUsersUpdateEvent = 251,
   JoinRoomResultEvent = 252,
@@ -33,6 +36,9 @@ export enum ClientMessageType {
   PlayerRespawnRequest = 105,
   UpdatePlayerTargetRequest = 106,
   ChatMessageRequest = 200,
+  ChatHistoryRequest = 201,
+  IdentifyRequest = 110,
+  SetAwayRequest = 111,
   GetRoomListRequest = 250,
   JoinRoomRequest = 251,
 }
@@ -66,6 +72,12 @@ import { PlayerShootingRequest } from './protocol/PlayerShootingRequest';
 import { PlayerRespawnRequest } from './protocol/PlayerRespawnRequest';
 import { UpdatePlayerTargetRequest } from './protocol/UpdatePlayerTargetRequest';
 import { ChatMessageRequest } from './protocol/ChatMessageRequest';
+import { ChatHistoryRequest } from './protocol/ChatHistoryRequest';
+import { ChatHistoryEvent } from './protocol/ChatHistoryEvent';
+import { IdentifyRequest } from './protocol/IdentifyRequest';
+import { SetAwayRequest } from './protocol/SetAwayRequest';
+import { PresenceSnapshotEvent } from './protocol/PresenceSnapshotEvent';
+import { PresenceUpdateEvent } from './protocol/PresenceUpdateEvent';
 import { GetRoomListRequest } from './protocol/GetRoomListRequest';
 import { JoinRoomRequest } from './protocol/JoinRoomRequest';
 
@@ -94,6 +106,9 @@ export interface ServerEventHandlers {
   onGameStateUpdateEvent(msg: GameStateUpdateEvent): void;
   onGameTickUpdateEvent(msg: GameTickUpdateEvent): void;
   onChatMessageEvent(msg: ChatMessageEvent): void;
+  onChatHistoryEvent(msg: ChatHistoryEvent): void;
+  onPresenceSnapshotEvent(msg: PresenceSnapshotEvent): void;
+  onPresenceUpdateEvent(msg: PresenceUpdateEvent): void;
   onRoomListEvent(msg: RoomListEvent): void;
   onRoomUsersUpdateEvent(msg: RoomUsersUpdateEvent): void;
   onJoinRoomResultEvent(msg: JoinRoomResultEvent): void;
@@ -166,6 +181,13 @@ export const SERVER_EVENT_ROUTES: { readonly [K in ServerEventType]: ServerEvent
   ),
   [ServerEventType.InitPlayerEvent]: route(InitPlayerEvent, (h, m) => h.onInitPlayerEvent(m)),
   [ServerEventType.ChatMessageEvent]: route(ChatMessageEvent, (h, m) => h.onChatMessageEvent(m)),
+  [ServerEventType.ChatHistoryEvent]: route(ChatHistoryEvent, (h, m) => h.onChatHistoryEvent(m)),
+  [ServerEventType.PresenceSnapshotEvent]: route(PresenceSnapshotEvent, (h, m) =>
+    h.onPresenceSnapshotEvent(m)
+  ),
+  [ServerEventType.PresenceUpdateEvent]: route(PresenceUpdateEvent, (h, m) =>
+    h.onPresenceUpdateEvent(m)
+  ),
   [ServerEventType.RoomListEvent]: route(RoomListEvent, (h, m) => h.onRoomListEvent(m)),
   [ServerEventType.RoomUsersUpdateEvent]: route(RoomUsersUpdateEvent, (h, m) =>
     h.onRoomUsersUpdateEvent(m)
@@ -248,6 +270,9 @@ export default class WsConnection<T extends IPlayer = IPlayer> implements Server
   onGameStateUpdateEvent(_msg: GameStateUpdateEvent): void {}
   onGameTickUpdateEvent(_msg: GameTickUpdateEvent): void {}
   onChatMessageEvent(_msg: ChatMessageEvent): void {}
+  onChatHistoryEvent(_msg: ChatHistoryEvent): void {}
+  onPresenceSnapshotEvent(_msg: PresenceSnapshotEvent): void {}
+  onPresenceUpdateEvent(_msg: PresenceUpdateEvent): void {}
   onRoomListEvent(_msg: RoomListEvent): void {}
   onRoomUsersUpdateEvent(_msg: RoomUsersUpdateEvent): void {}
   onJoinRoomResultEvent(_msg: JoinRoomResultEvent): void {}
@@ -519,6 +544,32 @@ export default class WsConnection<T extends IPlayer = IPlayer> implements Server
     request.message = message;
     const data = ChatMessageRequest.serialize(request);
     this.sendMessage(ClientMessageType.ChatMessageRequest, data);
+  }
+
+  /** History of our current room: the page before `beforeId`, or a catch-up after `afterId`. */
+  sendChatHistoryRequest(beforeId: number, afterId: number, epoch: number): void {
+    const request = new ChatHistoryRequest();
+    request.beforeId = beforeId;
+    request.afterId = afterId;
+    request.epoch = epoch;
+    const data = ChatHistoryRequest.serialize(request);
+    this.sendMessage(ClientMessageType.ChatHistoryRequest, data);
+  }
+
+  /** Bind this connection to our stable user (and set the display name). */
+  sendIdentifyRequest(userKey: string, name: string): void {
+    const request = new IdentifyRequest();
+    request.userKey = userKey;
+    request.name = name;
+    const data = IdentifyRequest.serialize(request);
+    this.sendMessage(ClientMessageType.IdentifyRequest, data);
+  }
+
+  sendSetAwayRequest(away: boolean): void {
+    const request = new SetAwayRequest();
+    request.away = away;
+    const data = SetAwayRequest.serialize(request);
+    this.sendMessage(ClientMessageType.SetAwayRequest, data);
   }
 
   sendGetRoomListRequest(): void {

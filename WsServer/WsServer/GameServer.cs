@@ -3,6 +3,7 @@ using Game.Core;
 using Game.ServerLogic.Connection.Events;
 using Game.ServerLogic.GameState.Events;
 using WsServer.Abstract;
+using WsServer.Chat;
 using WsServer.Rooms;
 using WsServer.Sessions;
 
@@ -13,6 +14,7 @@ public class GameServer : GameServerBase<GameModel>
     private readonly GameTickUpdateEvent _gameStateEvent;
     private readonly RoomManager _roomManager;
     private readonly SessionManager _sessions;
+    private readonly ChatHistoryService _chatHistory;
 
     private readonly int _snapshotSendEveryTicks;
     private int _ticksSinceSnapshot;
@@ -28,11 +30,13 @@ public class GameServer : GameServerBase<GameModel>
         IServerLogicProvider serverLogicProvider,
         RoomManager roomManager,
         SessionManager sessions,
+        ChatHistoryService chatHistory,
         GameServerOptions options,
         ILogger<GameServer> logger) : base(gameModel, messenger, connectionManager, serverLogicProvider, options, logger)
     {
         _roomManager = roomManager;
         _sessions = sessions;
+        _chatHistory = chatHistory;
         _heartbeatIntervalTicks = (long)(options.HeartbeatIntervalSeconds * Stopwatch.Frequency);
         _lastHeartbeat = Stopwatch.GetTimestamp();
 
@@ -81,6 +85,9 @@ public class GameServer : GameServerBase<GameModel>
     private void GameServer_OnTick()
     {
         SendHeartbeatIfDue();
+        // History pages the storage thread finished loading, and pending away changes.
+        _chatHistory.DeliverCompleted();
+        _sessions.FlushPresence();
 
         // Nobody in a spatial room (e.g. everyone is in the lobby): skip building and
         // serializing a snapshot no one would receive.

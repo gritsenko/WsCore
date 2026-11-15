@@ -10,6 +10,9 @@ services:
       - ASPNETCORE_URLS=http://+:80
     expose:
       - "80"
+    volumes:
+      # Chat history + known users (SQLite). Survives rebuilds / re-creation.
+      - game-data:/app/data
     networks:
       - game-network
     logging:
@@ -51,6 +54,9 @@ services:
     restart: unless-stopped
     networks:
       - game-network
+
+volumes:
+  game-data:
 
 networks:
   game-network:

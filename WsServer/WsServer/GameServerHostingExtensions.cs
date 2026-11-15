@@ -2,6 +2,8 @@ using Game.Core;
 using Game.ServerLogic.Chat.Events;
 using Microsoft.Extensions.Options;
 using WsServer.Abstract;
+using WsServer.Chat;
+using WsServer.Persistence;
 using WsServer.Rooms;
 using WsServer.ServerInfo;
 using WsServer.Sessions;
@@ -45,6 +47,17 @@ public static class GameServerHostingExtensions
             sp.GetRequiredService<IMessageSerializer>(),
             sp.GetRequiredService<RoomManager>()));
         services.AddSingleton<ServerInfoProvider>();
+
+        // Chat history + known users. Storage is opened (and read) once, on first use at
+        // startup; the snapshot seeds both the history window and the user directory.
+        services.AddSingleton<IChatStorage>(sp => ChatStorageFactory.Create(
+            sp.GetRequiredService<GameServerOptions>(),
+            sp.GetRequiredService<ILoggerFactory>().CreateLogger("WsServer.Persistence.ChatStorage")));
+        services.AddSingleton(sp => sp.GetRequiredService<IChatStorage>()
+            .Load(Math.Max(sp.GetRequiredService<GameServerOptions>().ChatHistoryPageSize,
+                sp.GetRequiredService<GameServerOptions>().ChatHistoryCacheSize)));
+        services.AddSingleton<ChatHistoryService>();
+        services.AddSingleton<UserDirectory>();
 
         services.AddSingleton<GameModel>();
         services.AddSingleton<SessionManager>();

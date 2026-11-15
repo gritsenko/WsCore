@@ -36,3 +36,6 @@ docker-compose*.yml
 # Logs
 logs/
 *.log
+
+# Local chat database of a dev run — never bake it into an image
+**/data/chat.db*

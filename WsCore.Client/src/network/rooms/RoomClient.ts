@@ -9,6 +9,8 @@ export class RoomClient {
   public name: string;
   public readonly joinedAt: Date;
   public currentMode: CommunicationMode;
+  /** The stable user behind this connection; 0 for an anonymous (unidentified) one. */
+  public userId = 0;
 
   constructor(id: number, name: string) {
     this.id = id;

@@ -152,6 +152,15 @@ export default class ChatUI {
   }
 
   /**
+   * Replace the displayed messages with the tail of `messages` (the overlay keeps only
+   * the most recent `maxMessages`).
+   */
+  setMessages(messages: readonly { name: string; text: string }[]): void {
+    this.clearMessages();
+    for (const m of messages.slice(-this.maxMessages)) this.addMessage(m.name, m.text);
+  }
+
+  /**
    * Clear all messages
    */
   clearMessages(): void {

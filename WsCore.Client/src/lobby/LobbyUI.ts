@@ -37,7 +37,11 @@ function el<K extends keyof HTMLElementTagNameMap>(
 }
 
 /** Initials avatar; the tint is derived from the name so a user looks the same everywhere. */
-function createAvatar(name: string, size: 'sm' | 'md', online = false): HTMLDivElement {
+function createAvatar(
+  name: string,
+  size: 'sm' | 'md',
+  status?: 'online' | 'away' | 'offline'
+): HTMLDivElement {
   let hash = 0;
   for (let i = 0; i < name.length; i++) hash = (hash * 31 + name.charCodeAt(i)) | 0;
   // Spread near-identical names ("Player 11" / "Player 12") far apart on the hue wheel.
@@ -53,12 +57,44 @@ function createAvatar(name: string, size: 'sm' | 'md', online = false): HTMLDivE
 
   const avatar = el(
     'div',
-    `lobby-avatar lobby-avatar-${size}${online ? ' lobby-avatar-online' : ''}`,
+    `lobby-avatar lobby-avatar-${size}${status ? ` lobby-avatar-${status}` : ''}`,
     initials.toUpperCase()
   );
   avatar.style.background = `hsl(${hue} 22% 26%)`;
   avatar.style.color = `hsl(${hue} 45% 82%)`;
   return avatar;
+}
+
+/** "14:05" for today, "12 нояб., 14:05" for any other day (history spans days). */
+function formatMessageTime(sentAtMs: number): string {
+  const date = new Date(sentAtMs);
+  const time = date.toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  });
+  if (date.toDateString() === new Date().toDateString()) return time;
+  return `${date.toLocaleDateString([], { day: 'numeric', month: 'short' })}, ${time}`;
+}
+
+/** A chat message as the lobby displays it. */
+export interface LobbyMessage {
+  id: number;
+  name: string;
+  text: string;
+  sentAtMs: number;
+  own: boolean;
+}
+
+/** An entry of the member list. Users stay listed when they leave — as offline. */
+export interface LobbyMember {
+  /** Stable key (user or guest connection). */
+  key: string;
+  name: string;
+  status: 'online' | 'away' | 'offline';
+  isSelf: boolean;
+  /** Secondary line: another room's name, "отошёл", "был(а) 5 мин назад"… */
+  detail?: string;
 }
 
 /** A room as the lobby displays it (the list itself comes from the server). */
@@ -71,7 +107,11 @@ export interface LobbyRoom {
 }
 
 /**
- * Lobby UI: sidebar (brand, rooms, online users, current user) + room chat.
+ * Lobby UI: sidebar (brand, rooms, member list, current user) + room chat.
+ *
+ * Purely presentational: it renders the messages and members it is given. The chat
+ * list is windowed by the caller's log (history pages are prepended as the user scrolls
+ * up) and never re-renders on a single new message.
  */
 export default class LobbyUI {
   private container: HTMLDivElement | null = null;
@@ -87,14 +127,23 @@ export default class LobbyUI {
   private messageCallback: ((message: string) => void) | null = null;
   private roomJoinCallback: ((roomId: string) => void) | null = null;
   private playCallback: ((roomId: string) => void) | null = null;
-  private users: Map<number, string> = new Map();
+  private members: LobbyMember[] = [];
+  private loadOlderCallback: (() => void) | null = null;
+  /** Top row of the message list: "loading…" while older history exists, else its start. */
+  private historyStatus: HTMLDivElement | null = null;
+  private newMessagesButton: HTMLButtonElement | null = null;
+  private hasMoreHistory = false;
+  private loadingHistory = false;
   private rooms: Map<string, LobbyRoom> = new Map();
   private currentUserId: number = -1;
   private currentUserName: string | null = null;
   private currentRoomId: string | null = null;
   /** Room whose join is awaiting the server's answer (shown as "Joining…"). */
   private pendingRoomId: string | null = null;
-  private maxMessages: number = 100;
+  /** Within this distance of the bottom the list follows new messages. */
+  private static readonly STICK_TO_BOTTOM_PX = 80;
+  /** Scrolling this close to the top asks for the previous history page. */
+  private static readonly LOAD_OLDER_PX = 300;
   private userFilter = '';
   private messageFilter = '';
   private static cssLoaded = false;
@@ -199,8 +248,21 @@ export default class LobbyUI {
     );
     chatArea.appendChild(header);
 
+    const messagesWrap = el('div', 'lobby-messages-wrap');
     this.chatMessages = el('div', 'lobby-messages');
-    chatArea.appendChild(this.chatMessages);
+    this.historyStatus = el('div', 'lobby-history-status');
+    this.historyStatus.hidden = true;
+    this.chatMessages.appendChild(this.historyStatus);
+    this.chatMessages.addEventListener('scroll', this.onMessagesScroll, { passive: true });
+    messagesWrap.appendChild(this.chatMessages);
+
+    // Shown when a message arrives while the user is reading further up.
+    this.newMessagesButton = el('button', 'lobby-new-messages', 'Новые сообщения ↓');
+    this.newMessagesButton.type = 'button';
+    this.newMessagesButton.hidden = true;
+    this.newMessagesButton.onclick = () => this.scrollToBottom();
+    messagesWrap.appendChild(this.newMessagesButton);
+    chatArea.appendChild(messagesWrap);
 
     const inputContainer = el('div', 'lobby-input-container');
     this.chatInput = el('input', 'lobby-input');
@@ -320,26 +382,11 @@ export default class LobbyUI {
   }
 
   /**
-   * Add or update user in the list
+   * Replace the member list (already ordered by the caller): everyone online or away,
+   * then the offline users.
    */
-  addUser(userId: number, userName: string): void {
-    this.users.set(userId, userName);
-    this.updateUsersList();
-  }
-
-  /**
-   * Remove user from the list
-   */
-  removeUser(userId: number): void {
-    this.users.delete(userId);
-    this.updateUsersList();
-  }
-
-  /**
-   * Clear all users from the list
-   */
-  clearAllUsers(): void {
-    this.users.clear();
+  setMembers(members: LobbyMember[]): void {
+    this.members = members;
     this.updateUsersList();
   }
 
@@ -381,102 +428,184 @@ export default class LobbyUI {
     if (this.pendingRoomId) this.headerTitle.textContent = `Joining ${nameOf(this.pendingRoomId)}…`;
     else if (this.currentRoomId) this.headerTitle.textContent = nameOf(this.currentRoomId);
     else this.headerTitle.textContent = 'Connecting…';
+
+    // People in the room right now (the member list also shows who is elsewhere).
+    const inRoom = this.currentRoomId ? (this.rooms.get(this.currentRoomId)?.userCount ?? 0) : 0;
+    if (this.headerOnline) this.headerOnline.textContent = `${inRoom} online`;
   }
 
   /**
-   * Update the users list display (+ the counters and the current-user footer)
+   * Update the member list display (+ the counters and the current-user footer)
    */
   private updateUsersList(): void {
     if (!this.usersList) return;
 
     this.usersList.innerHTML = '';
 
-    // Sort users by ID for consistent display
-    const sortedUsers = Array.from(this.users.entries())
-      .map(([id, name]): [number, string] => [id, this.displayName(id, name)])
-      .sort((a, b) => a[0] - b[0]);
-    const visibleUsers = sortedUsers.filter(([, name]) =>
-      name.toLowerCase().includes(this.userFilter)
-    );
+    const matches = (m: LobbyMember) => m.name.toLowerCase().includes(this.userFilter);
+    const present = this.members.filter(m => m.status !== 'offline');
+    const offline = this.members.filter(m => m.status === 'offline');
+    const visiblePresent = present.filter(matches);
+    const visibleOffline = offline.filter(matches);
 
-    for (const [userId, userName] of visibleUsers) {
-      const userElement = el('div', 'lobby-user-item');
-      if (userId === this.currentUserId) {
-        userElement.classList.add('lobby-current-user');
-      }
-      userElement.appendChild(createAvatar(userName, 'sm', true));
-      userElement.appendChild(el('span', 'lobby-user-name', userName));
-      this.usersList.appendChild(userElement);
+    const list = document.createDocumentFragment();
+    for (const member of visiblePresent) list.appendChild(this.buildMemberItem(member));
+    if (visibleOffline.length > 0) {
+      const title = el('div', 'lobby-users-title lobby-users-subtitle', 'Offline');
+      title.appendChild(el('span', 'lobby-users-title-count', String(offline.length)));
+      list.appendChild(title);
+      for (const member of visibleOffline) list.appendChild(this.buildMemberItem(member));
     }
+    this.usersList.appendChild(list);
 
-    if (visibleUsers.length === 0 && this.userFilter) {
+    if (visiblePresent.length + visibleOffline.length === 0 && this.userFilter) {
       this.usersList.appendChild(el('div', 'lobby-users-empty', 'Никого не найдено'));
     }
 
-    if (this.usersCount) this.usersCount.textContent = String(this.users.size);
-    if (this.headerOnline) this.headerOnline.textContent = `${this.users.size} online`;
+    if (this.usersCount) this.usersCount.textContent = String(present.length);
 
     this.updateMeSection();
   }
 
-  /** The local user's own name is known up front; room rosters may only carry a placeholder. */
-  private displayName(userId: number, userName: string): string {
-    return userId === this.currentUserId && this.currentUserName ? this.currentUserName : userName;
+  private buildMemberItem(member: LobbyMember): HTMLDivElement {
+    const item = el('div', `lobby-user-item lobby-user-${member.status}`);
+    if (member.isSelf) item.classList.add('lobby-current-user');
+    item.appendChild(createAvatar(member.name, 'sm', member.status));
+    const text = el('div', 'lobby-user-text');
+    text.appendChild(el('span', 'lobby-user-name', member.name));
+    if (member.detail) text.appendChild(el('span', 'lobby-user-detail', member.detail));
+    item.appendChild(text);
+    return item;
   }
 
   private updateMeSection(): void {
     if (!this.meSection) return;
     this.meSection.innerHTML = '';
 
-    const name = this.currentUserName ?? this.users.get(this.currentUserId);
+    const self = this.members.find(m => m.isSelf);
+    const name = this.currentUserName ?? self?.name;
     this.meSection.hidden = !name;
     if (!name) return;
 
-    this.meSection.appendChild(createAvatar(name, 'sm', true));
+    const away = self?.status === 'away';
+    this.meSection.appendChild(createAvatar(name, 'sm', away ? 'away' : 'online'));
     const text = el('div', 'lobby-me-text');
     text.appendChild(el('div', 'lobby-me-name', name));
-    text.appendChild(el('div', 'lobby-me-status', 'В сети'));
+    text.appendChild(el('div', 'lobby-me-status', away ? 'Отошёл' : 'В сети'));
     this.meSection.appendChild(text);
   }
 
-  /**
-   * Add message to chat
-   */
-  addMessage(userName: string, message: string, isOwnMessage: boolean = false): void {
-    if (!this.chatMessages) return;
+  // ==================== messages ====================
 
+  private buildMessage(message: LobbyMessage): HTMLDivElement {
     const messageElement = el('div', 'lobby-message');
-    if (isOwnMessage) {
-      messageElement.classList.add('lobby-message-own');
-    }
+    if (message.own) messageElement.classList.add('lobby-message-own');
 
-    messageElement.appendChild(createAvatar(userName, 'md'));
+    messageElement.appendChild(createAvatar(message.name, 'md'));
 
     const body = el('div', 'lobby-message-body');
     const meta = el('div', 'lobby-message-meta');
-    meta.appendChild(el('span', 'lobby-message-user', userName));
-    meta.appendChild(
-      el(
-        'span',
-        'lobby-message-time',
-        new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
-      )
-    );
+    meta.appendChild(el('span', 'lobby-message-user', message.name));
+    meta.appendChild(el('span', 'lobby-message-time', formatMessageTime(message.sentAtMs)));
     body.appendChild(meta);
-    body.appendChild(el('div', 'lobby-message-text', message));
+    body.appendChild(el('div', 'lobby-message-text', message.text));
     messageElement.appendChild(body);
 
     messageElement.hidden = !this.matchesMessageFilter(messageElement);
-    this.chatMessages.appendChild(messageElement);
+    return messageElement;
+  }
 
-    // Auto-scroll to bottom
-    this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+  private buildMessages(messages: readonly LobbyMessage[]): DocumentFragment {
+    // One fragment → one layout, however many messages a page carries.
+    const fragment = document.createDocumentFragment();
+    for (const message of messages) fragment.appendChild(this.buildMessage(message));
+    return fragment;
+  }
 
-    // Remove old messages if exceeding max
-    const children = this.chatMessages.children;
-    while (children.length > this.maxMessages) {
-      this.chatMessages.removeChild(children[0]);
-    }
+  /**
+   * Replace the displayed messages (entering a room, or its log was reset) and jump to
+   * the newest. `hasMore`: older history exists and can be scrolled into.
+   */
+  setMessages(messages: readonly LobbyMessage[], hasMore: boolean): void {
+    if (!this.chatMessages || !this.historyStatus) return;
+    this.chatMessages.replaceChildren(this.historyStatus, this.buildMessages(messages));
+    this.setHistoryState(hasMore, false);
+    this.scrollToBottom();
+    this.maybeLoadOlder();
+  }
+
+  /**
+   * Add messages at the end (a live message, or a catch-up after rejoining). The view
+   * follows them only if the user was at the bottom or wrote one of them — reading
+   * older messages is never interrupted; a "new messages" button appears instead.
+   */
+  appendMessages(messages: readonly LobbyMessage[]): void {
+    if (!this.chatMessages || messages.length === 0) return;
+    const follow = this.isNearBottom() || messages.some(m => m.own);
+    this.chatMessages.appendChild(this.buildMessages(messages));
+    // The first message of an empty room brings the history row with it.
+    this.setHistoryState(this.hasMoreHistory, this.loadingHistory);
+    if (follow) this.scrollToBottom();
+    else if (this.newMessagesButton) this.newMessagesButton.hidden = false;
+  }
+
+  /**
+   * Add an older page above the current messages, keeping what the user is looking at
+   * exactly where it is.
+   */
+  prependMessages(messages: readonly LobbyMessage[], hasMore: boolean): void {
+    if (!this.chatMessages || !this.historyStatus) return;
+    const list = this.chatMessages;
+    const heightBefore = list.scrollHeight;
+    const topBefore = list.scrollTop;
+
+    this.historyStatus.after(this.buildMessages(messages));
+    this.setHistoryState(hasMore, false);
+
+    // Everything below the insertion point moved down by the inserted height.
+    list.scrollTop = topBefore + (list.scrollHeight - heightBefore);
+    if (messages.length > 0) this.maybeLoadOlder();
+  }
+
+  /** Whether older history exists / a page of it is being loaded right now. */
+  setHistoryState(hasMore: boolean, loading: boolean): void {
+    this.hasMoreHistory = hasMore;
+    this.loadingHistory = loading;
+    if (!this.historyStatus || !this.chatMessages) return;
+    // The row is there whenever there are messages — "loading" for as long as older
+    // history exists, not only while a request is in flight. Toggling it per request
+    // would shift the whole list by its height each time a page is fetched.
+    this.historyStatus.hidden = this.chatMessages.children.length <= 1;
+    this.historyStatus.textContent = hasMore ? 'Загрузка истории…' : 'Начало истории';
+  }
+
+  /** Called when the user scrolls near the top and older history should be fetched. */
+  setOnLoadOlderCallback(callback: () => void): void {
+    this.loadOlderCallback = callback;
+  }
+
+  private readonly onMessagesScroll = (): void => {
+    if (this.isNearBottom() && this.newMessagesButton) this.newMessagesButton.hidden = true;
+    this.maybeLoadOlder();
+  };
+
+  private maybeLoadOlder(): void {
+    if (!this.chatMessages || !this.hasMoreHistory || this.loadingHistory) return;
+    // While a search filter hides rows the list is short by construction; loading on
+    // "near the top" would then pull the whole history page after page.
+    if (this.messageFilter) return;
+    if (this.chatMessages.scrollTop <= LobbyUI.LOAD_OLDER_PX) this.loadOlderCallback?.();
+  }
+
+  private isNearBottom(): boolean {
+    const list = this.chatMessages;
+    if (!list) return true;
+    return list.scrollHeight - list.scrollTop - list.clientHeight <= LobbyUI.STICK_TO_BOTTOM_PX;
+  }
+
+  private scrollToBottom(): void {
+    if (this.chatMessages) this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+    if (this.newMessagesButton) this.newMessagesButton.hidden = true;
   }
 
   /**
@@ -487,7 +616,7 @@ export default class LobbyUI {
     const messageElement = el('div', 'lobby-message lobby-message-system', text);
     messageElement.hidden = !this.matchesMessageFilter(messageElement);
     this.chatMessages.appendChild(messageElement);
-    this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+    this.scrollToBottom();
   }
 
   private matchesMessageFilter(messageElement: Element): boolean {
@@ -500,9 +629,10 @@ export default class LobbyUI {
   private applyMessageFilter(): void {
     if (!this.chatMessages) return;
     for (const child of Array.from(this.chatMessages.children)) {
+      if (child === this.historyStatus) continue;
       (child as HTMLElement).hidden = !this.matchesMessageFilter(child);
     }
-    this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+    this.scrollToBottom();
   }
 
   /**
@@ -534,9 +664,7 @@ export default class LobbyUI {
    * Clear all messages
    */
   clearMessages(): void {
-    if (this.chatMessages) {
-      this.chatMessages.innerHTML = '';
-    }
+    this.setMessages([], false);
   }
 
   /**
@@ -554,7 +682,10 @@ export default class LobbyUI {
     if (this.container && this.container.parentNode) {
       this.container.parentNode.removeChild(this.container);
     }
+    this.chatMessages?.removeEventListener('scroll', this.onMessagesScroll);
     this.chatMessages = null;
+    this.historyStatus = null;
+    this.newMessagesButton = null;
     this.chatInput = null;
     this.usersList = null;
     this.usersCount = null;
@@ -564,7 +695,7 @@ export default class LobbyUI {
     this.meSection = null;
     this.userSearchInput = null;
     this.container = null;
-    this.users.clear();
+    this.members = [];
     this.rooms.clear();
   }
 }

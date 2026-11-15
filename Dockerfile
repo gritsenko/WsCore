@@ -51,9 +51,16 @@ COPY --from=server-builder /app/publish ./
 # Copy built client assets
 COPY --from=client-builder /app/client/dist ./wwwroot
 
+# The chat history / known-users database (GameServer:ChatDatabasePath = data/chat.db,
+# relative to /app) is the only thing the server writes. Give the non-root user that one
+# directory and make it a volume so the history survives container re-creation (mount a
+# named volume or a host directory there — see docker-compose.yml).
+RUN mkdir -p /app/data && chown $APP_UID /app/data
+VOLUME /app/data
+
 # Run as the non-root `app` user built into the .NET images (UID in $APP_UID, 1654).
-# Copied files are root-owned but world-readable, which is all the server needs: it
-# doesn't write under /app. Binding :80 as non-root works because Docker sets
+# Copied files are root-owned but world-readable, which is all the server needs: apart
+# from /app/data it doesn't write under /app. Binding :80 as non-root works because Docker sets
 # net.ipv4.ip_unprivileged_port_start=0 in the container (it already ran as UID 1001).
 USER $APP_UID
 

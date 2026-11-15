@@ -29,5 +29,9 @@ public interface IGameMessenger
     // Reliable send to the members of one room (chat, room user lists).
     void BroadcastToRoom<TEventMessage>(string roomId, TEventMessage @event) where TEventMessage : IServerEvent;
 
+    // Reliable send to every connected client the filter accepts (serialized once, and
+    // not at all when nobody matches).
+    void BroadcastWhere<TEventMessage>(TEventMessage @event, Func<uint, bool> filter) where TEventMessage : IServerEvent;
+
     IClientRequest Deserialize(ref byte[] data, out Type messageType);
 }

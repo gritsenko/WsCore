@@ -4,10 +4,12 @@ import { MemoryPackReader } from "./MemoryPackReader.js";
 export class RoomUserInfo {
     clientId: number;
     name: string | null;
+    userId: number;
 
     constructor() {
         this.clientId = 0;
         this.name = null;
+        this.userId = 0;
 
     }
 
@@ -23,9 +25,10 @@ export class RoomUserInfo {
             return;
         }
 
-        writer.writeObjectHeader(2);
+        writer.writeObjectHeader(3);
         writer.writeUint32(value.clientId);
         writer.writeString(value.name);
+        writer.writeUint32(value.userId);
 
     }
 
@@ -50,18 +53,20 @@ export class RoomUserInfo {
         }
 
         const value = new RoomUserInfo();
-        if (count == 2) {
+        if (count == 3) {
             value.clientId = reader.readUint32();
             value.name = reader.readString();
+            value.userId = reader.readUint32();
 
         }
-        else if (count > 2) {
+        else if (count > 3) {
             throw new Error("Current object's property count is larger than type schema, can't deserialize about versioning.");
         }
         else {
             if (count == 0) return value;
             value.clientId = reader.readUint32(); if (count == 1) return value;
             value.name = reader.readString(); if (count == 2) return value;
+            value.userId = reader.readUint32(); if (count == 3) return value;
 
         }
         return value;

@@ -10,6 +10,7 @@
 
 	<ItemGroup>
 		<PackageReference Include="MemoryPack" Version="1.21.4" />
+		<PackageReference Include="Microsoft.Data.Sqlite" Version="11.0.0" />
 	</ItemGroup>
 
 	<!-- output memorypack TypeScript code to directory -->

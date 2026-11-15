@@ -98,7 +98,7 @@ public class GameMessenger : IGameMessenger
     public void BroadcastToNonSpatial<TEventMessage>(TEventMessage @event) where TEventMessage : IServerEvent
         => BroadcastWhere(@event, id => !IsSpatialRecipient(id));
 
-    private void BroadcastWhere<TEventMessage>(TEventMessage @event, Func<uint, bool> filter) where TEventMessage : IServerEvent
+    public void BroadcastWhere<TEventMessage>(TEventMessage @event, Func<uint, bool> filter) where TEventMessage : IServerEvent
     {
         ArraySegment<byte> segment = default;
         var serialized = false;

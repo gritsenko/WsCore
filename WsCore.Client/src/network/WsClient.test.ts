@@ -15,6 +15,12 @@ import { RoomUserInfo } from './protocol/RoomUserInfo';
 import { SetPlayerNameEvent } from './protocol/SetPlayerNameEvent';
 import { ChatMessageEvent } from './protocol/ChatMessageEvent';
 import { CommunicationMode } from './rooms/CommunicationMode';
+import { ChatHistoryEvent } from './protocol/ChatHistoryEvent';
+import { ChatMessageData } from './protocol/ChatMessageData';
+import { PresenceSnapshotEvent } from './protocol/PresenceSnapshotEvent';
+import { PresenceUpdateEvent } from './protocol/PresenceUpdateEvent';
+import { PresenceUserInfo } from './protocol/PresenceUserInfo';
+import { PresenceStatus } from './ClientEvents';
 
 // Session-level behaviour of WsClient: rooms come from the server, joins are
 // server-confirmed, and players exist only while we're in a spatial room. Messages are
@@ -248,7 +254,7 @@ describe('WsClient rooms and players', () => {
   it('room user lists and renames resolve chat names without any player objects', () => {
     const { client } = inLobby(5);
     const chats: string[] = [];
-    client.on('chat', (name, text) => chats.push(`${name}: ${text}`));
+    client.on('chat', (_roomId, entry) => chats.push(`${entry.name}: ${entry.text}`));
 
     const users = new RoomUsersUpdateEvent();
     users.roomId = 'lobby';
@@ -261,19 +267,274 @@ describe('WsClient rooms and players', () => {
     client.onRoomUsersUpdateEvent(users);
     expect(client.roomManager.getRoom('lobby')!.userCount).toBe(2);
 
+    // A live message without a name (an older server): resolved from the room list.
     const chat = new ChatMessageEvent();
     chat.clientId = 7;
     chat.message = 'hi';
+    chat.id = 1;
     client.onChatMessageEvent(chat);
 
     const rename = new SetPlayerNameEvent();
     rename.clientId = 7;
     rename.name = 'Bob';
     client.onSetPlayerNameEvent(rename);
+    chat.id = 2;
     client.onChatMessageEvent(chat);
 
     expect(chats).toEqual(['User7: hi', 'Bob: hi']);
     expect(client.getCurrentRoom()!.getClient(7)!.name).toBe('Bob');
+  });
+});
+
+// ---- chat history + presence ----
+
+function historyPage(
+  roomId: string,
+  ids: number[],
+  opts: { reset?: boolean; hasMore?: boolean; beforeId?: number; epoch?: number } = {}
+): ChatHistoryEvent {
+  const e = new ChatHistoryEvent();
+  e.roomId = roomId;
+  e.epoch = opts.epoch ?? 1;
+  e.reset = opts.reset ?? false;
+  e.hasMore = opts.hasMore ?? false;
+  e.beforeId = opts.beforeId ?? 0;
+  e.messages = ids.map(id => {
+    const m = new ChatMessageData();
+    m.id = id;
+    m.userId = 9;
+    m.name = 'Ann';
+    m.text = `m${id}`;
+    m.sentAtMs = 1000 + id;
+    return m;
+  });
+  return e;
+}
+
+function live(id: number, text = `m${id}`): ChatMessageEvent {
+  const e = new ChatMessageEvent();
+  e.id = id;
+  e.clientId = 7;
+  e.userId = 9;
+  e.name = 'Ann';
+  e.message = text;
+  e.sentAtMs = 1000 + id;
+  return e;
+}
+
+describe('WsClient chat history', () => {
+  beforeEach(() => vi.spyOn(console, 'log').mockImplementation(() => {}));
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  const ids = (client: WsClient<Player>, roomId: string) =>
+    client.getChatLog(roomId).entries.map(e => e.id);
+
+  it('identifies with the user key on session init (the name rides along)', () => {
+    const client = new WsClient<Player>();
+    client.userKey = 'k'.repeat(32);
+    client.myPlayerName = 'Ann';
+    const identify = vi.spyOn(client, 'sendIdentifyRequest');
+    const rename = vi.spyOn(client, 'sendSetPlayerNameRequest');
+
+    client.onInitPlayerEvent(init(5));
+
+    expect(identify).toHaveBeenCalledWith('k'.repeat(32), 'Ann');
+    expect(rename).not.toHaveBeenCalled();
+  });
+
+  it('asks for the latest page on the first visit and only for what was missed afterwards', () => {
+    const { client } = newClient();
+    const requests = vi.spyOn(client, 'sendChatHistoryRequest');
+    client.onInitPlayerEvent(init(5));
+    client.onRoomListEvent(roomList(LOBBY(), GAME()));
+
+    client.onJoinRoomResultEvent(joined(LOBBY()));
+    expect(requests).toHaveBeenLastCalledWith(0, 0, 0); // nothing cached
+
+    client.onChatHistoryEvent(historyPage('lobby', [10, 11, 12], { reset: true, hasMore: true }));
+    client.onChatMessageEvent(live(13));
+    expect(ids(client, 'lobby')).toEqual([10, 11, 12, 13]);
+
+    // Away to the game and back: the cached log is still there, only the gap is asked for.
+    client.onJoinRoomResultEvent(joined(GAME()));
+    client.onJoinRoomResultEvent(joined(LOBBY()));
+    expect(requests).toHaveBeenLastCalledWith(0, 13, 1);
+
+    const changes: string[] = [];
+    client.on('chatHistory', (roomId, change) =>
+      changes.push(`${roomId}:${change.kind}:${'entries' in change ? change.entries.length : ''}`)
+    );
+    client.onChatHistoryEvent(historyPage('lobby', [14, 15]));
+    expect(changes).toEqual(['lobby:append:2']);
+    expect(ids(client, 'lobby')).toEqual([10, 11, 12, 13, 14, 15]);
+  });
+
+  it('a live message that also arrives in a history page is not duplicated', () => {
+    const { client } = inLobby();
+    const lives: number[] = [];
+    client.on('chat', (_room, entry) => lives.push(entry.id));
+
+    client.onChatMessageEvent(live(21));
+    client.onChatHistoryEvent(historyPage('lobby', [20, 21], { reset: true }));
+    client.onChatMessageEvent(live(21)); // replayed
+    client.onChatMessageEvent(live(22));
+
+    expect(lives).toEqual([21, 22]);
+    expect(ids(client, 'lobby')).toEqual([20, 21, 22]);
+  });
+
+  it('chat logs are per room: a live message lands in the room we are in', () => {
+    const { client } = inLobby();
+    client.onChatMessageEvent(live(1));
+    client.onJoinRoomResultEvent(joined(GAME()));
+    client.onChatMessageEvent(live(2));
+
+    expect(ids(client, 'lobby')).toEqual([1]);
+    expect(ids(client, 'game')).toEqual([2]);
+  });
+
+  it('loads older pages one at a time, from the oldest cached message', () => {
+    const { client } = inLobby();
+    const requests = vi.spyOn(client, 'sendChatHistoryRequest');
+    client.onChatHistoryEvent(historyPage('lobby', [50, 51], { reset: true, hasMore: true }));
+
+    expect(client.loadOlderChat()).toBe(true);
+    expect(requests).toHaveBeenLastCalledWith(50, 0, 1);
+    expect(client.loadOlderChat()).toBe(false); // already loading
+
+    client.onChatHistoryEvent(historyPage('lobby', [48, 49], { beforeId: 50, hasMore: false }));
+    expect(ids(client, 'lobby')).toEqual([48, 49, 50, 51]);
+    expect(client.loadOlderChat()).toBe(false); // nothing older
+  });
+
+  it('gives up on an unanswered older-page request so scrolling can retry', () => {
+    vi.useFakeTimers();
+    const { client } = inLobby();
+    client.onChatHistoryEvent(historyPage('lobby', [50], { reset: true, hasMore: true }));
+    const changes: string[] = [];
+    client.on('chatHistory', (_room, change) => changes.push(change.kind));
+
+    expect(client.loadOlderChat()).toBe(true);
+    vi.advanceTimersByTime(WsClient.HISTORY_TIMEOUT_MS + 1);
+
+    expect(changes).toEqual(['prepend']);
+    expect(client.getChatLog('lobby').loadingOlder).toBe(false);
+    expect(client.loadOlderChat()).toBe(true);
+  });
+
+  it('keeps the chat cache across a reconnect and catches up from the last known id', () => {
+    const { client } = inLobby();
+    const requests = vi.spyOn(client, 'sendChatHistoryRequest');
+    client.onChatHistoryEvent(historyPage('lobby', [5, 6], { reset: true }));
+
+    client.onInitPlayerEvent(init(77)); // reconnect: new clientId, new session
+    client.onJoinRoomResultEvent(joined(LOBBY()));
+
+    expect(ids(client, 'lobby')).toEqual([5, 6]);
+    expect(requests).toHaveBeenLastCalledWith(0, 6, 1);
+  });
+
+  it('a different history epoch drops every cached room', () => {
+    const { client } = inLobby();
+    client.onChatHistoryEvent(historyPage('lobby', [5, 6], { reset: true }));
+    client.onJoinRoomResultEvent(joined(GAME()));
+    client.onChatHistoryEvent(historyPage('game', [7], { reset: true }));
+
+    // The server restarted without its history: ids start over.
+    client.onChatHistoryEvent(historyPage('game', [1], { reset: true, epoch: 2 }));
+
+    expect(ids(client, 'game')).toEqual([1]);
+    expect(ids(client, 'lobby')).toEqual([]);
+    expect(client.chatLog.epoch).toBe(2);
+  });
+});
+
+describe('WsClient presence', () => {
+  beforeEach(() => vi.spyOn(console, 'log').mockImplementation(() => {}));
+  afterEach(() => vi.restoreAllMocks());
+
+  function user(userId: number, status: number, roomId: string | null = null): PresenceUserInfo {
+    const u = new PresenceUserInfo();
+    u.userId = userId;
+    u.name = `U${userId}`;
+    u.status = status;
+    u.roomId = roomId;
+    u.lastSeenMs = 5000;
+    return u;
+  }
+
+  it('builds the member list from the snapshot and keeps offline users in it', () => {
+    const { client } = inLobby();
+    let notified = 0;
+    client.on('presence', () => notified++);
+
+    const snapshot = new PresenceSnapshotEvent();
+    snapshot.yourUserId = 1;
+    snapshot.users = [
+      user(1, PresenceStatus.Online, 'lobby'),
+      user(2, PresenceStatus.Online, 'lobby'),
+    ];
+    client.onPresenceSnapshotEvent(snapshot);
+    expect(client.myUserId).toBe(1);
+
+    const left = new PresenceUpdateEvent();
+    left.user = user(2, PresenceStatus.Offline);
+    client.onPresenceUpdateEvent(left);
+
+    expect([...client.presence.values()].map(u => [u.userId, u.status, u.roomId])).toEqual([
+      [1, PresenceStatus.Online, 'lobby'],
+      [2, PresenceStatus.Offline, null],
+    ]);
+    expect(notified).toBe(2);
+  });
+
+  it('own messages are recognised by user id, across client ids', () => {
+    const { client } = inLobby(5);
+    const snapshot = new PresenceSnapshotEvent();
+    snapshot.yourUserId = 9;
+    client.onPresenceSnapshotEvent(snapshot);
+
+    client.onChatHistoryEvent(historyPage('lobby', [1], { reset: true })); // written by user 9
+    expect(client.isOwnMessage(client.getChatLog('lobby').entries[0])).toBe(true);
+    expect(client.isOwnMessage({ id: 2, userId: 4, name: 'x', text: '', sentAtMs: 0 })).toBe(false);
+    // Anonymous authors (user id 0) are never "us".
+    expect(client.isOwnMessage({ id: 3, userId: 0, name: 'x', text: '', sentAtMs: 0 })).toBe(false);
+  });
+
+  it('reports away only on change and repeats it for a new session', () => {
+    const { client } = inLobby();
+    const away = vi.spyOn(client, 'sendSetAwayRequest');
+
+    client.setAway(true);
+    client.setAway(true);
+    expect(away).toHaveBeenCalledTimes(1);
+
+    client.onInitPlayerEvent(init(8)); // reconnect while still away
+    expect(away).toHaveBeenCalledTimes(2);
+    expect(away).toHaveBeenLastCalledWith(true);
+
+    client.setAway(false);
+    expect(away).toHaveBeenLastCalledWith(false);
+  });
+
+  it('room user lists carry the user id (0 = anonymous guest)', () => {
+    const { client } = inLobby(5);
+    const users = new RoomUsersUpdateEvent();
+    users.roomId = 'lobby';
+    users.users = [5, 7].map(id => {
+      const u = new RoomUserInfo();
+      u.clientId = id;
+      u.name = `User${id}`;
+      u.userId = id === 5 ? 42 : 0;
+      return u;
+    });
+    client.onRoomUsersUpdateEvent(users);
+
+    expect(client.getCurrentRoom()!.getClient(5)!.userId).toBe(42);
+    expect(client.getCurrentRoom()!.getClient(7)!.userId).toBe(0);
   });
 });
 

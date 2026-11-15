@@ -261,3 +261,6 @@ __pycache__/
 *.pyc
 # Local automated-test stack (scripts/dev-up.sh)
 .run/
+
+# Local chat history / known-users database (GameServer:ChatDatabasePath)
+WsServer/WsServer/data/

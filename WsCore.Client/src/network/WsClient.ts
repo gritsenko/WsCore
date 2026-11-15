@@ -1,5 +1,5 @@
 ﻿import WsConnection from './WsConnection';
-import type { IPlayer } from './ClientEvents';
+import type { IPlayer, PresenceUser } from './ClientEvents';
 import { InitPlayerEvent } from './protocol/InitPlayerEvent';
 import { PlayerJoinedEvent } from './protocol/PlayerJoinedEvent';
 import { PlayerLeftEvent } from './protocol/PlayerLeftEvent';
@@ -17,8 +17,23 @@ import { RoomListEvent } from './protocol/RoomListEvent';
 import { RoomUsersUpdateEvent } from './protocol/RoomUsersUpdateEvent';
 import { JoinRoomResultEvent } from './protocol/JoinRoomResultEvent';
 import { ServerClock } from '../utils/SnapshotInterpolation';
+import { ChatHistoryEvent } from './protocol/ChatHistoryEvent';
+import { PresenceSnapshotEvent } from './protocol/PresenceSnapshotEvent';
+import { PresenceUpdateEvent } from './protocol/PresenceUpdateEvent';
+import { PresenceUserInfo } from './protocol/PresenceUserInfo';
+import { ChatEntry, ChatLogStore, ChatRoomLog } from './ChatLog';
 
 export type { IPlayer } from './ClientEvents';
+
+function toPresenceUser(info: PresenceUserInfo): PresenceUser {
+  return {
+    userId: info.userId,
+    name: info.name || `User ${info.userId}`,
+    status: info.status,
+    roomId: info.roomId || null,
+    lastSeenMs: info.lastSeenMs,
+  };
+}
 
 function describeRoom(info: RoomInfo): RoomDescription | null {
   if (!info.id) return null;
@@ -66,6 +81,25 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
   homeRoomId: string | null = null;
   private awaitingHomeRoom = false;
 
+  /**
+   * Our stable identity: a random secret kept in local storage and sent on every
+   * (re)connect, so the server knows us as the same user although the clientId changes.
+   * Empty = stay anonymous (no member-list entry).
+   */
+  userKey = '';
+  /** Our user id, once the server answered the identify (0 until then). */
+  myUserId = 0;
+  /** The member list: every known user — online, away and offline. */
+  readonly presence = new Map<number, PresenceUser>();
+  /** Whether we last reported ourselves idle; re-sent on every new session. */
+  private away = false;
+
+  /** Per-room chat cache; survives room switches, lobby↔game and reconnects. */
+  readonly chatLog = new ChatLogStore();
+  /** Give up waiting for an older-history page after this long (the request was lost). */
+  static readonly HISTORY_TIMEOUT_MS = 8000;
+  private historyTimer: ReturnType<typeof setTimeout> | null = null;
+
   override onInitPlayerEvent(msg: InitPlayerEvent): void {
     // Every InitPlayerEvent (first connect OR reconnect) starts a fresh session:
     // the server assigns a new clientId and knows nothing about the previous one.
@@ -75,7 +109,10 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
     this.awaitingHomeRoom = true;
     console.log('Player initialized', this.clientId);
     // Session identity (kept server-side even without an avatar) and the room list.
-    this.sendSetPlayerNameRequest(this.myPlayerName);
+    // Identifying also sets the name; an anonymous client only sets the name.
+    if (this.userKey) this.sendIdentifyRequest(this.userKey, this.myPlayerName);
+    else this.sendSetPlayerNameRequest(this.myPlayerName);
+    if (this.away) this.sendSetAwayRequest(true); // a new session starts as "active"
     this.sendUpdatePlayerSlotsRequest(0, 0, 0);
     this.requestRoomList();
 
@@ -99,8 +136,112 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
   }
 
   override onChatMessageEvent(msg: ChatMessageEvent): void {
-    const id = msg.clientId;
-    this.emitter.emit('chat', this.resolveName(id), msg.message || '', id === this.clientId);
+    // Chat is per room and the server only sends us our own room's.
+    const roomId = this.getCurrentRoom()?.id;
+    if (!roomId) return;
+
+    const entry: ChatEntry = {
+      id: msg.id,
+      userId: msg.userId,
+      name: msg.name || this.resolveName(msg.clientId),
+      text: msg.message || '',
+      sentAtMs: msg.sentAtMs || Date.now(),
+    };
+    switch (this.chatLog.addLive(roomId, entry)) {
+      case 'added':
+        this.emitter.emit('chat', roomId, entry);
+        break;
+      case 'trimmed':
+        this.emitter.emit('chatHistory', roomId, { kind: 'reset' });
+        break;
+      // 'duplicate': already delivered by a history page.
+    }
+  }
+
+  override onChatHistoryEvent(msg: ChatHistoryEvent): void {
+    const roomId = msg.roomId || '';
+    const messages: ChatEntry[] = [];
+    for (const m of msg.messages ?? []) {
+      if (!m) continue;
+      messages.push({
+        id: m.id,
+        userId: m.userId,
+        name: m.name || '',
+        text: m.text || '',
+        sentAtMs: m.sentAtMs,
+      });
+    }
+
+    if (msg.beforeId !== 0) this.clearHistoryTimer();
+    const change = this.chatLog.applyHistory({
+      roomId,
+      epoch: msg.epoch,
+      beforeId: msg.beforeId,
+      reset: msg.reset,
+      hasMore: msg.hasMore,
+      messages,
+    });
+    if (change) this.emitter.emit('chatHistory', roomId, change);
+  }
+
+  override onPresenceSnapshotEvent(msg: PresenceSnapshotEvent): void {
+    this.myUserId = msg.yourUserId;
+    this.presence.clear();
+    for (const info of msg.users ?? []) {
+      if (info) this.presence.set(info.userId, toPresenceUser(info));
+    }
+    this.emitter.emit('presence');
+  }
+
+  override onPresenceUpdateEvent(msg: PresenceUpdateEvent): void {
+    if (!msg.user) return;
+    this.presence.set(msg.user.userId, toPresenceUser(msg.user));
+    this.emitter.emit('presence');
+  }
+
+  /** Whether a chat entry was written by us (by user — so it holds across reconnects). */
+  isOwnMessage(entry: ChatEntry): boolean {
+    return entry.userId !== 0 && entry.userId === this.myUserId;
+  }
+
+  /** The cached chat log of a room (empty until its first history page arrives). */
+  getChatLog(roomId: string): ChatRoomLog {
+    return this.chatLog.room(roomId);
+  }
+
+  /**
+   * Ask for the page of messages before the oldest one we have in our current room.
+   * Returns false when there is nothing to load or a page is already on its way; the
+   * answer arrives as a `chatHistory` 'prepend' (empty if the request timed out).
+   */
+  loadOlderChat(): boolean {
+    const roomId = this.getCurrentRoom()?.id;
+    if (!roomId) return false;
+    const log = this.chatLog.room(roomId);
+    if (!log.hasMore || log.loadingOlder || log.entries.length === 0) return false;
+
+    log.loadingOlder = true;
+    this.sendChatHistoryRequest(log.firstId, 0, this.chatLog.epoch);
+    this.clearHistoryTimer();
+    this.historyTimer = setTimeout(() => {
+      this.historyTimer = null;
+      if (!log.loadingOlder) return;
+      log.loadingOlder = false;
+      this.emitter.emit('chatHistory', roomId, { kind: 'prepend', entries: [] });
+    }, WsClient.HISTORY_TIMEOUT_MS);
+    return true;
+  }
+
+  private clearHistoryTimer(): void {
+    if (this.historyTimer) clearTimeout(this.historyTimer);
+    this.historyTimer = null;
+  }
+
+  /** Report that the user went idle / came back (see IdleDetector). */
+  setAway(away: boolean): void {
+    if (this.away === away) return;
+    this.away = away;
+    this.sendSetAwayRequest(away);
   }
 
   override onPlayerJoinedEvent(msg: PlayerJoinedEvent): void {
@@ -209,6 +350,11 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
     }
 
     this.emitter.emit('roomJoined', roomId);
+
+    // Chat: what we have cached for the room is shown at once (by the roomJoined
+    // listeners above); fetch only what we missed since — or the latest page if nothing
+    // is cached. Sent after the join so the server answers for this room.
+    this.sendChatHistoryRequest(0, this.chatLog.room(roomId).lastId, this.chatLog.epoch);
   }
 
   override onRoomUsersUpdateEvent(msg: RoomUsersUpdateEvent): void {
@@ -230,6 +376,8 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
               userInfo.name || '',
               previousModes.get(userInfo.clientId)
             );
+            const added = room.getClient(userInfo.clientId);
+            if (added) added.userId = userInfo.userId;
             if (userInfo.name) this.playerNames[userInfo.clientId] = userInfo.name;
           }
         }
@@ -294,6 +442,12 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
     this.pendingRoomId = null;
     this.homeRoomId = null; // re-learnt from the new session's automatic join
     this.awaitingHomeRoom = false;
+    // The chat cache is deliberately kept (message ids stay valid across sessions; the
+    // next join only fetches what was missed).
+    this.chatLog.onSessionReset();
+    this.clearHistoryTimer();
+    // The member list and our user id are kept too: the same userKey identifies as the
+    // same user, and the snapshot that answers the identify replaces the list.
   }
 
   updatePlayer(playerData: PlayerStateData): void {

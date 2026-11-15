@@ -4,10 +4,18 @@ import { MemoryPackReader } from "./MemoryPackReader.js";
 export class ChatMessageEvent {
     clientId: number;
     message: string | null;
+    id: number;
+    userId: number;
+    name: string | null;
+    sentAtMs: number;
 
     constructor() {
         this.clientId = 0;
         this.message = null;
+        this.id = 0;
+        this.userId = 0;
+        this.name = null;
+        this.sentAtMs = 0;
 
     }
 
@@ -23,9 +31,13 @@ export class ChatMessageEvent {
             return;
         }
 
-        writer.writeObjectHeader(2);
+        writer.writeObjectHeader(6);
         writer.writeUint32(value.clientId);
         writer.writeString(value.message);
+        writer.writeUint32(value.id);
+        writer.writeUint32(value.userId);
+        writer.writeString(value.name);
+        writer.writeFloat64(value.sentAtMs);
 
     }
 
@@ -50,18 +62,26 @@ export class ChatMessageEvent {
         }
 
         const value = new ChatMessageEvent();
-        if (count == 2) {
+        if (count == 6) {
             value.clientId = reader.readUint32();
             value.message = reader.readString();
+            value.id = reader.readUint32();
+            value.userId = reader.readUint32();
+            value.name = reader.readString();
+            value.sentAtMs = reader.readFloat64();
 
         }
-        else if (count > 2) {
+        else if (count > 6) {
             throw new Error("Current object's property count is larger than type schema, can't deserialize about versioning.");
         }
         else {
             if (count == 0) return value;
             value.clientId = reader.readUint32(); if (count == 1) return value;
             value.message = reader.readString(); if (count == 2) return value;
+            value.id = reader.readUint32(); if (count == 3) return value;
+            value.userId = reader.readUint32(); if (count == 4) return value;
+            value.name = reader.readString(); if (count == 5) return value;
+            value.sentAtMs = reader.readFloat64(); if (count == 6) return value;
 
         }
         return value;

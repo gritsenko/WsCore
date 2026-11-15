@@ -68,7 +68,19 @@ export default class GameScene {
       this.client.on('playerCreate', (p: Player) => this.addView(p)),
       this.client.on('playerRemove', (p: Player) => this.removeView(p.id)),
       this.client.on('mapObjects', objs => this.world.updateMapObjects(objs)),
-      this.client.on('chat', (name, text) => this.chatUI?.addMessage(name, text)),
+      this.client.on('chat', (roomId, entry) => {
+        if (roomId === this.roomId) this.chatUI?.addMessage(entry.name, entry.text);
+      }),
+      this.client.on('chatHistory', (roomId, change) => {
+        if (roomId !== this.roomId) return;
+        // Catch-ups are appended; a replaced log is redrawn. (The overlay shows only the
+        // recent tail, so older pages are never requested here.)
+        if (change.kind === 'append') {
+          for (const entry of change.entries) this.chatUI?.addMessage(entry.name, entry.text);
+        } else if (change.kind === 'reset') {
+          this.showRecentChat();
+        }
+      }),
       this.client.on('roomJoined', roomId => this.onRoomJoined(roomId)),
       this.client.on('roomJoinFailed', roomId => this.onRoomJoinFailed(roomId))
     );
@@ -103,7 +115,15 @@ export default class GameScene {
 
   private onRoomJoined(roomId: string): void {
     // The map is game-world state: fetch it once we're confirmed in the world.
-    if (roomId === this.roomId) this.client.sendGetMapObjectsRequest(0, 0);
+    if (roomId !== this.roomId) return;
+    this.client.sendGetMapObjectsRequest(0, 0);
+    // Whatever is cached of this room's chat is shown right away; the client is
+    // already fetching what was missed.
+    this.showRecentChat();
+  }
+
+  private showRecentChat(): void {
+    this.chatUI?.setMessages(this.client.getChatLog(this.roomId).entries);
   }
 
   private onRoomJoinFailed(roomId: string): void {

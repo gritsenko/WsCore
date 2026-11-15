@@ -2,6 +2,7 @@ import WsClient from '../network/WsClient';
 import { ConnectionStatus } from '../network/WsConnection';
 import Player from '../game/Player';
 import LobbyState from './LobbyState';
+import IdleDetector from '../utils/IdleDetector';
 // GameScene (and three.js with it) is imported dynamically in enterGame() — a
 // static import here would pull three into the entry chunk.
 
@@ -30,6 +31,8 @@ export default class App {
   /** True while the lazily-loaded game chunk is being fetched. */
   private gameLoading = false;
   private banner: HTMLDivElement;
+  /** Reports the user away (afk) after a while without input, in the lobby or in game. */
+  private readonly idle: IdleDetector;
 
   constructor(url: string) {
     this.url = url;
@@ -37,6 +40,7 @@ export default class App {
     this.client.playerFactory = (id: number) => new Player(id);
 
     this.banner = this.createBanner();
+    this.idle = new IdleDetector(document, away => this.client.setAway(away));
 
     // A fresh InitPlayerEvent (first connect OR reconnect) → the active state
     // rejoins its room under the new clientId and rebuilds from server events.
@@ -48,7 +52,13 @@ export default class App {
     this.client.myPlayerName = name;
   }
 
+  /** The stable identity sent on every (re)connect; see WsClient.userKey. */
+  setUserKey(userKey: string): void {
+    this.client.userKey = userKey;
+  }
+
   start(): void {
+    this.idle.start();
     this.enterLobby();
     this.client.connect(this.url);
   }

@@ -1,4 +1,8 @@
+using Game.ServerLogic.Chat.Events;
+using Game.ServerLogic.Chat.Requests;
 using Game.ServerLogic.Connection.Events;
+using Game.ServerLogic.Presence.Events;
+using Game.ServerLogic.Presence.Requests;
 using Game.ServerLogic.GameState.Events;
 using Game.ServerLogic.GameState.Events.GameTickStateUpdateEventData;
 using Game.ServerLogic.Rooms.Events;
@@ -47,6 +51,62 @@ public class ProtocolWireFormatTests
             116, 105, 97, 108, 1];
         Assert.Equal(expected, MemoryPackSerializer.Serialize(new RoomListEvent([GameRoom()])));
     }
+
+    // ---- chat history + presence ----
+
+    [Fact]
+    public void ChatMessageEvent_MatchesPinnedBytes()
+    {
+        byte[] expected = [6, 7, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 104, 105, 42, 0, 0, 0, 3, 0, 0, 0, 253,
+            255, 255, 255, 2, 0, 0, 0, 65, 108, 0, 0, 0, 0, 0, 64, 143, 64];
+        var evt = new ChatMessageEvent(7, "hi") { Id = 42, UserId = 3, Name = "Al", SentAtMs = 1000 };
+        Assert.Equal(expected, MemoryPackSerializer.Serialize(evt));
+    }
+
+    [Fact]
+    public void ChatHistoryEvent_MatchesPinnedBytes()
+    {
+        byte[] expected = [6, 251, 255, 255, 255, 4, 0, 0, 0, 103, 97, 109, 101, 5, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1,
+            0, 0, 0, 5, 42, 0, 0, 0, 3, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 65, 108, 253, 255, 255, 255, 2,
+            0, 0, 0, 104, 105, 0, 0, 0, 0, 0, 64, 143, 64];
+        var evt = new ChatHistoryEvent
+        {
+            RoomId = "game", Epoch = 5, Reset = true, HasMore = true,
+            Messages = [new ChatMessageData { Id = 42, UserId = 3, Name = "Al", Text = "hi", SentAtMs = 1000 }],
+        };
+        Assert.Equal(expected, MemoryPackSerializer.Serialize(evt));
+    }
+
+    [Fact]
+    public void ChatHistoryRequest_IdentifyRequest_SetAwayRequest_DecodeFromPinnedBytes()
+    {
+        var history = MemoryPackSerializer.Deserialize<ChatHistoryRequest>([3, 10, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0])!;
+        Assert.Equal((10u, 0u, 5u), (history.BeforeId, history.AfterId, history.Epoch));
+
+        var identify = MemoryPackSerializer.Deserialize<IdentifyRequest>([2, 239, 255, 255, 255, 16, 0, 0, 0, 97, 98,
+            99, 100, 101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 112, 253, 255, 255, 255, 2, 0, 0, 0, 65, 108])!;
+        Assert.Equal(("abcdefghijklmnop", "Al"), (identify.UserKey, identify.Name));
+
+        Assert.True(MemoryPackSerializer.Deserialize<SetAwayRequest>([1, 1])!.Away);
+    }
+
+    private static readonly byte[] PresenceUserBytes = [5, 3, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 65, 108, 2,
+        251, 255, 255, 255, 4, 0, 0, 0, 103, 97, 109, 101, 0, 0, 0, 0, 0, 64, 143, 64];
+
+    private static PresenceUserInfo PresenceUser() => new()
+    {
+        UserId = 3, Name = "Al", Status = PresenceStatus.Away, RoomId = "game", LastSeenMs = 1000,
+    };
+
+    [Fact]
+    public void PresenceUpdateEvent_MatchesPinnedBytes()
+        => Assert.Equal([1, .. PresenceUserBytes],
+            MemoryPackSerializer.Serialize(new PresenceUpdateEvent { User = PresenceUser() }));
+
+    [Fact]
+    public void PresenceSnapshotEvent_MatchesPinnedBytes()
+        => Assert.Equal([2, 3, 0, 0, 0, 1, 0, 0, 0, .. PresenceUserBytes],
+            MemoryPackSerializer.Serialize(new PresenceSnapshotEvent { YourUserId = 3, Users = [PresenceUser()] }));
 
     // ---- stage D: the tick snapshot ----
 

@@ -5,6 +5,14 @@ import { RoomInfo } from '../network/protocol/RoomInfo';
 import { RoomListEvent } from '../network/protocol/RoomListEvent';
 import { JoinRoomResultEvent } from '../network/protocol/JoinRoomResultEvent';
 import { InitPlayerEvent } from '../network/protocol/InitPlayerEvent';
+import { ChatHistoryEvent } from '../network/protocol/ChatHistoryEvent';
+import { ChatMessageData } from '../network/protocol/ChatMessageData';
+import { ChatMessageEvent } from '../network/protocol/ChatMessageEvent';
+import { PresenceSnapshotEvent } from '../network/protocol/PresenceSnapshotEvent';
+import { PresenceUpdateEvent } from '../network/protocol/PresenceUpdateEvent';
+import { PresenceUserInfo } from '../network/protocol/PresenceUserInfo';
+import { RoomUsersUpdateEvent } from '../network/protocol/RoomUsersUpdateEvent';
+import { RoomUserInfo } from '../network/protocol/RoomUserInfo';
 
 // LobbyState drives the (DOM-only) LobbyUI from client events. The UI is replaced by
 // a recorder so the lobby's room flow can be checked without a DOM.
@@ -13,6 +21,10 @@ const ui = {
   calls: [] as string[],
   rooms: [] as { id: string; playable: boolean; userCount: number }[],
   current: null as string | null,
+  messages: [] as { id: number; own: boolean }[],
+  hasMore: false,
+  loading: false,
+  members: [] as { name: string; status: string; isSelf: boolean; detail?: string }[],
 };
 
 vi.mock('../lobby/LobbyUI', () => ({
@@ -41,12 +53,32 @@ vi.mock('../lobby/LobbyUI', () => ({
     addSystemMessage(text: string) {
       ui.calls.push(`system:${text}`);
     }
-    clearMessages() {
-      ui.calls.push('clearMessages');
+    setOnLoadOlderCallback(cb: () => void) {
+      (ui as any).loadOlder = cb;
     }
-    clearAllUsers() {}
-    addUser() {}
-    addMessage() {}
+    setMessages(messages: typeof ui.messages, hasMore: boolean) {
+      ui.messages = [...messages];
+      ui.hasMore = hasMore;
+      ui.loading = false;
+      ui.calls.push(`setMessages:${messages.length}`);
+    }
+    appendMessages(messages: typeof ui.messages) {
+      ui.messages.push(...messages);
+      ui.calls.push(`append:${messages.length}`);
+    }
+    prependMessages(messages: typeof ui.messages, hasMore: boolean) {
+      ui.messages.unshift(...messages);
+      ui.hasMore = hasMore;
+      ui.loading = false;
+      ui.calls.push(`prepend:${messages.length}`);
+    }
+    setHistoryState(hasMore: boolean, loading: boolean) {
+      ui.hasMore = hasMore;
+      ui.loading = loading;
+    }
+    setMembers(members: typeof ui.members) {
+      ui.members = members;
+    }
     destroy() {}
   },
 }));
@@ -92,6 +124,10 @@ describe('LobbyState room flow', () => {
     ui.calls = [];
     ui.rooms = [];
     ui.current = null;
+    ui.messages = [];
+    ui.hasMore = false;
+    ui.loading = false;
+    ui.members = [];
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
@@ -131,7 +167,7 @@ describe('LobbyState room flow', () => {
 
     client.onJoinRoomResultEvent(result(VOICE()));
     expect(ui.current).toBe('voice');
-    expect(ui.calls).toContain('clearMessages'); // separate chats
+    expect(ui.calls).toContain('setMessages:0'); // separate chats: nothing cached for voice yet
 
     ui.calls = [];
     (ui as any).join('gone');
@@ -178,5 +214,180 @@ describe('LobbyState room flow', () => {
 
     expect(joins).toHaveBeenCalledWith('lobby');
     expect(ui.current).toBe('lobby');
+  });
+});
+
+// ---- chat history + member list ----
+
+function historyPage(
+  roomId: string,
+  ids: number[],
+  opts: { reset?: boolean; hasMore?: boolean; beforeId?: number } = {}
+): ChatHistoryEvent {
+  const e = new ChatHistoryEvent();
+  e.roomId = roomId;
+  e.epoch = 1;
+  e.reset = opts.reset ?? false;
+  e.hasMore = opts.hasMore ?? false;
+  e.beforeId = opts.beforeId ?? 0;
+  e.messages = ids.map(id => {
+    const m = new ChatMessageData();
+    m.id = id;
+    m.userId = id % 2 ? 1 : 2; // odd ids are ours (user 1)
+    m.name = 'x';
+    m.text = `m${id}`;
+    m.sentAtMs = id;
+    return m;
+  });
+  return e;
+}
+
+function presence(userId: number, status: number, roomId: string | null, lastSeenMs = 0) {
+  const u = new PresenceUserInfo();
+  u.userId = userId;
+  u.name = `U${userId}`;
+  u.status = status;
+  u.roomId = roomId;
+  u.lastSeenMs = lastSeenMs;
+  return u;
+}
+
+describe('LobbyState chat history and members', () => {
+  beforeEach(() => {
+    ui.calls = [];
+    ui.rooms = [];
+    ui.current = null;
+    ui.messages = [];
+    ui.hasMore = false;
+    ui.loading = false;
+    ui.members = [];
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  async function inLobby() {
+    const t = await setup();
+    t.state.enter();
+    t.client.on('sessionInit', () => t.state.onSessionInit());
+    init(t.client, 3);
+    const list = new RoomListEvent();
+    list.rooms = [LOBBY(), VOICE(), GAME()];
+    t.client.onRoomListEvent(list);
+    const snapshot = new PresenceSnapshotEvent();
+    snapshot.yourUserId = 1;
+    snapshot.users = [presence(1, 1, 'lobby')];
+    t.client.onPresenceSnapshotEvent(snapshot);
+    t.client.onJoinRoomResultEvent(result(LOBBY()));
+    ui.calls = [];
+    return t;
+  }
+
+  it('renders the latest page, then live messages and older pages incrementally', async () => {
+    const { client } = await inLobby();
+    const older = vi.spyOn(client, 'sendChatHistoryRequest');
+
+    client.onChatHistoryEvent(historyPage('lobby', [10, 11], { reset: true, hasMore: true }));
+    expect(ui.calls).toEqual(['setMessages:2']);
+    expect(ui.messages.map(m => [m.id, m.own])).toEqual([
+      [10, false],
+      [11, true],
+    ]);
+    expect(ui.hasMore).toBe(true);
+
+    const live = new ChatMessageEvent();
+    live.id = 12;
+    live.userId = 2;
+    live.message = 'hi';
+    client.onChatMessageEvent(live);
+    expect(ui.calls).toEqual(['setMessages:2', 'append:1']);
+
+    // The user scrolls to the top: one request, the UI shows the loader until the page lands.
+    (ui as any).loadOlder();
+    (ui as any).loadOlder();
+    expect(older).toHaveBeenCalledTimes(1);
+    expect(older).toHaveBeenCalledWith(10, 0, 1);
+    expect(ui.loading).toBe(true);
+
+    client.onChatHistoryEvent(historyPage('lobby', [8, 9], { beforeId: 10 }));
+    expect(ui.messages.map(m => m.id)).toEqual([8, 9, 10, 11, 12]);
+    expect(ui.loading).toBe(false);
+    expect(ui.hasMore).toBe(false);
+  });
+
+  it('coming back to a room shows its cached messages at once, then appends the gap', async () => {
+    const { client } = await inLobby();
+    client.onChatHistoryEvent(historyPage('lobby', [10, 11], { reset: true }));
+
+    (ui as any).join('voice');
+    client.onJoinRoomResultEvent(result(VOICE()));
+    expect(ui.messages).toEqual([]);
+
+    ui.calls = [];
+    (ui as any).join('lobby');
+    client.onJoinRoomResultEvent(result(LOBBY()));
+    expect(ui.calls).toContain('setMessages:2'); // from the cache, before any server answer
+
+    client.onChatHistoryEvent(historyPage('lobby', [12]));
+    expect(ui.messages.map(m => m.id)).toEqual([10, 11, 12]);
+  });
+
+  it('history of a room we are not looking at is cached, not rendered', async () => {
+    const { client } = await inLobby();
+    client.onChatHistoryEvent(historyPage('voice', [1, 2], { reset: true }));
+    expect(ui.calls).toEqual([]);
+    expect(client.getChatLog('voice').entries.length).toBe(2);
+  });
+
+  it('members: online first (self on top), then away, then offline — nobody is dropped', async () => {
+    const { client } = await inLobby();
+    const now = Date.now();
+
+    for (const u of [
+      presence(4, 0, null, now - 3 * 3600_000), // offline for 3 h
+      presence(5, 0, null, now - 5 * 60_000), // offline for 5 min
+      presence(3, 2, 'lobby'), // away, here
+      presence(2, 1, 'game'), // online, in the game
+    ]) {
+      const update = new PresenceUpdateEvent();
+      update.user = u;
+      client.onPresenceUpdateEvent(update);
+    }
+
+    expect(ui.members.map(m => [m.name, m.status, m.detail])).toEqual([
+      ['U1', 'online', undefined],
+      ['U2', 'online', 'game'],
+      ['U3', 'away', 'Отошёл'],
+      ['U5', 'offline', 'был(а) 5 мин назад'],
+      ['U4', 'offline', 'был(а) 3 ч назад'],
+    ]);
+    expect(ui.members[0].isSelf).toBe(true);
+
+    // U2 disconnects: still listed, now offline.
+    const left = new PresenceUpdateEvent();
+    left.user = presence(2, 0, null, now);
+    client.onPresenceUpdateEvent(left);
+    expect(ui.members.find(m => m.name === 'U2')!.status).toBe('offline');
+    expect(ui.members.length).toBe(5);
+  });
+
+  it('anonymous connections in the room are listed as online guests', async () => {
+    const { client } = await inLobby();
+    const users = new RoomUsersUpdateEvent();
+    users.roomId = 'lobby';
+    users.users = [
+      { clientId: 3, name: 'Me', userId: 1 },
+      { clientId: 8, name: 'Console', userId: 0 },
+      // Just connected: its identify (or rename) has not been processed yet.
+      { clientId: 9, name: 'Player 9', userId: 0 },
+    ].map(v => Object.assign(new RoomUserInfo(), v));
+    client.onRoomUsersUpdateEvent(users);
+
+    // The named guest is listed; the still-unnamed connection is not (it would flash
+    // in the list and vanish as soon as it identifies).
+    expect(ui.members.map(m => [m.name, m.status, m.isSelf])).toEqual([
+      ['U1', 'online', true],
+      ['Console', 'online', false],
+    ]);
   });
 });

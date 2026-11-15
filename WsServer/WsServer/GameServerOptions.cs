@@ -57,4 +57,31 @@ public class GameServerOptions
 
     public int MaxChatLength { get; set; } = 256;
     public int MaxNameLength { get; set; } = 32;
+
+    // ---- chat history & presence -------------------------------------------------------
+
+    // SQLite file holding the chat history and the known users. Empty = no persistence:
+    // history lives only in the in-memory window and users are forgotten on restart (the
+    // default, so tests / the load test never write files). A relative path is resolved
+    // against the working directory.
+    public string ChatDatabasePath { get; set; } = string.Empty;
+
+    // Messages per history page (what a client gets on entering a room and per scroll-up).
+    public int ChatHistoryPageSize { get; set; } = 50;
+    // Newest messages per room kept in memory. Joins, reconnect catch-ups and the first
+    // pages of scroll-back are served from this window without touching the database.
+    public int ChatHistoryCacheSize { get; set; } = 200;
+    // Retention: messages kept per room in the database (0 = unlimited).
+    public int ChatHistoryMaxMessagesPerRoom { get; set; } = 50_000;
+
+    // Member list: how many offline users a client is told about (most recently seen
+    // first; everyone online is always included).
+    public int PresenceMaxOfflineUsers { get; set; } = 100;
+    // Users not seen for this long are forgotten at startup (0 = never).
+    public int UserRetentionDays { get; set; } = 90;
+    // Hard cap on known users; beyond it the longest-offline user is evicted.
+    public int MaxKnownUsers { get; set; } = 10_000;
+    // Away (afk) toggles are announced at most this often (they are client-driven, so
+    // this bounds what a toggling client can make the server broadcast).
+    public double PresenceFlushIntervalSeconds { get; set; } = 1.0;
 }

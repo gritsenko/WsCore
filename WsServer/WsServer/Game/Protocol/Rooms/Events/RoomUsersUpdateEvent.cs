@@ -40,4 +40,6 @@ public partial class RoomUserInfo
 {
     public uint ClientId { get; set; }
     public string Name { get; set; } = string.Empty;
+    // The stable user behind the connection; 0 for a connection that never identified.
+    public uint UserId { get; set; }
 }

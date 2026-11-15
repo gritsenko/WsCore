@@ -9,6 +9,14 @@ import { RoomListEvent } from './RoomListEvent';
 import { MovementStateData } from './MovementStateData';
 import { GameTickUpdateEvent } from './GameTickUpdateEvent';
 import { HitPlayerStateData } from './HitPlayerStateData';
+import { ChatHistoryEvent } from './ChatHistoryEvent';
+import { ChatMessageData } from './ChatMessageData';
+import { ChatHistoryRequest } from './ChatHistoryRequest';
+import { IdentifyRequest } from './IdentifyRequest';
+import { SetAwayRequest } from './SetAwayRequest';
+import { PresenceUserInfo } from './PresenceUserInfo';
+import { PresenceUpdateEvent } from './PresenceUpdateEvent';
+import { PresenceSnapshotEvent } from './PresenceSnapshotEvent';
 
 // Fixed binary samples captured from a known-good encode of each message (see the
 // roadmap's stage-4 test item). These pin the wire format independently of whatever
@@ -28,18 +36,122 @@ describe('protocol round-trip against fixed binary samples', () => {
     expect(decoded!.message).toBe('hi');
   });
 
-  it('ChatMessageEvent(7, "hi") matches the pinned byte layout', () => {
+  // Chat history + presence messages. Like the stage C/D ones below, the same byte
+  // arrays are pinned on the server (WsServer.Tests/ProtocolWireFormatTests.cs).
+  it('ChatMessageEvent matches the pinned byte layout', () => {
     const value = new ChatMessageEvent();
     value.clientId = 7;
     value.message = 'hi';
+    value.id = 42;
+    value.userId = 3;
+    value.name = 'Al';
+    value.sentAtMs = 1000;
 
     const bytes = Array.from(ChatMessageEvent.serialize(value));
-    expect(bytes).toEqual([2, 7, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 104, 105]);
+    expect(bytes).toEqual([
+      6, 7, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 104, 105, 42, 0, 0, 0, 3, 0, 0, 0, 253, 255,
+      255, 255, 2, 0, 0, 0, 65, 108, 0, 0, 0, 0, 0, 64, 143, 64,
+    ]);
 
-    const decoded = ChatMessageEvent.deserialize(new Uint8Array(bytes).buffer);
-    expect(decoded).not.toBeNull();
-    expect(decoded!.clientId).toBe(7);
-    expect(decoded!.message).toBe('hi');
+    const decoded = ChatMessageEvent.deserialize(new Uint8Array(bytes).buffer)!;
+    expect(decoded.clientId).toBe(7);
+    expect(decoded.message).toBe('hi');
+    expect(decoded.id).toBe(42);
+    expect(decoded.userId).toBe(3);
+    expect(decoded.name).toBe('Al');
+    expect(decoded.sentAtMs).toBe(1000);
+  });
+
+  it('a pre-history ChatMessageEvent (2 members) still decodes', () => {
+    // MemoryPack version tolerance: the fields appended for history default to zero.
+    const old = [2, 7, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 104, 105];
+    const decoded = ChatMessageEvent.deserialize(new Uint8Array(old).buffer)!;
+    expect(decoded.clientId).toBe(7);
+    expect(decoded.message).toBe('hi');
+    expect(decoded.id).toBe(0);
+  });
+
+  it('ChatHistoryEvent matches the pinned byte layout', () => {
+    const message = new ChatMessageData();
+    message.id = 42;
+    message.userId = 3;
+    message.name = 'Al';
+    message.text = 'hi';
+    message.sentAtMs = 1000;
+    const value = new ChatHistoryEvent();
+    value.roomId = 'game';
+    value.epoch = 5;
+    value.reset = true;
+    value.hasMore = true;
+    value.messages = [message];
+
+    const bytes = Array.from(ChatHistoryEvent.serialize(value));
+    expect(bytes).toEqual([
+      6, 251, 255, 255, 255, 4, 0, 0, 0, 103, 97, 109, 101, 5, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0,
+      0, 5, 42, 0, 0, 0, 3, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 65, 108, 253, 255, 255, 255,
+      2, 0, 0, 0, 104, 105, 0, 0, 0, 0, 0, 64, 143, 64,
+    ]);
+
+    const decoded = ChatHistoryEvent.deserialize(new Uint8Array(bytes).buffer)!;
+    expect(decoded.roomId).toBe('game');
+    expect(decoded.epoch).toBe(5);
+    expect(decoded.beforeId).toBe(0);
+    expect(decoded.reset).toBe(true);
+    expect(decoded.hasMore).toBe(true);
+    expect(decoded.messages![0]!.text).toBe('hi');
+  });
+
+  it('ChatHistoryRequest / IdentifyRequest / SetAwayRequest match the pinned byte layouts', () => {
+    const history = new ChatHistoryRequest();
+    history.beforeId = 10;
+    history.epoch = 5;
+    expect(Array.from(ChatHistoryRequest.serialize(history))).toEqual([
+      3, 10, 0, 0, 0, 0, 0, 0, 0, 5, 0, 0, 0,
+    ]);
+
+    const identify = new IdentifyRequest();
+    identify.userKey = 'abcdefghijklmnop';
+    identify.name = 'Al';
+    expect(Array.from(IdentifyRequest.serialize(identify))).toEqual([
+      2, 239, 255, 255, 255, 16, 0, 0, 0, 97, 98, 99, 100, 101, 102, 103, 104, 105, 106, 107, 108,
+      109, 110, 111, 112, 253, 255, 255, 255, 2, 0, 0, 0, 65, 108,
+    ]);
+
+    const away = new SetAwayRequest();
+    away.away = true;
+    expect(Array.from(SetAwayRequest.serialize(away))).toEqual([1, 1]);
+  });
+
+  it('PresenceUpdateEvent / PresenceSnapshotEvent match the pinned byte layouts', () => {
+    const user = new PresenceUserInfo();
+    user.userId = 3;
+    user.name = 'Al';
+    user.status = 2;
+    user.roomId = 'game';
+    user.lastSeenMs = 1000;
+    const userBytes = [
+      5, 3, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 65, 108, 2, 251, 255, 255, 255, 4, 0, 0, 0,
+      103, 97, 109, 101, 0, 0, 0, 0, 0, 64, 143, 64,
+    ];
+
+    const update = new PresenceUpdateEvent();
+    update.user = user;
+    const updateBytes = Array.from(PresenceUpdateEvent.serialize(update));
+    expect(updateBytes).toEqual([1, ...userBytes]);
+    const decodedUpdate = PresenceUpdateEvent.deserialize(new Uint8Array(updateBytes).buffer)!;
+    expect(decodedUpdate.user!.status).toBe(2);
+    expect(decodedUpdate.user!.roomId).toBe('game');
+
+    const snapshot = new PresenceSnapshotEvent();
+    snapshot.yourUserId = 3;
+    snapshot.users = [user];
+    const snapshotBytes = Array.from(PresenceSnapshotEvent.serialize(snapshot));
+    expect(snapshotBytes).toEqual([2, 3, 0, 0, 0, 1, 0, 0, 0, ...userBytes]);
+    const decodedSnapshot = PresenceSnapshotEvent.deserialize(
+      new Uint8Array(snapshotBytes).buffer
+    )!;
+    expect(decodedSnapshot.yourUserId).toBe(3);
+    expect(decodedSnapshot.users![0]!.lastSeenMs).toBe(1000);
   });
 
   it('JoinRoomRequest("game") matches the pinned byte layout', () => {
