@@ -374,6 +374,25 @@ public class AccountTests
         Assert.Equal("Annie", h.Sessions.Get(phone.Id)!.Name);
     }
 
+    [Fact]
+    public async Task ARename_ReachesTheUsersOtherConnections_AtOnce()
+    {
+        await using var h = new ServerHarness();
+        var (ann, _) = await Join(h, AnnKey, "Ann");
+        await Claim(h, ann, "ann");
+        var phone = await h.Connect();
+        await Do(h, phone, new LoginRequest { Login = "ann", Password = Password, UserKey = AnnPhoneKey });
+
+        await h.Request(phone, new SetPlayerNameRequest { Name = "Annie" });
+
+        Assert.Equal("Annie", h.Sessions.Get(ann.Id)!.Name);
+        Assert.Contains(h.Events<Game.ServerLogic.Player.Events.SetPlayerNameEvent>(ann),
+            e => e.ClientId == ann.Id && e.Name == "Annie");
+        // …so what the first device writes is signed with the new name.
+        await h.Request(ann, new ChatMessageRequest { Message = "hi" });
+        Assert.Equal("Annie", h.Events<ChatMessageEvent>(phone).Last().Name);
+    }
+
     private static Task<StoredAvatar?> LoadAvatar(IChatStorage storage, uint userId)
     {
         var done = new TaskCompletionSource<StoredAvatar?>(TaskCreationOptions.RunContinuationsAsynchronously);

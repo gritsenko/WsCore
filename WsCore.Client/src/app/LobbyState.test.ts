@@ -53,6 +53,7 @@ vi.mock('../lobby/LobbyUI', () => ({
     addSystemMessage(text: string) {
       ui.calls.push(`system:${text}`);
     }
+    refreshMessageAvatars() {}
     setOnProfileCallback(cb: () => void) {
       (ui as any).profile = cb;
     }

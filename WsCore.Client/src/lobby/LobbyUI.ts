@@ -102,6 +102,8 @@ export interface LobbyMessage {
   text: string;
   sentAtMs: number;
   own: boolean;
+  /** The author's user id (0 = anonymous); lets avatars be refreshed in place. */
+  userId: number;
   /** The author's avatar image, if they have one (and are still in the member list). */
   avatarUrl?: string | null;
 }
@@ -598,6 +600,8 @@ export default class LobbyUI {
   private buildMessage(message: LobbyMessage): HTMLDivElement {
     const messageElement = el('div', 'lobby-message');
     if (message.own) messageElement.classList.add('lobby-message-own');
+    messageElement.dataset.userId = String(message.userId);
+    messageElement.dataset.avatar = message.avatarUrl ?? '';
 
     messageElement.appendChild(createAvatar(message.name, 'md', undefined, message.avatarUrl));
 
@@ -611,6 +615,26 @@ export default class LobbyUI {
 
     messageElement.hidden = !this.matchesMessageFilter(messageElement);
     return messageElement;
+  }
+
+  /**
+   * Re-resolve the avatars of the rendered messages. A message is often rendered before
+   * its author's profile is known (history arrives with — or before — the member list),
+   * and an author may change their picture later; only the avatars that differ are
+   * replaced.
+   */
+  refreshMessageAvatars(resolve: (userId: number) => string | null): void {
+    if (!this.chatMessages) return;
+    for (const node of Array.from(this.chatMessages.children)) {
+      const message = node as HTMLElement;
+      const userId = Number(message.dataset.userId);
+      if (!userId) continue;
+      const url = resolve(userId) ?? '';
+      if (url === message.dataset.avatar) continue;
+      message.dataset.avatar = url;
+      const name = message.querySelector('.lobby-message-user')?.textContent ?? '';
+      message.firstElementChild?.replaceWith(createAvatar(name, 'md', undefined, url || null));
+    }
   }
 
   private buildMessages(messages: readonly LobbyMessage[]): DocumentFragment {

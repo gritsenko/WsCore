@@ -204,6 +204,26 @@ public sealed class SessionManager(
             return null;
 
         var name = string.IsNullOrEmpty(requested) ? ClientSession.DefaultName(clientId) : requested;
+        RenameSession(session, name);
+
+        // A user is one name: the other devices / tabs of the same user follow, or they
+        // would keep showing — and chatting under — the old one.
+        if (session.User is { } user)
+        {
+            foreach (var other in user.Sessions)
+            {
+                if (other != session && other.Name != name)
+                    RenameSession(other, name);
+            }
+            user.Name = name;
+            PublishPresence(user);
+        }
+        return name;
+    }
+
+    private void RenameSession(ClientSession session, string name)
+    {
+        var clientId = session.Id;
         session.Name = name;
         roomManager.RenameClient(clientId, name);
 
@@ -222,13 +242,6 @@ public sealed class SessionManager(
             else
                 messenger.Send(clientId, evt);
         }
-
-        if (session.User is { } user)
-        {
-            user.Name = name;
-            PublishPresence(user);
-        }
-        return name;
     }
 
     // ---- presence ---------------------------------------------------------------------

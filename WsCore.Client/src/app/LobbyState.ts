@@ -92,6 +92,9 @@ export default class LobbyState {
       this.client.on('chatHistory', (roomId, change) => this.handleChatHistory(roomId, change)),
       this.client.on('presence', () => {
         this.renderMembers();
+        this.ui.refreshMessageAvatars(userId =>
+          this.client.avatarUrl(this.client.presence.get(userId))
+        );
         this.profile?.update(this.profileView());
       }),
       this.client.on('account', result => this.handleAccount(result))
@@ -161,6 +164,7 @@ export default class LobbyState {
     text: entry.text,
     sentAtMs: entry.sentAtMs,
     own: this.client.isOwnMessage(entry),
+    userId: entry.userId,
     avatarUrl: this.client.avatarUrl(this.client.presence.get(entry.userId)),
   });
 
