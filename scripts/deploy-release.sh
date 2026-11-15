@@ -27,6 +27,11 @@ switch_to() {
   ln -sfn "$1" "$base/.current-next"
   mv -Tf "$base/.current-next" "$base/current"
 }
+restart() {
+  # A bad executable can exhaust systemd's start limit before rollback.
+  sudo /usr/bin/systemctl reset-failed wscore.service
+  sudo /usr/bin/systemctl restart wscore.service
+}
 rollback() {
   status=$?
   trap - EXIT
@@ -34,8 +39,9 @@ rollback() {
     if [[ -n $previous && -d $previous ]]; then
       echo "Deployment failed; restoring $previous" >&2
       switch_to "$previous"
-      sudo /usr/bin/systemctl restart wscore.service
-      health || echo "Rollback health check failed" >&2
+      if ! restart || ! health; then
+        echo "Rollback health check failed" >&2
+      fi
     else
       sudo /usr/bin/systemctl stop wscore.service
       echo "First deployment failed; no previous release exists" >&2
@@ -55,6 +61,6 @@ if [[ ! -d $release ]]; then
 fi
 switched=1
 switch_to "$release"
-sudo /usr/bin/systemctl restart wscore.service
+restart
 health
 printf '\nActive release: %s\n' "$sha"
