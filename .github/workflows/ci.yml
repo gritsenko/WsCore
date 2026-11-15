@@ -1,10 +1,14 @@
 name: CI
 
 on:
+  workflow_dispatch:
   push:
     branches: [master]
   pull_request:
     branches: [master]
+
+permissions:
+  contents: read
 
 jobs:
   server:
@@ -70,3 +74,65 @@ jobs:
 
       - name: Build image
         run: docker build -t wscore-game-server:ci .
+
+  release:
+    name: Package production release
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'
+    needs: [server, client, docker]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: WsCore.Client/package-lock.json
+      - name: Publish server and client from the same commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet publish WsServer/WsServer/WsServer.csproj -c Release -r linux-x64 --self-contained true -o artifacts/publish
+          npm ci --prefix WsCore.Client
+          npm run build --prefix WsCore.Client
+          mkdir -p artifacts/publish/wwwroot
+          cp -a WsCore.Client/dist/. artifacts/publish/wwwroot/
+          printf '%s\n' "$GITHUB_SHA" > artifacts/publish/commit.txt
+          mkdir -p artifacts/release
+          tar -czf "artifacts/release/$GITHUB_SHA.tar.gz" -C artifacts/publish .
+          cd artifacts/release
+          sha256sum "$GITHUB_SHA.tar.gz" > "$GITHUB_SHA.tar.gz.sha256"
+          cp ../../scripts/deploy-release.sh .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wscore-release-${{ github.sha }}
+          path: artifacts/release/
+          retention-days: 14
+
+  deploy:
+    name: Deploy tox.gritsenko.biz
+    needs: release
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'
+    runs-on: [self-hosted, Linux, X64, wscore, deploy, home]
+    timeout-minutes: 10
+    concurrency:
+      group: wscore-production
+      cancel-in-progress: false
+    env:
+      RELEASE_SHA: ${{ github.sha }}
+    steps:
+      # No repository checkout or PR jobs execute on the home runner.
+      - uses: actions/download-artifact@v4
+        with:
+          name: wscore-release-${{ github.sha }}
+          path: ${{ runner.temp }}/wscore-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Upload and activate release with automatic rollback
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/wscore-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT"
+          sha256sum --check "$RELEASE_SHA.tar.gz.sha256"
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes "$RELEASE_SHA.tar.gz" "$RELEASE_SHA.tar.gz.sha256" wscore-deploy@192.168.1.215:/opt/wscore/incoming/
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes wscore-deploy@192.168.1.215 "bash -s -- $RELEASE_SHA /opt/wscore/incoming/$RELEASE_SHA.tar.gz" < deploy-release.sh
