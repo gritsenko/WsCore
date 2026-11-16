@@ -18,9 +18,13 @@ export enum ServerEventType {
   InitPlayerEvent = 255,
   ChatMessageEvent = 200,
   ChatHistoryEvent = 201,
+  ChatMessageDeletedEvent = 202,
+  ChannelPermissionsEvent = 120,
+  ModerationResultEvent = 121,
   PresenceSnapshotEvent = 110,
   PresenceUpdateEvent = 111,
   AccountResultEvent = 112,
+  PushConfigEvent = 130,
   RoomListEvent = 250,
   RoomUsersUpdateEvent = 251,
   JoinRoomResultEvent = 252,
@@ -38,6 +42,11 @@ export enum ClientMessageType {
   UpdatePlayerTargetRequest = 106,
   ChatMessageRequest = 200,
   ChatHistoryRequest = 201,
+  DeleteChatMessageRequest = 202,
+  SetChannelAdminRequest = 120,
+  SetChannelRestrictionRequest = 121,
+  SetChannelDefaultsRequest = 122,
+  SetServerAdminRequest = 123,
   IdentifyRequest = 110,
   SetAwayRequest = 111,
   ClaimAccountRequest = 112,
@@ -45,6 +54,8 @@ export enum ClientMessageType {
   LogoutRequest = 114,
   UpdateProfileRequest = 115,
   SetAvatarRequest = 116,
+  PushSubscribeRequest = 130,
+  PushUnsubscribeRequest = 131,
   GetRoomListRequest = 250,
   JoinRoomRequest = 251,
 }
@@ -92,6 +103,17 @@ import { UpdateProfileRequest } from './protocol/UpdateProfileRequest';
 import { SetAvatarRequest } from './protocol/SetAvatarRequest';
 import { GetRoomListRequest } from './protocol/GetRoomListRequest';
 import { JoinRoomRequest } from './protocol/JoinRoomRequest';
+import { ChatMessageDeletedEvent } from './protocol/ChatMessageDeletedEvent';
+import { ChannelPermissionsEvent } from './protocol/ChannelPermissionsEvent';
+import { ModerationResultEvent } from './protocol/ModerationResultEvent';
+import { DeleteChatMessageRequest } from './protocol/DeleteChatMessageRequest';
+import { SetChannelAdminRequest } from './protocol/SetChannelAdminRequest';
+import { SetChannelRestrictionRequest } from './protocol/SetChannelRestrictionRequest';
+import { SetChannelDefaultsRequest } from './protocol/SetChannelDefaultsRequest';
+import { SetServerAdminRequest } from './protocol/SetServerAdminRequest';
+import { PushConfigEvent } from './protocol/PushConfigEvent';
+import { PushSubscribeRequest } from './protocol/PushSubscribeRequest';
+import { PushUnsubscribeRequest } from './protocol/PushUnsubscribeRequest';
 
 import { MemoryPackReader } from './protocol/MemoryPackReader';
 import Emitter, { Unsubscribe } from '../utils/Emitter';
@@ -119,9 +141,13 @@ export interface ServerEventHandlers {
   onGameTickUpdateEvent(msg: GameTickUpdateEvent): void;
   onChatMessageEvent(msg: ChatMessageEvent): void;
   onChatHistoryEvent(msg: ChatHistoryEvent): void;
+  onChatMessageDeletedEvent(msg: ChatMessageDeletedEvent): void;
+  onChannelPermissionsEvent(msg: ChannelPermissionsEvent): void;
+  onModerationResultEvent(msg: ModerationResultEvent): void;
   onPresenceSnapshotEvent(msg: PresenceSnapshotEvent): void;
   onPresenceUpdateEvent(msg: PresenceUpdateEvent): void;
   onAccountResultEvent(msg: AccountResultEvent): void;
+  onPushConfigEvent(msg: PushConfigEvent): void;
   onRoomListEvent(msg: RoomListEvent): void;
   onRoomUsersUpdateEvent(msg: RoomUsersUpdateEvent): void;
   onJoinRoomResultEvent(msg: JoinRoomResultEvent): void;
@@ -195,6 +221,15 @@ export const SERVER_EVENT_ROUTES: { readonly [K in ServerEventType]: ServerEvent
   [ServerEventType.InitPlayerEvent]: route(InitPlayerEvent, (h, m) => h.onInitPlayerEvent(m)),
   [ServerEventType.ChatMessageEvent]: route(ChatMessageEvent, (h, m) => h.onChatMessageEvent(m)),
   [ServerEventType.ChatHistoryEvent]: route(ChatHistoryEvent, (h, m) => h.onChatHistoryEvent(m)),
+  [ServerEventType.ChatMessageDeletedEvent]: route(ChatMessageDeletedEvent, (h, m) =>
+    h.onChatMessageDeletedEvent(m)
+  ),
+  [ServerEventType.ChannelPermissionsEvent]: route(ChannelPermissionsEvent, (h, m) =>
+    h.onChannelPermissionsEvent(m)
+  ),
+  [ServerEventType.ModerationResultEvent]: route(ModerationResultEvent, (h, m) =>
+    h.onModerationResultEvent(m)
+  ),
   [ServerEventType.PresenceSnapshotEvent]: route(PresenceSnapshotEvent, (h, m) =>
     h.onPresenceSnapshotEvent(m)
   ),
@@ -204,6 +239,7 @@ export const SERVER_EVENT_ROUTES: { readonly [K in ServerEventType]: ServerEvent
   [ServerEventType.AccountResultEvent]: route(AccountResultEvent, (h, m) =>
     h.onAccountResultEvent(m)
   ),
+  [ServerEventType.PushConfigEvent]: route(PushConfigEvent, (h, m) => h.onPushConfigEvent(m)),
   [ServerEventType.RoomListEvent]: route(RoomListEvent, (h, m) => h.onRoomListEvent(m)),
   [ServerEventType.RoomUsersUpdateEvent]: route(RoomUsersUpdateEvent, (h, m) =>
     h.onRoomUsersUpdateEvent(m)
@@ -287,9 +323,13 @@ export default class WsConnection<T extends IPlayer = IPlayer> implements Server
   onGameTickUpdateEvent(_msg: GameTickUpdateEvent): void {}
   onChatMessageEvent(_msg: ChatMessageEvent): void {}
   onChatHistoryEvent(_msg: ChatHistoryEvent): void {}
+  onChatMessageDeletedEvent(_msg: ChatMessageDeletedEvent): void {}
+  onChannelPermissionsEvent(_msg: ChannelPermissionsEvent): void {}
+  onModerationResultEvent(_msg: ModerationResultEvent): void {}
   onPresenceSnapshotEvent(_msg: PresenceSnapshotEvent): void {}
   onPresenceUpdateEvent(_msg: PresenceUpdateEvent): void {}
   onAccountResultEvent(_msg: AccountResultEvent): void {}
+  onPushConfigEvent(_msg: PushConfigEvent): void {}
   onRoomListEvent(_msg: RoomListEvent): void {}
   onRoomUsersUpdateEvent(_msg: RoomUsersUpdateEvent): void {}
   onJoinRoomResultEvent(_msg: JoinRoomResultEvent): void {}
@@ -582,6 +622,27 @@ export default class WsConnection<T extends IPlayer = IPlayer> implements Server
     this.sendMessage(ClientMessageType.IdentifyRequest, data);
   }
 
+  /** Register this browser's Web Push subscription for our user (see PushSubscribeRequest). */
+  sendPushSubscribeRequest(endpoint: string, p256dh: string, auth: string): void {
+    const request = new PushSubscribeRequest();
+    request.endpoint = endpoint;
+    request.p256dh = p256dh;
+    request.auth = auth;
+    this.sendMessage(
+      ClientMessageType.PushSubscribeRequest,
+      PushSubscribeRequest.serialize(request)
+    );
+  }
+
+  sendPushUnsubscribeRequest(endpoint: string): void {
+    const request = new PushUnsubscribeRequest();
+    request.endpoint = endpoint;
+    this.sendMessage(
+      ClientMessageType.PushUnsubscribeRequest,
+      PushUnsubscribeRequest.serialize(request)
+    );
+  }
+
   sendSetAwayRequest(away: boolean): void {
     const request = new SetAwayRequest();
     request.away = away;
@@ -627,6 +688,69 @@ export default class WsConnection<T extends IPlayer = IPlayer> implements Server
     request.image = image;
     const data = SetAvatarRequest.serialize(request);
     this.sendMessage(ClientMessageType.SetAvatarRequest, data);
+  }
+
+  sendDeleteChatMessageRequest(roomId: string, messageId: number): void {
+    const request = new DeleteChatMessageRequest();
+    request.roomId = roomId;
+    request.messageId = messageId;
+    this.sendMessage(
+      ClientMessageType.DeleteChatMessageRequest,
+      DeleteChatMessageRequest.serialize(request)
+    );
+  }
+
+  /** Promote / update (rights != 0) or demote (rights = 0) a channel admin. */
+  sendSetChannelAdminRequest(roomId: string, userId: number, rights: number, title: string): void {
+    const request = new SetChannelAdminRequest();
+    request.roomId = roomId;
+    request.userId = userId;
+    request.rights = rights;
+    request.title = title;
+    this.sendMessage(
+      ClientMessageType.SetChannelAdminRequest,
+      SetChannelAdminRequest.serialize(request)
+    );
+  }
+
+  /** Restrict a member (denied permissions / ban) for `durationSeconds` (0 = forever); nothing = lift. */
+  sendSetChannelRestrictionRequest(
+    roomId: string,
+    userId: number,
+    denied: number,
+    banned: boolean,
+    durationSeconds: number
+  ): void {
+    const request = new SetChannelRestrictionRequest();
+    request.roomId = roomId;
+    request.userId = userId;
+    request.denied = denied;
+    request.banned = banned;
+    request.durationSeconds = durationSeconds;
+    this.sendMessage(
+      ClientMessageType.SetChannelRestrictionRequest,
+      SetChannelRestrictionRequest.serialize(request)
+    );
+  }
+
+  sendSetChannelDefaultsRequest(roomId: string, defaultPermissions: number): void {
+    const request = new SetChannelDefaultsRequest();
+    request.roomId = roomId;
+    request.defaultPermissions = defaultPermissions;
+    this.sendMessage(
+      ClientMessageType.SetChannelDefaultsRequest,
+      SetChannelDefaultsRequest.serialize(request)
+    );
+  }
+
+  sendSetServerAdminRequest(userId: number, isAdmin: boolean): void {
+    const request = new SetServerAdminRequest();
+    request.userId = userId;
+    request.isAdmin = isAdmin;
+    this.sendMessage(
+      ClientMessageType.SetServerAdminRequest,
+      SetServerAdminRequest.serialize(request)
+    );
   }
 
   sendGetRoomListRequest(): void {

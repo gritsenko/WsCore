@@ -39,6 +39,28 @@ public sealed class ClientSession(uint id)
     private long _chatAllowedAt;
 
     private long _accountAllowedAt;
+    private long _moderationAllowedAt;
+    private long _pushAllowedAt;
+
+    /// <summary>True (and starts a new cooldown) if a push (un)subscribe request may be handled now.</summary>
+    public bool TryConsumePushCooldown(double cooldownSeconds)
+    {
+        var now = Stopwatch.GetTimestamp();
+        if (now < _pushAllowedAt)
+            return false;
+        _pushAllowedAt = now + (long)(cooldownSeconds * Stopwatch.Frequency);
+        return true;
+    }
+
+    /// <summary>True (and starts a new cooldown) if a moderation request may be handled now.</summary>
+    public bool TryConsumeModerationCooldown(double cooldownSeconds)
+    {
+        var now = Stopwatch.GetTimestamp();
+        if (now < _moderationAllowedAt)
+            return false;
+        _moderationAllowedAt = now + (long)(cooldownSeconds * Stopwatch.Frequency);
+        return true;
+    }
 
     /// <summary>
     /// True (and starts a new cooldown) if an account / profile request may be handled now.

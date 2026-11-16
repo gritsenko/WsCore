@@ -8,7 +8,15 @@ import {
   PresenceStatus,
   PresenceUser,
 } from '../network/ClientEvents';
+import type ChatAlerts from './ChatAlerts';
 import ProfileDialog, { ProfileSection, ProfileView } from '../lobby/ProfileDialog';
+import ChannelDialog, { ChannelDialogView, describeRestriction } from '../lobby/ChannelDialog';
+import {
+  ModerationAction,
+  ModerationResult,
+  describeModerationError,
+  formatUntil,
+} from '../network/Permissions';
 import { prepareAvatar } from '../utils/AvatarImage';
 import { Unsubscribe } from '../utils/Emitter';
 import { RoomUsersUpdateEvent } from '../network/protocol/RoomUsersUpdateEvent';
@@ -54,6 +62,13 @@ const ACCOUNT_SECTIONS: Record<AccountAction, ProfileSection> = {
   [AccountAction.Avatar]: 'avatar',
 };
 
+const MODERATION_DONE: Partial<Record<ModerationAction, string>> = {
+  [ModerationAction.SetAdmin]: 'Права администратора обновлены',
+  [ModerationAction.Restrict]: 'Ограничения обновлены',
+  [ModerationAction.SetDefaults]: 'Разрешения канала сохранены',
+  [ModerationAction.SetServerAdmin]: 'Роль администратора сервера обновлена',
+};
+
 const ACCOUNT_DONE: Partial<Record<AccountAction, string>> = {
   [AccountAction.Claim]: 'Аккаунт закреплён',
   [AccountAction.Profile]: 'Сохранено',
@@ -66,10 +81,26 @@ export default class LobbyState {
   private ui!: LobbyUI;
   private unsubs: Unsubscribe[] = [];
   private profile: ProfileDialog | null = null;
+  private channelDialog: ChannelDialog | null = null;
 
-  constructor(client: WsClient<Player>, onEnterGame: (roomId: string) => void) {
+  /** Notifications on this device (the profile dialog's switch); absent in tests. */
+  private readonly alerts: ChatAlerts | null;
+
+  constructor(
+    client: WsClient<Player>,
+    onEnterGame: (roomId: string) => void,
+    alerts: ChatAlerts | null = null
+  ) {
     this.client = client;
     this.onEnterGame = onEnterGame;
+    this.alerts = alerts;
+  }
+
+  /** Show `roomId` (a clicked notification), unless it is already shown or a game room. */
+  openRoom(roomId: string): void {
+    const room = this.client.roomManager.getRoom(roomId);
+    if (!room || room.supportsMode(CommunicationMode.Spatial)) return;
+    if (this.ui.getCurrentRoomId() !== roomId) this.requestJoin(roomId);
   }
 
   enter(): void {
@@ -78,9 +109,17 @@ export default class LobbyState {
     this.ui = new LobbyUI();
     this.ui.setOnMessageCallback(message => this.client.sendChatMessageRequest(message));
     this.ui.setOnRoomJoinCallback(roomId => this.requestJoin(roomId));
-    this.ui.setOnPlayCallback(roomId => this.onEnterGame(roomId));
+    this.ui.setOnPlayCallback(roomId => {
+      // Banned there: the server would refuse the join; say so instead of loading the game.
+      if (this.client.permissions.isBanned(this.client.subject, roomId))
+        this.ui.addSystemMessage(`Вы заблокированы в канале «${this.roomName(roomId)}»`);
+      else this.onEnterGame(roomId);
+    });
     this.ui.setOnLoadOlderCallback(() => this.loadOlder());
     this.ui.setOnProfileCallback(() => this.openProfile());
+    this.ui.setOnDeleteMessageCallback(id => this.deleteMessage(id));
+    this.ui.setOnManageChannelCallback(() => this.openChannelDialog());
+    this.ui.setOnManageMemberCallback(userId => this.openChannelDialog()?.openMember(userId));
 
     this.unsubs.push(
       this.client.on('roomList', () => this.renderRooms()),
@@ -91,14 +130,18 @@ export default class LobbyState {
       this.client.on('chat', (roomId, entry) => this.handleChat(roomId, entry)),
       this.client.on('chatHistory', (roomId, change) => this.handleChatHistory(roomId, change)),
       this.client.on('presence', () => {
-        this.renderMembers();
-        this.ui.refreshMessageAvatars(userId =>
-          this.client.avatarUrl(this.client.presence.get(userId))
-        );
+        this.refreshRoles();
         this.profile?.update(this.profileView());
       }),
+      this.client.on('permissions', () => this.refreshRoles()),
+      this.client.on('chatDeleted', (roomId, messageId) => {
+        if (roomId === this.ui.getCurrentRoomId()) this.ui.removeMessage(messageId);
+      }),
+      this.client.on('moderation', result => this.handleModeration(result)),
       this.client.on('account', result => this.handleAccount(result))
     );
+    if (this.alerts)
+      this.unsubs.push(this.alerts.onStatusChange(() => this.profile?.update(this.profileView())));
 
     // Rooms may already be known (coming back from the game).
     this.renderRooms();
@@ -126,6 +169,7 @@ export default class LobbyState {
     for (const off of this.unsubs) off();
     this.unsubs = [];
     this.closeProfile();
+    this.closeChannelDialog();
     this.ui.destroy();
   }
 
@@ -152,8 +196,10 @@ export default class LobbyState {
     // the same room — a reconnect — keeps the rendered messages; the catch-up the
     // client requests on every join is appended when it arrives.)
     if (switched) this.renderChat(roomId);
+    if (switched && this.channelDialog?.roomId !== roomId) this.closeChannelDialog();
     this.renderMembers();
     this.renderRooms();
+    this.updateChannelControls();
   }
 
   // ==================== chat ====================
@@ -165,8 +211,75 @@ export default class LobbyState {
     sentAtMs: entry.sentAtMs,
     own: this.client.isOwnMessage(entry),
     userId: entry.userId,
-    avatarUrl: this.client.avatarUrl(this.client.presence.get(entry.userId)),
+    ...this.authorOf(entry.userId),
+    canDelete: this.canDelete(entry.userId),
   });
+
+  /** What a message shows about its author in the current channel. */
+  private authorOf(userId: number): {
+    avatarUrl: string | null;
+    login: string | null;
+    role: string | null;
+  } {
+    const user = this.client.presence.get(userId);
+    const roomId = this.ui.getCurrentRoomId();
+    return {
+      avatarUrl: this.client.avatarUrl(user),
+      login: user?.login ?? null,
+      role: roomId
+        ? this.client.permissions.roleLabel(this.client.subjectOf(userId), roomId)
+        : null,
+    };
+  }
+
+  private canDelete(authorId: number): boolean {
+    const roomId = this.ui.getCurrentRoomId();
+    return roomId !== null && this.client.canDeleteIn(roomId, authorId);
+  }
+
+  private deleteMessage(messageId: number): void {
+    const roomId = this.ui.getCurrentRoomId();
+    if (!roomId || !window.confirm('Удалить сообщение? Его не увидит никто.')) return;
+    this.client.deleteMessage(roomId, messageId);
+  }
+
+  /**
+   * Presence or roles changed: everything that shows them follows — the member list,
+   * the authors of rendered messages (avatar, @login, role, delete button), the channel
+   * controls and the channel dialog.
+   */
+  private refreshRoles(): void {
+    this.renderMembers();
+    this.ui.refreshMessages(
+      userId => this.authorOf(userId),
+      userId => this.canDelete(userId)
+    );
+    this.updateChannelControls();
+  }
+
+  // The management button, the composer (muted / banned) and an open channel dialog.
+  private updateChannelControls(): void {
+    const roomId = this.ui.getCurrentRoomId();
+    if (!roomId) return;
+    const me = this.client.subject;
+    const permissions = this.client.permissions;
+    this.ui.setCanManageChannel(permissions.canManage(me, roomId));
+
+    let blocked: string | null = null;
+    if (!this.client.canSendIn(roomId)) {
+      const restriction = me && permissions.restriction(roomId, me.userId);
+      blocked = restriction
+        ? `Вам запрещено писать в этом канале ${formatUntil(restriction.untilMs)}`
+        : 'В этом канале писать могут только администраторы';
+    }
+    this.ui.setComposerBlocked(blocked);
+
+    if (this.channelDialog) {
+      if (permissions.canManage(me, this.channelDialog.roomId))
+        this.channelDialog.update(this.channelView(this.channelDialog.roomId));
+      else this.closeChannelDialog(); // our rights were taken away
+    }
+  }
 
   private renderChat(roomId: string): void {
     const log = this.client.getChatLog(roomId);
@@ -202,8 +315,13 @@ export default class LobbyState {
   private handleJoinFailed(roomId: string, error: string): void {
     // Membership is unchanged: stay where we are and say why.
     this.ui.setPendingRoom(null);
-    const name = this.client.roomManager.getRoom(roomId)?.name ?? roomId;
-    this.ui.addSystemMessage(`Could not join ${name}: ${error}`);
+    const name = this.roomName(roomId);
+    if (error === 'banned') this.ui.addSystemMessage(`Вы заблокированы в канале «${name}»`);
+    else this.ui.addSystemMessage(`Could not join ${name}: ${error}`);
+  }
+
+  private roomName(roomId: string): string {
+    return this.client.roomManager.getRoom(roomId)?.name ?? roomId;
   }
 
   private renderRooms(): void {
@@ -229,7 +347,11 @@ export default class LobbyState {
     const room = client.getCurrentRoom();
     const members: (LobbyMember & { rank: number; sort: number })[] = [];
 
+    const roomId = room?.id ?? null;
+    const me = client.subject;
+    const canManage = roomId !== null && client.permissions.canManage(me, roomId);
     for (const user of client.presence.values()) {
+      const restriction = roomId ? client.permissions.restriction(roomId, user.userId) : undefined;
       const status =
         user.status === PresenceStatus.Online
           ? 'online'
@@ -244,6 +366,11 @@ export default class LobbyState {
         detail: this.memberDetail(user, room?.id ?? null),
         avatarUrl: client.avatarUrl(user),
         about: user.about,
+        userId: user.userId,
+        login: user.login,
+        role: roomId ? client.permissions.roleLabel(user, roomId) : null,
+        manageable: canManage && user.userId !== client.myUserId,
+        restriction: restriction ? describeRestriction(restriction) : null,
         rank: status === 'online' ? 0 : status === 'away' ? 1 : 2,
         // Offline: most recently seen first.
         sort: status === 'offline' ? -user.lastSeenMs : 0,
@@ -298,7 +425,88 @@ export default class LobbyState {
       avatarUrl: this.client.avatarUrl(me),
       login: this.client.myLogin,
       identified: me !== undefined,
+      isAdmin: me?.isAdmin ?? false,
+      notifications: this.alerts?.status ?? 'unsupported',
     };
+  }
+
+  // ==================== channel management ====================
+
+  private channelView(roomId: string): ChannelDialogView {
+    const client = this.client;
+    const permissions = client.permissions;
+    const me = client.subject;
+    const users = [...client.presence.values()].map(user => {
+      const admin = permissions.admin(roomId, user.userId);
+      const restriction = permissions.restriction(roomId, user.userId);
+      return {
+        userId: user.userId,
+        name: user.name,
+        login: user.login,
+        avatarUrl: client.avatarUrl(user),
+        isServerAdmin: user.isAdmin,
+        admin: admin ? { rights: admin.rights, title: admin.title } : null,
+        restriction: restriction
+          ? { denied: restriction.denied, banned: restriction.banned, untilMs: restriction.untilMs }
+          : null,
+        isSelf: user.userId === client.myUserId,
+      };
+    });
+    return {
+      roomId,
+      roomName: client.roomManager.getRoom(roomId)?.name ?? roomId,
+      isHomeRoom: roomId === client.homeRoomId,
+      myRights: permissions.rightsOf(me, roomId),
+      iAmServerAdmin: me?.isAdmin ?? false,
+      defaults: permissions.channel(roomId).defaults,
+      users,
+      channels: client.roomManager
+        .getAllRooms()
+        .filter(room => permissions.canManage(me, room.id))
+        .map(room => ({ id: room.id, name: room.name })),
+    };
+  }
+
+  /** Opens (or returns the already open) management dialog of the current channel. */
+  private openChannelDialog(): ChannelDialog | null {
+    const roomId = this.ui.getCurrentRoomId();
+    if (!roomId || !this.client.permissions.canManage(this.client.subject, roomId)) return null;
+    if (this.channelDialog?.roomId === roomId) return this.channelDialog;
+    this.closeChannelDialog();
+    const client = this.client;
+    // The channel shown right now: the dialog can switch to another one.
+    const shown = () => this.channelDialog?.roomId ?? roomId;
+    this.channelDialog = new ChannelDialog(this.channelView(roomId), {
+      onSetDefaults: defaults => client.setChannelDefaults(shown(), defaults),
+      onSetAdmin: (userId, rights, title) => client.setChannelAdmin(shown(), userId, rights, title),
+      onRestrict: (userId, denied, banned, seconds) =>
+        client.restrictMember(shown(), userId, denied, banned, seconds),
+      onSetServerAdmin: (userId, isAdmin) => client.setServerAdmin(userId, isAdmin),
+      onSwitchChannel: id => {
+        if (client.permissions.canManage(client.subject, id))
+          this.channelDialog?.update(this.channelView(id));
+      },
+      onClose: () => this.closeChannelDialog(),
+    });
+    return this.channelDialog;
+  }
+
+  private closeChannelDialog(): void {
+    this.channelDialog?.destroy();
+    this.channelDialog = null;
+  }
+
+  private handleModeration(result: ModerationResult): void {
+    switch (result.action) {
+      case ModerationAction.SendMessage:
+      case ModerationAction.DeleteMessage:
+        // Refused chat actions are told in the chat itself.
+        if (!result.success) this.ui.addSystemMessage(describeModerationError(result.error));
+        return;
+    }
+    if (!this.channelDialog) return;
+    if (result.success) this.channelDialog.showStatus(MODERATION_DONE[result.action] ?? 'Готово');
+    else this.channelDialog.showStatus(describeModerationError(result.error), true);
   }
 
   private openProfile(): void {
@@ -319,6 +527,15 @@ export default class LobbyState {
         this.client.claimAccount(login, password);
       },
       onLogout: () => this.client.logout(),
+      onNotifications: on => {
+        if (!this.alerts) return;
+        if (on) {
+          void this.alerts.enable().then(status => {
+            if (status === 'denied')
+              this.profile?.showStatus('notifications', 'Браузер запретил уведомления', true);
+          });
+        } else void this.alerts.disable();
+      },
       onSwitchAccount: () => {
         // Back to the entry form in login mode. The guest key stays stored, so backing
         // out of the form (or a refused login) returns to this guest.

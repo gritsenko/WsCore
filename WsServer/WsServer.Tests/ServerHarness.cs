@@ -21,7 +21,7 @@ internal sealed class ServerHarness : IAsyncDisposable
     public SessionManager Sessions { get; }
     public IChatStorage Storage { get; }
 
-    public ServerHarness(Action<GameServerOptions>? configure = null)
+    public ServerHarness(Action<GameServerOptions>? configure = null, Action<IServiceCollection>? services = null)
     {
         _services = BuildGameServices(o =>
         {
@@ -32,13 +32,15 @@ internal sealed class ServerHarness : IAsyncDisposable
             o.AccountRequestCooldownSeconds = 0;
             o.PasswordHashIterations = 1000; // real hashing, test-speed cost
             configure?.Invoke(o);
-        });
+        }, services);
         Server = _services.GetRequiredService<GameServer>();
         Sessions = _services.GetRequiredService<SessionManager>();
         Storage = _services.GetRequiredService<IChatStorage>();
         _logic = (ReflectionServerLogicProvider)_services.GetRequiredService<IServerLogicProvider>();
         Server.Start();
     }
+
+    public T Service<T>() where T : notnull => _services.GetRequiredService<T>();
 
     public async Task<RecordingConnection> Connect()
     {

@@ -90,6 +90,31 @@ public sealed class ChatHistoryService
         };
     }
 
+    /// <summary>The message if it is still in the room's in-memory window.</summary>
+    public ChatMessage? Find(string roomId, uint messageId)
+    {
+        if (!_rooms.TryGetValue(roomId, out var log))
+            return null;
+        var i = LowerBound(log.Messages, messageId);
+        return i < log.Messages.Count && log.Messages[i].Id == messageId ? log.Messages[i] : null;
+    }
+
+    /// <summary>
+    /// Removes the message from the window and from storage. Ids are never reused, so a
+    /// client that still has it cached simply drops it when told (ChatMessageDeletedEvent);
+    /// gaps in a room's ids are normal.
+    /// </summary>
+    public void Delete(string roomId, uint messageId)
+    {
+        if (_rooms.TryGetValue(roomId, out var log))
+        {
+            var i = LowerBound(log.Messages, messageId);
+            if (i < log.Messages.Count && log.Messages[i].Id == messageId)
+                log.Messages.RemoveAt(i);
+        }
+        _storage.DeleteMessage(messageId);
+    }
+
     /// <summary>
     /// Catch-up for a client that knows the room up to <paramref name="afterId"/> (0 =
     /// nothing): the messages after it if the window still covers that point and they fit

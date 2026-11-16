@@ -28,6 +28,10 @@ public partial class PresenceUserInfo
     public string About = string.Empty;
     // 0 = no avatar; otherwise the image is at /avatars/{UserId}?v={AvatarVersion}.
     public uint AvatarVersion;
+    // The login of a claimed account (public, shown as @login); null for a guest.
+    public string? Login;
+    // A server admin: every right in every channel.
+    public bool IsAdmin;
 }
 
 /// <summary>

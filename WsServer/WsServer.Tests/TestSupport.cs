@@ -32,11 +32,14 @@ internal static class TestSupport
 
     // The production DI graph (AddGameServer) without a host: the GameServer is resolved
     // but not started, so tests control exactly when queued commands get drained.
-    public static ServiceProvider BuildGameServices(Action<GameServerOptions>? configure = null)
-        => new ServiceCollection()
-            .AddLogging()
-            .AddGameServer(configure: configure)
-            .BuildServiceProvider();
+    /// <param name="services">Registrations made before the server's (they win over its TryAdd defaults, e.g. IPushSender).</param>
+    public static ServiceProvider BuildGameServices(Action<GameServerOptions>? configure = null,
+        Action<IServiceCollection>? services = null)
+    {
+        var collection = new ServiceCollection().AddLogging();
+        services?.Invoke(collection);
+        return collection.AddGameServer(configure: configure).BuildServiceProvider();
+    }
 }
 
 /// <summary>In-process IClientConnection recording what the server queued for it.</summary>

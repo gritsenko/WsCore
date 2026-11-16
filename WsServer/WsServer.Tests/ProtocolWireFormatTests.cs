@@ -92,14 +92,14 @@ public class ProtocolWireFormatTests
         Assert.True(MemoryPackSerializer.Deserialize<SetAwayRequest>([1, 1])!.Away);
     }
 
-    private static readonly byte[] PresenceUserBytes = [7, 3, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 65, 108, 2,
+    private static readonly byte[] PresenceUserBytes = [9, 3, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 65, 108, 2,
         251, 255, 255, 255, 4, 0, 0, 0, 103, 97, 109, 101, 0, 0, 0, 0, 0, 64, 143, 64,
-        253, 255, 255, 255, 2, 0, 0, 0, 104, 105, 9, 0, 0, 0];
+        253, 255, 255, 255, 2, 0, 0, 0, 104, 105, 9, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 97, 108, 1];
 
     private static PresenceUserInfo PresenceUser() => new()
     {
         UserId = 3, Name = "Al", Status = PresenceStatus.Away, RoomId = "game", LastSeenMs = 1000,
-        About = "hi", AvatarVersion = 9,
+        About = "hi", AvatarVersion = 9, Login = "al", IsAdmin = true,
     };
 
     [Fact]

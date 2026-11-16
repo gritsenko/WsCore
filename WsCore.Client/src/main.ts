@@ -136,6 +136,14 @@ for (const input of [nameInput, loginInput, passwordInput]) {
   });
 }
 
+// The service worker makes the site installable and shows push notifications
+// (public/sw.js). Registered for everyone, whether or not notifications are on.
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js').catch(err => {
+    console.warn('Service worker registration failed', err);
+  });
+}
+
 // Expose for the inline onclick handler in index.html.
 (window as any).onStartGameClicked = onStartGameClicked;
 (window as any).runGame = onStartGameClicked;

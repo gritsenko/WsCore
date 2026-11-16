@@ -134,10 +134,12 @@ describe('protocol round-trip against fixed binary samples', () => {
     user.lastSeenMs = 1000;
     user.about = 'hi';
     user.avatarVersion = 9;
+    user.login = 'al';
+    user.isAdmin = true;
     const userBytes = [
-      7, 3, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 65, 108, 2, 251, 255, 255, 255, 4, 0, 0, 0,
+      9, 3, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 65, 108, 2, 251, 255, 255, 255, 4, 0, 0, 0,
       103, 97, 109, 101, 0, 0, 0, 0, 0, 64, 143, 64, 253, 255, 255, 255, 2, 0, 0, 0, 104, 105, 9, 0,
-      0, 0,
+      0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 97, 108, 1,
     ];
 
     const update = new PresenceUpdateEvent();
@@ -149,6 +151,8 @@ describe('protocol round-trip against fixed binary samples', () => {
     expect(decodedUpdate.user!.roomId).toBe('game');
     expect(decodedUpdate.user!.about).toBe('hi');
     expect(decodedUpdate.user!.avatarVersion).toBe(9);
+    expect(decodedUpdate.user!.login).toBe('al');
+    expect(decodedUpdate.user!.isAdmin).toBe(true);
 
     const snapshot = new PresenceSnapshotEvent();
     snapshot.yourUserId = 3;

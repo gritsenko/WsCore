@@ -225,6 +225,60 @@ public class SqliteChatStorageTests
     }
 
     [Fact]
+    public void AnAccountsDatabase_IsMigratedToRoles_KeepingItsAccounts()
+    {
+        using var db = new TempDatabase();
+        Directory.CreateDirectory(Path.GetDirectoryName(db.Path)!);
+        using (var old = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db.Path};Pooling=False"))
+        {
+            old.Open();
+            using var cmd = old.CreateCommand();
+            // Schema v1 exactly as the accounts release created it.
+            cmd.CommandText = """
+                CREATE TABLE users(
+                    id             INTEGER PRIMARY KEY,
+                    name           TEXT    NOT NULL,
+                    last_seen      INTEGER NOT NULL,
+                    login          TEXT,
+                    password_hash  TEXT,
+                    about          TEXT    NOT NULL DEFAULT '',
+                    avatar_version INTEGER NOT NULL DEFAULT 0
+                );
+                CREATE UNIQUE INDEX ix_users_login ON users(login) WHERE login IS NOT NULL;
+                CREATE TABLE user_keys(key_hash TEXT PRIMARY KEY, user_id INTEGER NOT NULL) WITHOUT ROWID;
+                CREATE INDEX ix_user_keys_user ON user_keys(user_id);
+                CREATE TABLE avatars(user_id INTEGER PRIMARY KEY, content_type TEXT NOT NULL, data BLOB NOT NULL);
+                INSERT INTO users(id, name, last_seen, login, password_hash, about) VALUES(3, 'Igor', 100, 'gritsenko', 'hash', 'hi');
+                INSERT INTO user_keys VALUES('hash-igor', 3);
+                PRAGMA user_version = 1;
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        using (var storage = Open(db.Path))
+        {
+            var snapshot = storage.Load(10);
+            var igor = Assert.Single(snapshot.Users);
+            Assert.Equal((3u, "gritsenko", "hash", "hi", false), (igor.Id, igor.Login, igor.PasswordHash, igor.About, igor.IsAdmin));
+            Assert.Equal([new StoredUserKey("hash-igor", 3)], snapshot.UserKeys);
+            Assert.Empty(snapshot.Channels);
+
+            storage.SaveUser(igor with { IsAdmin = true });
+            storage.SaveChannel(new StoredChannel("lobby", 1));
+            storage.SaveChannelMember(new StoredChannelMember("voice", 3) { AdminRights = 7, Title = "boss" });
+            storage.SaveChannelMember(new StoredChannelMember("voice", 5) { Denied = 1, UntilMs = 99 });
+            storage.DeleteChannelMember("voice", 5);
+            storage.FlushAsync().Wait();
+        }
+
+        using var again = Open(db.Path);
+        var reloaded = again.Load(10);
+        Assert.True(reloaded.Users.Single().IsAdmin);
+        Assert.Equal([new StoredChannel("lobby", 1)], reloaded.Channels);
+        Assert.Equal([new StoredChannelMember("voice", 3) { AdminRights = 7, Title = "boss" }], reloaded.ChannelMembers);
+    }
+
+    [Fact]
     public void Factory_WithoutAPath_OrWithAnUnusablePath_RunsWithoutPersistence()
     {
         using var none = ChatStorageFactory.Create(new GameServerOptions(), NullLogger.Instance);

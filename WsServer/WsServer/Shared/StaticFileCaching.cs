@@ -27,7 +27,11 @@ public static partial class StaticFileCaching
     /// <summary>The Cache-Control value for a static file, or null to send none.</summary>
     public static string? CacheControlFor(string requestPath, string fileName)
     {
-        if (string.Equals(fileName, "index.html", StringComparison.OrdinalIgnoreCase))
+        // index.html, the service worker and the PWA manifest have fixed URLs but change
+        // with every deploy: always revalidate (a stale sw.js would pin an old worker).
+        if (string.Equals(fileName, "index.html", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(fileName, "sw.js", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(fileName, "manifest.webmanifest", StringComparison.OrdinalIgnoreCase))
             return NoCache;
         if (HashedAsset().IsMatch(requestPath))
             return Immutable;

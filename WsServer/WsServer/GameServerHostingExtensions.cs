@@ -3,7 +3,10 @@ using Game.ServerLogic.Chat.Events;
 using Microsoft.Extensions.Options;
 using WsServer.Abstract;
 using WsServer.Chat;
+using WsServer.Moderation;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using WsServer.Persistence;
+using WsServer.Push;
 using WsServer.Rooms;
 using WsServer.ServerInfo;
 using WsServer.Sessions;
@@ -58,6 +61,20 @@ public static class GameServerHostingExtensions
                 sp.GetRequiredService<GameServerOptions>().ChatHistoryCacheSize)));
         services.AddSingleton<ChatHistoryService>();
         services.AddSingleton<UserDirectory>();
+        services.AddSingleton<ChannelPermissions>();
+        services.AddSingleton<ModerationService>();
+
+        // Web Push. The sender is replaceable (tests register a recording one before this).
+        // One long-lived client; pooled connections are recycled so DNS changes of the push
+        // services are picked up.
+        services.TryAddSingleton<IPushSender>(sp => new WebPushSender(
+            new HttpClient(new SocketsHttpHandler { PooledConnectionLifetime = TimeSpan.FromMinutes(5) })
+            {
+                Timeout = TimeSpan.FromSeconds(15),
+            },
+            sp.GetRequiredService<GameServerOptions>(),
+            sp.GetRequiredService<ILogger<WebPushSender>>()));
+        services.AddSingleton<PushService>();
 
         services.AddSingleton<GameModel>();
         services.AddSingleton<SessionManager>();

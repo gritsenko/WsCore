@@ -90,6 +90,16 @@ export class ChatLogStore {
     return 'added';
   }
 
+  /** Drops a deleted message; false if it was not cached. */
+  remove(roomId: string, messageId: number): boolean {
+    const log = this.rooms.get(roomId);
+    if (!log) return false;
+    const index = log.entries.findIndex(e => e.id === messageId);
+    if (index < 0) return false;
+    log.entries.splice(index, 1);
+    return true;
+  }
+
   /** Applies a history page; null when it is stale and changed nothing. */
   applyHistory(page: ChatHistoryPage): ChatLogChange | null {
     // A different id space (the server lost / reset its history): nothing cached is

@@ -1,0 +1,18 @@
+{
+  "id": "/",
+  "name": "WAVE — общение и 3D-мир",
+  "short_name": "WAVE",
+  "description": "Комнаты для общения и общий 3D-мир прямо в браузере.",
+  "lang": "ru",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#141615",
+  "theme_color": "#141615",
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

@@ -1,4 +1,5 @@
 import { createAvatar, el } from './LobbyUI';
+import type { AlertsStatus } from '../app/ChatAlerts';
 
 /** What the profile dialog shows about us. */
 export interface ProfileView {
@@ -9,6 +10,10 @@ export interface ProfileView {
   login: string | null;
   /** False until the server knows us as a user (nothing can be edited before that). */
   identified: boolean;
+  /** We are a server admin. */
+  isAdmin: boolean;
+  /** New-message notifications on this device. */
+  notifications: AlertsStatus;
 }
 
 export interface ProfileHandlers {
@@ -17,13 +22,27 @@ export interface ProfileHandlers {
   onAvatarRemoved(): void;
   onClaim(login: string, password: string): void;
   onLogout(): void;
+  /** Turn new-message notifications on / off on this device (on may ask for the permission). */
+  onNotifications(on: boolean): void;
   /** A guest wants to enter an account they already have. */
   onSwitchAccount(): void;
   onClose(): void;
 }
 
 /** The part of the dialog a status line belongs to. */
-export type ProfileSection = 'profile' | 'avatar' | 'account';
+export type ProfileSection = 'profile' | 'avatar' | 'account' | 'notifications';
+
+const NOTIFICATION_HINTS: Record<AlertsStatus, string> = {
+  on: 'Включены: о новых сообщениях придёт уведомление, даже когда вкладка закрыта.',
+  off: 'Узнавайте о новых сообщениях, когда вкладка свёрнута или закрыта.',
+  denied:
+    'Уведомления запрещены в настройках браузера для этого сайта — разрешите их там, ' +
+    'чтобы включить.',
+  install:
+    'На iPhone и iPad уведомления работают в приложении: «Поделиться» → «На экран „Домой“», ' +
+    'затем откройте WAVE с экрана «Домой».',
+  unsupported: 'Этот браузер не поддерживает уведомления.',
+};
 
 export const NAME_MAX_LENGTH = 32;
 export const ABOUT_MAX_LENGTH = 190;
@@ -40,11 +59,16 @@ export default class ProfileDialog {
   private view: ProfileView;
 
   private readonly avatarSlot: HTMLDivElement;
+  /** "@login" (or "гость") and the server-admin badge, next to the avatar. */
+  private readonly identity: HTMLDivElement;
   private readonly removeAvatarButton: HTMLButtonElement;
   private readonly nameInput: HTMLInputElement;
   private readonly aboutInput: HTMLTextAreaElement;
   private readonly aboutCounter: HTMLSpanElement;
   private readonly accountSection: HTMLDivElement;
+  private readonly notificationsSection: HTMLDivElement;
+  /** The status the notifications section was last built for. */
+  private notificationsKey: AlertsStatus | '' = '';
   private readonly statusLines = new Map<ProfileSection, HTMLDivElement>();
   /** Which view the account section was last built for (rebuilt only when it changes). */
   private accountKey = '';
@@ -82,6 +106,8 @@ export default class ProfileDialog {
     avatarRow.appendChild(this.avatarSlot);
 
     const avatarActions = el('div', 'lobby-dialog-avatar-actions');
+    this.identity = el('div', 'lobby-dialog-identity');
+    avatarActions.appendChild(this.identity);
     const fileInput = el('input');
     fileInput.type = 'file';
     fileInput.accept = 'image/*';
@@ -144,6 +170,10 @@ export default class ProfileDialog {
     saveRow.appendChild(this.statusLine('profile'));
     dialog.appendChild(saveRow);
 
+    // ---- notifications ----
+    this.notificationsSection = el('div', 'lobby-dialog-account lobby-dialog-notifications');
+    dialog.appendChild(this.notificationsSection);
+
     // ---- account ----
     this.accountSection = el('div', 'lobby-dialog-account');
     dialog.appendChild(this.accountSection);
@@ -189,10 +219,40 @@ export default class ProfileDialog {
     this.aboutCounter.textContent = `${this.aboutInput.value.length}/${ABOUT_MAX_LENGTH}`;
   }
 
+  private renderNotifications(): void {
+    const status = this.view.notifications;
+    if (status === this.notificationsKey) return;
+    this.notificationsKey = status;
+    const line = this.statusLine('notifications');
+    this.notificationsSection.replaceChildren(
+      el('div', 'lobby-dialog-section-title', 'Уведомления'),
+      el('div', 'lobby-dialog-hint', NOTIFICATION_HINTS[status])
+    );
+    if (status !== 'on' && status !== 'off') return;
+    const toggle =
+      status === 'on'
+        ? el('button', 'lobby-dialog-button lobby-dialog-button-quiet', 'Выключить')
+        : el('button', 'lobby-dialog-button lobby-dialog-button-primary', 'Включить уведомления');
+    toggle.type = 'button';
+    toggle.id = 'lobby-notifications-toggle';
+    toggle.onclick = () => this.handlers.onNotifications(status !== 'on');
+    const row = el('div', 'lobby-dialog-buttons');
+    row.append(toggle, line);
+    this.notificationsSection.appendChild(row);
+  }
+
   private render(): void {
     const { view } = this;
     this.avatarSlot.replaceChildren(createAvatar(view.name, 'lg', undefined, view.avatarUrl));
     this.removeAvatarButton.hidden = !view.avatarUrl;
+    this.identity.replaceChildren(
+      view.login
+        ? el('span', 'lobby-dialog-identity-login', `@${view.login}`)
+        : el('span', 'lobby-dialog-identity-guest', view.identified ? 'гость' : '')
+    );
+    if (view.isAdmin) this.identity.appendChild(el('span', 'lobby-role-badge', 'админ сервера'));
+
+    this.renderNotifications();
 
     const accountKey = `${view.identified}|${view.login ?? ''}`;
     if (accountKey === this.accountKey) return;

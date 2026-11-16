@@ -1,12 +1,17 @@
+using Game.ServerLogic.Push.Events;
+using WsServer.Push;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using Game.Core;
 using Game.ServerLogic.Account.Events;
 using Game.ServerLogic.GameState.Events;
+using Game.ServerLogic.Moderation.Events;
 using Game.ServerLogic.Player.Events;
 using Game.ServerLogic.Presence.Events;
 using Game.ServerLogic.Rooms.Events;
 using WsServer.Abstract;
+using WsServer.Abstract.Messages;
+using WsServer.Moderation;
 using WsServer.Persistence;
 using WsServer.Rooms;
 
@@ -48,6 +53,8 @@ public sealed class SessionManager(
     RoomManager roomManager,
     IGameMessenger messenger,
     UserDirectory users,
+    ChannelPermissions permissions,
+    PushService push,
     GameServerOptions options,
     ILogger<SessionManager> logger)
 {
@@ -123,6 +130,13 @@ public sealed class SessionManager(
         {
             logger.LogInformation("Client {ClientId}: join refused, no room {RoomId}", clientId, roomId);
             messenger.Send(clientId, JoinRoomResultEvent.Failed(roomId, "Room not found"));
+            return false;
+        }
+
+        if (permissions.IsBanned(session.User, target.Id))
+        {
+            logger.LogInformation("Client {ClientId}: join refused, banned from {RoomId}", clientId, roomId);
+            messenger.Send(clientId, JoinRoomResultEvent.Failed(roomId, ModerationError.Banned));
             return false;
         }
 
@@ -295,6 +309,9 @@ public sealed class SessionManager(
         // tells everyone else.
         PublishPresence(user, announce: false);
         messenger.Send(session.Id, BuildPresenceSnapshot(user));
+        messenger.Send(session.Id, BuildChannelPermissions());
+        if (push.Keys is { } pushKeys)
+            messenger.Send(session.Id, new PushConfigEvent { PublicKey = pushKeys.PublicKey });
         BroadcastPresence(user, exceptClientId: session.Id);
 
         // The room's user list was sent before the connection had a user id.
@@ -370,6 +387,7 @@ public sealed class SessionManager(
             {
                 logger.LogInformation("User {UserId} claimed the account \"{Login}\"", user.Id, normalized);
                 Succeed(session, action);
+                PublishPresence(user); // the login is public (and may make it a server admin)
             }
         });
     }
@@ -455,7 +473,10 @@ public sealed class SessionManager(
         var keyHash = session.KeyHash;
         Detach(session);
         if (keyHash != null)
+        {
             users.UnbindKey(keyHash);
+            push.RemoveDevice(keyHash); // this device no longer gets the account's notifications
+        }
 
         var room = roomManager.GetClientRoom(clientId);
         if (room != null)
@@ -627,7 +648,8 @@ public sealed class SessionManager(
         var status = user.Status;
         var roomId = PresenceRoomId(user);
         if (status == user.PublishedStatus && roomId == user.PublishedRoomId && user.Name == user.PublishedName
-            && user.About == user.PublishedAbout && user.AvatarVersion == user.PublishedAvatarVersion)
+            && user.About == user.PublishedAbout && user.AvatarVersion == user.PublishedAvatarVersion
+            && user.Login == user.PublishedLogin && user.IsAdmin == user.PublishedIsAdmin)
             return;
 
         var cameOrWent = (status == PresenceStatus.Offline) != (user.PublishedStatus == PresenceStatus.Offline);
@@ -642,15 +664,31 @@ public sealed class SessionManager(
         user.PublishedName = user.Name;
         user.PublishedAbout = user.About;
         user.PublishedAvatarVersion = user.AvatarVersion;
+        user.PublishedLogin = user.Login;
+        user.PublishedIsAdmin = user.IsAdmin;
 
         if (announce)
             BroadcastPresence(user);
     }
 
+    /// <summary>Announces a change of the user's profile / role made outside this class.</summary>
+    public void RefreshPresence(UserAccount user) => PublishPresence(user);
+
     private void BroadcastPresence(UserAccount user, uint exceptClientId = 0)
         => messenger.BroadcastWhere(
             new PresenceUpdateEvent { User = PresenceOf(user) },
             id => id != exceptClientId && _sessions.TryGetValue(id, out var s) && s.User != null);
+
+    /// <summary>Sends to every connection bound to a user (whatever room it is in).</summary>
+    public void BroadcastToIdentified<TEvent>(TEvent evt) where TEvent : IServerEvent
+        => messenger.BroadcastWhere(evt, id => _sessions.TryGetValue(id, out var s) && s.User != null);
+
+    // Every channel's permissions, for a connection that just identified.
+    private ChannelPermissionsEvent BuildChannelPermissions() => new()
+    {
+        Reset = true,
+        Channels = roomManager.GetAllRooms().OrderBy(r => r.Order).Select(r => permissions.Describe(r.Id)).ToList(),
+    };
 
     // Where the user is: the room of an active connection if there is one.
     private string? PresenceRoomId(UserAccount user)
@@ -677,6 +715,8 @@ public sealed class SessionManager(
         LastSeenMs = user.LastSeenMs,
         About = user.PublishedAbout,
         AvatarVersion = user.PublishedAvatarVersion,
+        Login = user.PublishedLogin,
+        IsAdmin = user.PublishedIsAdmin,
     };
 
     // Everyone online, plus the most recently seen offline users (bounded: the directory

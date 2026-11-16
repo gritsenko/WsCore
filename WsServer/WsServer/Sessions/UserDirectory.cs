@@ -32,6 +32,9 @@ public sealed class UserAccount(uint id, string name, long lastSeenMs)
     /// <summary>0 = no avatar; otherwise a value that changes with the image.</summary>
     public uint AvatarVersion { get; set; }
 
+    /// <summary>A server admin: every right in every channel (see ChannelPermissions).</summary>
+    public bool IsAdmin { get; set; }
+
     /// <summary>Live connections of this user (empty = offline).</summary>
     public List<ClientSession> Sessions { get; } = new();
 
@@ -41,6 +44,8 @@ public sealed class UserAccount(uint id, string name, long lastSeenMs)
     public string PublishedName { get; set; } = name;
     public string PublishedAbout { get; set; } = string.Empty;
     public uint PublishedAvatarVersion { get; set; }
+    public string? PublishedLogin { get; set; }
+    public bool PublishedIsAdmin { get; set; }
 
     public bool IsOnline => Sessions.Count > 0;
 
@@ -76,11 +81,16 @@ public sealed class UserDirectory
     private readonly Dictionary<uint, UserAccount> _byId = new();
     private readonly Dictionary<string, UserAccount> _byKeyHash = new();
     private readonly Dictionary<string, UserAccount> _byLogin = new();
+    private readonly HashSet<string> _configuredAdmins;
     private uint _nextId;
 
     public UserDirectory(IChatStorage storage, StorageSnapshot snapshot, GameServerOptions options)
     {
         _storage = storage;
+        _configuredAdmins = options.AdminLogins
+            .Select(l => NormalizeLogin(l ?? string.Empty))
+            .OfType<string>()
+            .ToHashSet();
         _maxUsers = Math.Max(1, options.MaxKnownUsers);
         _nextId = Math.Max(1, snapshot.NextUserId);
         foreach (var u in snapshot.Users)
@@ -93,10 +103,19 @@ public sealed class UserDirectory
                 AvatarVersion = u.AvatarVersion,
                 PublishedAbout = u.About,
                 PublishedAvatarVersion = u.AvatarVersion,
+                PublishedLogin = u.Login,
+                IsAdmin = u.IsAdmin,
+                PublishedIsAdmin = u.IsAdmin,
             };
             _byId[user.Id] = user;
             if (user.Login != null)
                 _byLogin[user.Login] = user;
+            // A login added to AdminLogins since the last run.
+            if (IsConfiguredAdmin(user) && !user.IsAdmin)
+            {
+                user.IsAdmin = user.PublishedIsAdmin = true;
+                Save(user);
+            }
         }
         foreach (var key in snapshot.UserKeys)
         {
@@ -149,6 +168,11 @@ public sealed class UserDirectory
     public static string HashKey(string key)
         => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(key)));
 
+    public UserAccount? FindById(uint id) => _byId.GetValueOrDefault(id);
+
+    /// <summary>A server admin by configuration (AdminLogins): cannot be demoted.</summary>
+    public bool IsConfiguredAdmin(UserAccount user) => user.Login != null && _configuredAdmins.Contains(user.Login);
+
     public UserAccount? FindByKeyHash(string keyHash) => _byKeyHash.GetValueOrDefault(keyHash);
 
     public UserAccount? FindByLogin(string normalizedLogin) => _byLogin.GetValueOrDefault(normalizedLogin);
@@ -198,6 +222,8 @@ public sealed class UserDirectory
             return false;
         user.Login = normalizedLogin;
         user.PasswordHash = passwordHash;
+        if (IsConfiguredAdmin(user))
+            user.IsAdmin = true;
         _byLogin[normalizedLogin] = user;
         Save(user);
         return true;
@@ -210,6 +236,7 @@ public sealed class UserDirectory
             PasswordHash = user.PasswordHash,
             About = user.About,
             AvatarVersion = user.AvatarVersion,
+            IsAdmin = user.IsAdmin,
         });
 
     public void SaveAvatar(UserAccount user, StoredAvatar? avatar) => _storage.SaveAvatar(user.Id, avatar);

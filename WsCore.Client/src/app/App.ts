@@ -3,6 +3,8 @@ import { ConnectionStatus } from '../network/WsConnection';
 import Player from '../game/Player';
 import LobbyState from './LobbyState';
 import IdleDetector from '../utils/IdleDetector';
+import UnreadBadge from '../utils/UnreadBadge';
+import ChatAlerts from './ChatAlerts';
 import { AccountAction, AccountResult } from '../network/ClientEvents';
 import { clearIdentity, saveLogin, saveName, saveUserKey } from './IdentityStorage';
 // GameScene (and three.js with it) is imported dynamically in enterGame() — a
@@ -37,6 +39,8 @@ export default class App {
   private banner: HTMLDivElement;
   /** Reports the user away (afk) after a while without input, in the lobby or in game. */
   private readonly idle: IdleDetector;
+  /** Unread counter (tab title, favicon, app icon) + notifications + push subscription. */
+  private readonly alerts: ChatAlerts;
   /** Called (once) if the login this app was started with is refused. */
   private onLoginFailed: ((error: string) => void) | null = null;
 
@@ -47,6 +51,7 @@ export default class App {
 
     this.banner = this.createBanner();
     this.idle = new IdleDetector(document, away => this.client.setAway(away));
+    this.alerts = new ChatAlerts(this.client, () => this.idle.isAway, new UnreadBadge());
 
     // A fresh InitPlayerEvent (first connect OR reconnect) → the active state
     // rejoins its room under the new clientId and rebuilds from server events.
@@ -123,19 +128,30 @@ export default class App {
     this.activeState?.exit();
     this.activeState = null;
     this.idle.stop();
+    this.alerts.stop();
+    navigator.serviceWorker?.removeEventListener('message', this.onWorkerMessage);
     this.client.disconnect();
     this.banner.remove();
   }
 
   start(): void {
     this.idle.start();
+    this.alerts.start();
+    navigator.serviceWorker?.addEventListener('message', this.onWorkerMessage);
     this.enterLobby();
     this.client.connect(this.url);
   }
 
   private enterLobby(): void {
-    this.transitionTo(new LobbyState(this.client, roomId => this.enterGame(roomId)));
+    this.transitionTo(new LobbyState(this.client, roomId => this.enterGame(roomId), this.alerts));
   }
+
+  /** A notification was clicked (public/sw.js): show its room — from the lobby only. */
+  private readonly onWorkerMessage = (e: MessageEvent): void => {
+    const data = e.data as { type?: string; roomId?: string } | null;
+    if (data?.type === 'open-room' && data.roomId && this.activeState instanceof LobbyState)
+      this.activeState.openRoom(data.roomId);
+  };
 
   /**
    * Lazy-loads the game chunk (three.js + the scene) on the first Play, so the

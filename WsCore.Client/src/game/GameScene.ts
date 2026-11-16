@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { ModerationAction, describeModerationError } from '../network/Permissions';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import * as Common from '../utils/Common';
 import Keyboard, { KeyHandle, isEditableTarget } from '../utils/Keyboard';
@@ -21,6 +22,8 @@ export default class GameScene {
   /** The spatial room this scene shows (from the server's room list). */
   private readonly roomId: string;
   private readonly onLeave: () => void;
+  /** Our join of the game room has been confirmed in this session. */
+  private inRoom = false;
 
   private scene!: THREE.Scene;
   private camera!: THREE.PerspectiveCamera;
@@ -81,6 +84,14 @@ export default class GameScene {
           this.showRecentChat();
         }
       }),
+      this.client.on('chatDeleted', roomId => {
+        if (roomId === this.roomId) this.showRecentChat();
+      }),
+      this.client.on('moderation', result => {
+        // A refused chat message (muted / no links here): say why in the overlay.
+        if (result.action === ModerationAction.SendMessage && !result.success)
+          this.chatUI?.addMessage('—', describeModerationError(result.error));
+      }),
       this.client.on('roomJoined', roomId => this.onRoomJoined(roomId)),
       this.client.on('roomJoinFailed', roomId => this.onRoomJoinFailed(roomId))
     );
@@ -109,13 +120,21 @@ export default class GameScene {
    * the client drops all players whenever it is outside the game world).
    */
   onSessionInit(): void {
+    this.inRoom = false; // a new session starts in the home room until the join is confirmed
     this.client.joinRoom(this.roomId);
     this.buildExistingViews();
   }
 
   private onRoomJoined(roomId: string): void {
+    if (roomId !== this.roomId) {
+      // Moved out of the world by the server after we were in it (banned from the
+      // channel): the scene has nothing left to show. (A join of another room before
+      // ours was confirmed is the server's automatic home-room join on connect.)
+      if (this.inRoom) this.onLeave();
+      return;
+    }
+    this.inRoom = true;
     // The map is game-world state: fetch it once we're confirmed in the world.
-    if (roomId !== this.roomId) return;
     this.client.sendGetMapObjectsRequest(0, 0);
     // Whatever is cached of this room's chat is shown right away; the client is
     // already fetching what was missed.

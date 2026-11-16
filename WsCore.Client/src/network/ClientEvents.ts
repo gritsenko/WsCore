@@ -3,6 +3,7 @@ import type { RoomUsersUpdateEvent } from './protocol/RoomUsersUpdateEvent';
 import type { Room } from './rooms/Room';
 import type { PositionBuffer } from '../utils/SnapshotInterpolation';
 import type { ChatEntry, ChatLogChange } from './ChatLog';
+import type { ModerationResult } from './Permissions';
 
 export type ConnectionStatus = 'connecting' | 'open' | 'reconnecting' | 'closed';
 
@@ -68,6 +69,17 @@ export type ClientEvents<T extends IPlayer = IPlayer> = {
   presence: () => void;
   /** The server answered an account request (claim / login / logout / profile / avatar). */
   account: (result: AccountResult) => void;
+  /** A message was deleted from `roomId`'s log (it was cached; the UI should drop it). */
+  chatDeleted: (roomId: string, messageId: number) => void;
+  /** Channel roles / permissions changed (WsClient.permissions). */
+  permissions: () => void;
+  /** The server answered a moderation request, or refused a chat message of ours. */
+  moderation: (result: ModerationResult) => void;
+  /**
+   * The server's Web Push key arrived (after every identify): (re)register this
+   * browser's subscription, if notifications are on (see ChatAlerts).
+   */
+  pushConfig: (publicKey: string) => void;
 };
 
 /** AccountResultEvent.action on the wire (server `AccountAction`). */
@@ -106,4 +118,8 @@ export interface PresenceUser {
   about: string;
   /** 0 = no avatar; otherwise part of the image URL (see WsClient.avatarUrl). */
   avatarVersion: number;
+  /** The login of a claimed account (public, shown as @login); null for a guest. */
+  login: string | null;
+  /** A server admin: every right in every channel. */
+  isAdmin: boolean;
 }

@@ -14,6 +14,24 @@ public sealed record StoredUser(uint Id, string Name, long LastSeenMs)
     public string About { get; init; } = string.Empty;
     /// <summary>0 = no avatar; otherwise changes whenever the avatar does (cache buster).</summary>
     public uint AvatarVersion { get; init; }
+    /// <summary>A server admin (every right in every channel).</summary>
+    public bool IsAdmin { get; init; }
+}
+
+/// <summary>A channel's (room's) settings that differ from the defaults.</summary>
+public sealed record StoredChannel(string RoomId, byte DefaultPermissions);
+
+/// <summary>
+/// A user's standing in one channel: admin rights + title, and / or a restriction
+/// (denied permissions, a ban) lasting until <see cref="UntilMs"/> (0 = forever).
+/// </summary>
+public sealed record StoredChannelMember(string RoomId, uint UserId)
+{
+    public byte AdminRights { get; init; }
+    public string Title { get; init; } = string.Empty;
+    public byte Denied { get; init; }
+    public bool Banned { get; init; }
+    public long UntilMs { get; init; }
 }
 
 /// <summary>
@@ -25,6 +43,12 @@ public sealed record StoredUserKey(string KeyHash, uint UserId);
 /// <summary>A user's avatar image, as uploaded (already validated and size-capped).</summary>
 public sealed record StoredAvatar(string ContentType, byte[] Data);
 
+/// <summary>
+/// A browser's Web Push subscription: owned by a user, and by the device key it was
+/// registered with (a logout of that key drops it). Keys as base64url.
+/// </summary>
+public sealed record StoredPushSubscription(string Endpoint, uint UserId, string? KeyHash, string P256dh, string Auth);
+
 /// <summary>The most recent messages of one room, oldest first.</summary>
 public sealed record StoredRoomHistory(string RoomId, IReadOnlyList<ChatMessage> Recent, bool HasOlder);
 
@@ -35,7 +59,14 @@ public sealed record StorageSnapshot(
     uint NextUserId,
     IReadOnlyList<StoredUser> Users,
     IReadOnlyList<StoredUserKey> UserKeys,
-    IReadOnlyList<StoredRoomHistory> Rooms);
+    IReadOnlyList<StoredRoomHistory> Rooms)
+{
+    public IReadOnlyList<StoredChannel> Channels { get; init; } = [];
+    public IReadOnlyList<StoredChannelMember> ChannelMembers { get; init; } = [];
+    /// <summary>Server-wide settings (key → value), e.g. the generated VAPID keys.</summary>
+    public IReadOnlyDictionary<string, string> Meta { get; init; } = new Dictionary<string, string>();
+    public IReadOnlyList<StoredPushSubscription> PushSubscriptions { get; init; } = [];
+}
 
 /// <summary>
 /// Durable storage behind the chat history and the user directory.
@@ -57,7 +88,25 @@ public interface IChatStorage : IDisposable
 
     void SaveUser(StoredUser user);
 
-    /// <summary>Removes the user with its keys and avatar.</summary>
+    /// <summary>Removes the message (a deletion); a no-op if it is not stored.</summary>
+    void DeleteMessage(uint messageId);
+
+    void SaveChannel(StoredChannel channel);
+
+    /// <summary>Stores the user's standing in a channel (replacing the previous one).</summary>
+    void SaveChannelMember(StoredChannelMember member);
+
+    void DeleteChannelMember(string roomId, uint userId);
+
+    /// <summary>Stores a server-wide setting (see <see cref="StorageSnapshot.Meta"/>).</summary>
+    void SaveMeta(string key, string value);
+
+    /// <summary>Stores a push subscription (replacing the one with the same endpoint).</summary>
+    void SavePushSubscription(StoredPushSubscription subscription);
+
+    void DeletePushSubscription(string endpoint);
+
+    /// <summary>Removes the user with its keys, avatar, channel standings and push subscriptions.</summary>
     void DeleteUser(uint userId);
 
     /// <summary>Makes <paramref name="keyHash"/> a key of the user (moving it from another user).</summary>
@@ -100,10 +149,17 @@ public sealed class NullChatStorage : IChatStorage
     private readonly System.Collections.Concurrent.ConcurrentDictionary<uint, StoredAvatar> _avatars = new();
 
     public void Append(ChatMessage message) { }
+    public void DeleteMessage(uint messageId) { }
+    public void SaveChannel(StoredChannel channel) { }
+    public void SaveChannelMember(StoredChannelMember member) { }
+    public void DeleteChannelMember(string roomId, uint userId) { }
     public void SaveUser(StoredUser user) { }
     public void DeleteUser(uint userId) => _avatars.TryRemove(userId, out _);
     public void SaveUserKey(StoredUserKey key) { }
     public void DeleteUserKey(string keyHash) { }
+    public void SaveMeta(string key, string value) { }
+    public void SavePushSubscription(StoredPushSubscription subscription) { }
+    public void DeletePushSubscription(string endpoint) { }
 
     public void SaveAvatar(uint userId, StoredAvatar? avatar)
     {

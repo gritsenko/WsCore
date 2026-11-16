@@ -24,6 +24,18 @@ import { PresenceSnapshotEvent } from './protocol/PresenceSnapshotEvent';
 import { PresenceUpdateEvent } from './protocol/PresenceUpdateEvent';
 import { PresenceUserInfo } from './protocol/PresenceUserInfo';
 import { ChatEntry, ChatLogStore, ChatRoomLog } from './ChatLog';
+import { ChatMessageDeletedEvent } from './protocol/ChatMessageDeletedEvent';
+import { ChannelPermissionsEvent } from './protocol/ChannelPermissionsEvent';
+import { ModerationResultEvent } from './protocol/ModerationResultEvent';
+import { PushConfigEvent } from './protocol/PushConfigEvent';
+import {
+  ChannelAdmin,
+  ChannelPermissions,
+  ChannelRestriction,
+  MemberPermission,
+  PermissionStore,
+  Subject,
+} from './Permissions';
 
 export type { IPlayer } from './ClientEvents';
 
@@ -36,6 +48,8 @@ function toPresenceUser(info: PresenceUserInfo): PresenceUser {
     lastSeenMs: info.lastSeenMs,
     about: info.about || '',
     avatarVersion: info.avatarVersion,
+    login: info.login || null,
+    isAdmin: info.isAdmin,
   };
 }
 
@@ -108,8 +122,16 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
   myLogin: string | null = null;
   /** Credentials to enter an account with instead of identifying (see loginOnConnect). */
   private pendingLogin: { login: string; password: string; userKey: string } | null = null;
+  /**
+   * The server's VAPID public key (base64url) — what a Web Push subscription must be
+   * made with. Null until the server sent it after the identify (or push is off there).
+   */
+  pushPublicKey: string | null = null;
   /** Whether we last reported ourselves idle; re-sent on every new session. */
   private away = false;
+
+  /** Roles and permissions per channel (server-sent; see Permissions.ts). */
+  readonly permissions = new PermissionStore();
 
   /** Per-room chat cache; survives room switches, lobby↔game and reconnects. */
   readonly chatLog = new ChatLogStore();
@@ -222,6 +244,67 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
     this.emitter.emit('presence');
   }
 
+  override onChannelPermissionsEvent(msg: ChannelPermissionsEvent): void {
+    const channels: ChannelPermissions[] = [];
+    for (const info of msg.channels ?? []) {
+      if (!info?.roomId) continue;
+      const admins = new Map<number, ChannelAdmin>();
+      for (const a of info.admins ?? []) {
+        if (a) admins.set(a.userId, { userId: a.userId, rights: a.rights, title: a.title || '' });
+      }
+      const restrictions = new Map<number, ChannelRestriction>();
+      for (const r of info.restrictions ?? []) {
+        if (r)
+          restrictions.set(r.userId, {
+            userId: r.userId,
+            denied: r.denied,
+            banned: r.banned,
+            untilMs: r.untilMs,
+          });
+      }
+      channels.push({
+        roomId: info.roomId,
+        defaults: info.defaultPermissions,
+        admins,
+        restrictions,
+      });
+    }
+    this.permissions.apply(channels, msg.reset);
+    this.emitter.emit('permissions');
+  }
+
+  override onModerationResultEvent(msg: ModerationResultEvent): void {
+    this.emitter.emit('moderation', {
+      action: msg.action,
+      success: msg.success,
+      error: msg.success ? null : msg.error || 'failed',
+    });
+  }
+
+  override onChatMessageDeletedEvent(msg: ChatMessageDeletedEvent): void {
+    const roomId = msg.roomId || '';
+    if (this.chatLog.remove(roomId, msg.messageId))
+      this.emitter.emit('chatDeleted', roomId, msg.messageId);
+  }
+
+  override onPushConfigEvent(msg: PushConfigEvent): void {
+    this.pushPublicKey = msg.publicKey || null;
+    // Sent on every identify: the subscription is (re)registered for the user we now are.
+    if (this.pushPublicKey) this.emitter.emit('pushConfig', this.pushPublicKey);
+  }
+
+  /** Register this browser's push subscription for our user (idempotent on the server). */
+  subscribePush(endpoint: string, p256dh: string, auth: string): void {
+    if (this.clientId < 0 || !this.myUserId) return;
+    this.sendPushSubscribeRequest(endpoint, p256dh, auth);
+  }
+
+  /** Stop push notifications to this browser's subscription. */
+  unsubscribePush(endpoint: string): void {
+    if (this.clientId < 0 || !this.myUserId) return;
+    this.sendPushUnsubscribeRequest(endpoint);
+  }
+
   override onAccountResultEvent(msg: AccountResultEvent): void {
     const login = msg.login || null;
     switch (msg.action) {
@@ -280,6 +363,61 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
   /** Upload an avatar file (already downsized — see utils/AvatarImage); null removes it. */
   setAvatar(image: Uint8Array | null): void {
     this.sendSetAvatarRequest(image ?? new Uint8Array(0));
+  }
+
+  /** Us as the permission rules see us (undefined until identified). */
+  get subject(): Subject | undefined {
+    const me = this.me;
+    return me ? { userId: me.userId, isAdmin: me.isAdmin } : undefined;
+  }
+
+  /** A known user as the permission rules see them. */
+  subjectOf(userId: number): Subject | undefined {
+    const user = this.presence.get(userId);
+    return user
+      ? { userId, isAdmin: user.isAdmin }
+      : userId
+        ? { userId, isAdmin: false }
+        : undefined;
+  }
+
+  /** Whether we may write in the room (not muted / banned there). */
+  canSendIn(roomId: string): boolean {
+    const allowed = this.permissions.permissionsOf(this.subject, roomId);
+    return (allowed & MemberPermission.SendMessages) !== 0;
+  }
+
+  /** Whether we may delete a message of `authorId` in the room. */
+  canDeleteIn(roomId: string, authorId: number): boolean {
+    return this.permissions.canDelete(this.subject, roomId, authorId);
+  }
+
+  deleteMessage(roomId: string, messageId: number): void {
+    this.sendDeleteChatMessageRequest(roomId, messageId);
+  }
+
+  /** Promote / update (rights != 0) or demote (rights = 0) a channel admin. */
+  setChannelAdmin(roomId: string, userId: number, rights: number, title: string): void {
+    this.sendSetChannelAdminRequest(roomId, userId, rights, title);
+  }
+
+  /** Restrict a member for `durationSeconds` (0 = forever); denied 0 + not banned lifts it. */
+  restrictMember(
+    roomId: string,
+    userId: number,
+    denied: number,
+    banned: boolean,
+    durationSeconds: number
+  ): void {
+    this.sendSetChannelRestrictionRequest(roomId, userId, denied, banned, durationSeconds);
+  }
+
+  setChannelDefaults(roomId: string, defaults: number): void {
+    this.sendSetChannelDefaultsRequest(roomId, defaults);
+  }
+
+  setServerAdmin(userId: number, isAdmin: boolean): void {
+    this.sendSetServerAdminRequest(userId, isAdmin);
   }
 
   rename(name: string): void {

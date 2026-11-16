@@ -99,4 +99,48 @@ public class GameServerOptions
     public int MaxAboutLength { get; set; } = 190;
     // Largest accepted avatar file. Must fit a WebSocket message (WebSocketMaxMessageSizeBytes).
     public int MaxAvatarBytes { get; set; } = 48 * 1024;
+
+    /// <summary>
+    /// Logins that are always server admins (checked at startup and when an account with
+    /// such a login is claimed); they cannot be demoted from the client. Other server
+    /// admins are appointed by a server admin and stored in the database.
+    /// </summary>
+    public string[] AdminLogins { get; set; } = [];
+
+    /// <summary>Per-connection rate limit of moderation requests (admin / restriction changes, deletions).</summary>
+    public double ModerationRequestCooldownSeconds { get; set; } = 0.2;
+
+    /// <summary>Longest custom admin title (Telegram's limit).</summary>
+    public int MaxAdminTitleLength { get; set; } = 16;
+
+    // ---- push notifications ------------------------------------------------------------
+
+    /// <summary>Web Push for chat messages (users offline / away). Off = no PushConfigEvent, nothing sent.</summary>
+    public bool PushEnabled { get; set; } = true;
+
+    /// <summary>
+    /// The VAPID contact push services may use (RFC 8292): a <c>mailto:</c> or <c>https:</c>
+    /// URI. Apple's push service rejects localhost here, so production sets the site URL.
+    /// </summary>
+    public string PushSubject { get; set; } = "mailto:admin@example.com";
+
+    /// <summary>
+    /// VAPID key pair (base64url: the 65-byte public point, the 32-byte private scalar).
+    /// Empty = generate one on first start and keep it in the database (meta table) —
+    /// changing it invalidates every browser subscription.
+    /// </summary>
+    public string PushVapidPublicKey { get; set; } = string.Empty;
+    public string PushVapidPrivateKey { get; set; } = string.Empty;
+
+    /// <summary>At most one push per user and room this often (a burst of messages = one notification).</summary>
+    public double PushMinIntervalSeconds { get; set; } = 5;
+
+    /// <summary>How long a push service keeps an undelivered notification (device offline).</summary>
+    public double PushTtlSeconds { get; set; } = 12 * 3600;
+
+    /// <summary>Devices per user; subscribing one more replaces the oldest.</summary>
+    public int PushMaxSubscriptionsPerUser { get; set; } = 10;
+
+    /// <summary>Per-connection rate limit of (un)subscribe requests.</summary>
+    public double PushRequestCooldownSeconds { get; set; } = 0.2;
 }

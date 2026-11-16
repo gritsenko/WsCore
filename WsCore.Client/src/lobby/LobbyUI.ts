@@ -17,6 +17,8 @@ const ICONS = {
       '<path d="M7.500 10v3M6 11.500h3M15.500 10.500h.010M17.500 12.500h.010"/>'
   ),
   send: svg('<path d="M21 3 10.500 13.500M21 3l-6.500 18-4-7.500L3 9.500 21 3z"/>'),
+  trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>', 16),
+  shield: svg('<path d="M12 3 5 6v5c0 4.500 3 8.300 7 10 4-1.700 7-5.500 7-10V6l-7-3z"/>', 18),
   settings: svg(
     '<circle cx="12" cy="12" r="3"/><path d="M19.400 15a1.700 1.700 0 0 0 .300 1.800l.100.100a2 2 0 1 1-2.800 2.800l-.100-.100a1.700 1.700 0 0 0-2.800 1.200V21a2 2 0 1 1-4 0v-.100a1.700 1.700 0 0 0-2.900-1.200l-.100.100a2 2 0 1 1-2.800-2.800l.100-.100a1.700 1.700 0 0 0-1.200-2.800H3a2 2 0 1 1 0-4h.100a1.700 1.700 0 0 0 1.200-2.900l-.100-.100a2 2 0 1 1 2.800-2.800l.100.100a1.700 1.700 0 0 0 2.800-1.200V3a2 2 0 1 1 4 0v.100a1.700 1.700 0 0 0 2.900 1.200l.100-.100a2 2 0 1 1 2.800 2.800l-.100.100a1.700 1.700 0 0 0 1.200 2.800H21a2 2 0 1 1 0 4h-.100a1.700 1.700 0 0 0-1.500 1.100z"/>',
     18
@@ -83,6 +85,10 @@ export function createAvatar(
   return avatar;
 }
 
+function metaKey(a: { login?: string | null; role?: string | null; canDelete?: boolean }): string {
+  return `${a.login ?? ''}|${a.role ?? ''}|${a.canDelete ? 1 : 0}`;
+}
+
 /** "14:05" for today, "12 нояб., 14:05" for any other day (history spans days). */
 function formatMessageTime(sentAtMs: number): string {
   const date = new Date(sentAtMs);
@@ -106,6 +112,19 @@ export interface LobbyMessage {
   userId: number;
   /** The author's avatar image, if they have one (and are still in the member list). */
   avatarUrl?: string | null;
+  /** The author's public login (claimed accounts), shown as @login. */
+  login?: string | null;
+  /** The author's role in this channel ("админ", a custom title…). */
+  role?: string | null;
+  /** Whether we may delete it (our own message, or a moderator). */
+  canDelete?: boolean;
+}
+
+/** What a message shows about its author — re-resolved when presence / roles change. */
+export interface MessageAuthor {
+  avatarUrl: string | null;
+  login: string | null;
+  role: string | null;
 }
 
 /** An entry of the member list. Users stay listed when they leave — as offline. */
@@ -120,6 +139,16 @@ export interface LobbyMember {
   avatarUrl?: string | null;
   /** "About me" text, shown in the user's card. */
   about?: string;
+  /** The user id (0 / undefined for an anonymous connection). */
+  userId?: number;
+  /** Public login of a claimed account. */
+  login?: string | null;
+  /** Role in the current channel ("админ", a custom title, "админ сервера"). */
+  role?: string | null;
+  /** We may manage this user in the current channel (roles / restrictions). */
+  manageable?: boolean;
+  /** Their active restriction in the current channel, worded ("без права писать"). */
+  restriction?: string | null;
 }
 
 /** A room as the lobby displays it (the list itself comes from the server). */
@@ -155,6 +184,11 @@ export default class LobbyUI {
   private members: LobbyMember[] = [];
   private loadOlderCallback: (() => void) | null = null;
   private profileCallback: (() => void) | null = null;
+  private deleteCallback: ((messageId: number) => void) | null = null;
+  private manageChannelCallback: (() => void) | null = null;
+  private manageMemberCallback: ((userId: number) => void) | null = null;
+  private manageButton: HTMLButtonElement | null = null;
+  private sendButton: HTMLButtonElement | null = null;
   /** The profile card of a member (opened by clicking them in the list). */
   private userCard: HTMLDivElement | null = null;
   /** Top row of the message list: "loading…" while older history exists, else its start. */
@@ -287,12 +321,23 @@ export default class LobbyUI {
     heading.appendChild(this.headerTitle);
     heading.appendChild(this.headerOnline);
     header.appendChild(heading);
-    header.appendChild(
+    const headerTools = el('div', 'lobby-chat-header-tools');
+    headerTools.appendChild(
       this.buildSearch('Поиск в комнате…', 'lobby-room-search', value => {
         this.messageFilter = value;
         this.applyMessageFilter();
       })
     );
+    // Channel management (roles, permissions): shown to the channel's admins only.
+    this.manageButton = el('button', 'lobby-channel-manage');
+    this.manageButton.type = 'button';
+    this.manageButton.title = 'Управление каналом';
+    this.manageButton.setAttribute('aria-label', 'Управление каналом');
+    this.manageButton.innerHTML = ICONS.shield;
+    this.manageButton.hidden = true;
+    this.manageButton.onclick = () => this.manageChannelCallback?.();
+    headerTools.appendChild(this.manageButton);
+    header.appendChild(headerTools);
     chatArea.appendChild(header);
 
     const messagesWrap = el('div', 'lobby-messages-wrap');
@@ -329,6 +374,7 @@ export default class LobbyUI {
     sendBtn.innerHTML = ICONS.send;
     sendBtn.onclick = () => this.sendMessage();
     inputContainer.appendChild(sendBtn);
+    this.sendButton = sendBtn;
 
     chatArea.appendChild(inputContainer);
     return chatArea;
@@ -362,6 +408,41 @@ export default class LobbyUI {
    */
   setOnPlayCallback(callback: (roomId: string) => void): void {
     this.playCallback = callback;
+  }
+
+  /** Set callback for deleting a message (its delete button). */
+  setOnDeleteMessageCallback(callback: (messageId: number) => void): void {
+    this.deleteCallback = callback;
+  }
+
+  /** Set callback for the channel management button. */
+  setOnManageChannelCallback(callback: () => void): void {
+    this.manageChannelCallback = callback;
+  }
+
+  /** Set callback for "manage" in a member's card (their roles in this channel). */
+  setOnManageMemberCallback(callback: (userId: number) => void): void {
+    this.manageMemberCallback = callback;
+  }
+
+  /** Show the channel management button (we hold an admin right in this channel). */
+  setCanManageChannel(canManage: boolean): void {
+    if (this.manageButton) this.manageButton.hidden = !canManage;
+  }
+
+  /**
+   * Disable the composer with a reason (muted / banned in this channel), or enable it
+   * again with null.
+   */
+  setComposerBlocked(reason: string | null): void {
+    if (!this.chatInput) return;
+    const blocked = reason !== null;
+    if (this.chatInput.disabled === blocked && (!blocked || this.chatInput.placeholder === reason))
+      return;
+    this.chatInput.disabled = blocked;
+    this.chatInput.placeholder = reason ?? 'Написать сообщение…';
+    if (this.sendButton) this.sendButton.disabled = blocked;
+    this.chatInput.parentElement?.classList.toggle('lobby-input-blocked', blocked);
   }
 
   /** Set callback for a click on our own entry (open the profile). */
@@ -524,7 +605,10 @@ export default class LobbyUI {
     if (member.isSelf) item.classList.add('lobby-current-user');
     item.appendChild(createAvatar(member.name, 'sm', member.status, member.avatarUrl));
     const text = el('div', 'lobby-user-text');
-    text.appendChild(el('span', 'lobby-user-name', member.name));
+    const nameRow = el('span', 'lobby-user-name-row');
+    nameRow.appendChild(el('span', 'lobby-user-name', member.name));
+    if (member.role) nameRow.appendChild(el('span', 'lobby-role-badge', member.role));
+    text.appendChild(nameRow);
     if (member.detail) text.appendChild(el('span', 'lobby-user-detail', member.detail));
     item.appendChild(text);
     item.onclick = () => this.openUserCard(member, item);
@@ -541,6 +625,8 @@ export default class LobbyUI {
     card.dataset.key = member.key;
     card.appendChild(createAvatar(member.name, 'lg', undefined, member.avatarUrl));
     card.appendChild(el('div', 'lobby-user-card-name', member.name));
+    if (member.login) card.appendChild(el('div', 'lobby-user-card-login', `@${member.login}`));
+    if (member.role) card.appendChild(el('span', 'lobby-role-badge', member.role));
     const status =
       member.status === 'online' ? 'В сети' : member.status === 'away' ? 'Отошёл' : 'Не в сети';
     card.appendChild(
@@ -549,6 +635,20 @@ export default class LobbyUI {
     if (member.about) {
       card.appendChild(el('div', 'lobby-user-card-label', 'О себе'));
       card.appendChild(el('div', 'lobby-user-card-about', member.about));
+    }
+    if (member.restriction) {
+      card.appendChild(el('div', 'lobby-user-card-label', 'В этом канале'));
+      card.appendChild(el('div', 'lobby-user-card-restriction', member.restriction));
+    }
+    if (member.manageable && member.userId) {
+      const userId = member.userId;
+      const manage = el('button', 'lobby-user-card-edit', 'Права в канале…');
+      manage.type = 'button';
+      manage.onclick = () => {
+        this.closeUserCard();
+        this.manageMemberCallback?.(userId);
+      };
+      card.appendChild(manage);
     }
     if (member.isSelf) {
       const edit = el('button', 'lobby-user-card-edit', 'Редактировать профиль');
@@ -588,7 +688,10 @@ export default class LobbyUI {
     this.meSection.appendChild(createAvatar(name, 'sm', away ? 'away' : 'online', self?.avatarUrl));
     const text = el('div', 'lobby-me-text');
     text.appendChild(el('div', 'lobby-me-name', name));
-    text.appendChild(el('div', 'lobby-me-status', away ? 'Отошёл' : 'В сети'));
+    const status = away ? 'Отошёл' : 'В сети';
+    text.appendChild(
+      el('div', 'lobby-me-status', self?.login ? `${status} · @${self.login}` : status)
+    );
     this.meSection.appendChild(text);
     const gear = el('span', 'lobby-me-settings');
     gear.innerHTML = ICONS.settings;
@@ -600,16 +703,16 @@ export default class LobbyUI {
   private buildMessage(message: LobbyMessage): HTMLDivElement {
     const messageElement = el('div', 'lobby-message');
     if (message.own) messageElement.classList.add('lobby-message-own');
+    messageElement.dataset.id = String(message.id);
     messageElement.dataset.userId = String(message.userId);
+    messageElement.dataset.name = message.name;
+    messageElement.dataset.sentAt = String(message.sentAtMs);
     messageElement.dataset.avatar = message.avatarUrl ?? '';
 
     messageElement.appendChild(createAvatar(message.name, 'md', undefined, message.avatarUrl));
 
     const body = el('div', 'lobby-message-body');
-    const meta = el('div', 'lobby-message-meta');
-    meta.appendChild(el('span', 'lobby-message-user', message.name));
-    meta.appendChild(el('span', 'lobby-message-time', formatMessageTime(message.sentAtMs)));
-    body.appendChild(meta);
+    body.appendChild(this.buildMessageMeta(messageElement, message));
     body.appendChild(el('div', 'lobby-message-text', message.text));
     messageElement.appendChild(body);
 
@@ -617,24 +720,79 @@ export default class LobbyUI {
     return messageElement;
   }
 
+  // Name, @login, role, time and (if allowed) the delete button. Its inputs are kept on
+  // the message element, so a refresh can tell whether it needs rebuilding.
+  private buildMessageMeta(
+    messageElement: HTMLElement,
+    author: {
+      name: string;
+      sentAtMs: number;
+      login?: string | null;
+      role?: string | null;
+      canDelete?: boolean;
+    }
+  ): HTMLDivElement {
+    messageElement.dataset.meta = metaKey(author);
+    const meta = el('div', 'lobby-message-meta');
+    meta.appendChild(el('span', 'lobby-message-user', author.name));
+    if (author.login) meta.appendChild(el('span', 'lobby-message-login', `@${author.login}`));
+    if (author.role) meta.appendChild(el('span', 'lobby-role-badge', author.role));
+    meta.appendChild(el('span', 'lobby-message-time', formatMessageTime(author.sentAtMs)));
+    if (author.canDelete) {
+      const remove = el('button', 'lobby-message-delete');
+      remove.type = 'button';
+      remove.title = 'Удалить сообщение';
+      remove.setAttribute('aria-label', 'Удалить сообщение');
+      remove.innerHTML = ICONS.trash;
+      const id = Number(messageElement.dataset.id);
+      remove.onclick = () => this.deleteCallback?.(id);
+      meta.appendChild(remove);
+    }
+    return meta;
+  }
+
   /**
-   * Re-resolve the avatars of the rendered messages. A message is often rendered before
-   * its author's profile is known (history arrives with — or before — the member list),
-   * and an author may change their picture later; only the avatars that differ are
-   * replaced.
+   * Re-resolve what the rendered messages show about their authors (avatar, @login,
+   * role) and whether we may delete them. A message is often rendered before its
+   * author's profile is known (history arrives with — or before — the member list), and
+   * profiles and roles change later; only the parts that differ are rebuilt.
    */
-  refreshMessageAvatars(resolve: (userId: number) => string | null): void {
+  refreshMessages(
+    resolve: (userId: number) => MessageAuthor,
+    canDelete: (userId: number) => boolean
+  ): void {
     if (!this.chatMessages) return;
     for (const node of Array.from(this.chatMessages.children)) {
       const message = node as HTMLElement;
+      if (!message.dataset.id) continue; // the history row, system notices
       const userId = Number(message.dataset.userId);
-      if (!userId) continue;
-      const url = resolve(userId) ?? '';
-      if (url === message.dataset.avatar) continue;
-      message.dataset.avatar = url;
-      const name = message.querySelector('.lobby-message-user')?.textContent ?? '';
-      message.firstElementChild?.replaceWith(createAvatar(name, 'md', undefined, url || null));
+      const name = message.dataset.name ?? '';
+      const author = userId ? resolve(userId) : { avatarUrl: null, login: null, role: null };
+
+      const url = author.avatarUrl ?? '';
+      if (url !== message.dataset.avatar) {
+        message.dataset.avatar = url;
+        message.firstElementChild?.replaceWith(createAvatar(name, 'md', undefined, url || null));
+      }
+
+      const next = {
+        name,
+        sentAtMs: Number(message.dataset.sentAt),
+        login: author.login,
+        role: author.role,
+        canDelete: canDelete(userId),
+      };
+      if (metaKey(next) === message.dataset.meta) continue;
+      message
+        .querySelector('.lobby-message-meta')
+        ?.replaceWith(this.buildMessageMeta(message, next));
     }
+  }
+
+  /** Drop a deleted message. */
+  removeMessage(messageId: number): void {
+    this.chatMessages?.querySelector(`.lobby-message[data-id="${messageId}"]`)?.remove();
+    this.setHistoryState(this.hasMoreHistory, this.loadingHistory);
   }
 
   private buildMessages(messages: readonly LobbyMessage[]): DocumentFragment {
@@ -811,6 +969,8 @@ export default class LobbyUI {
     this.historyStatus = null;
     this.newMessagesButton = null;
     this.chatInput = null;
+    this.sendButton = null;
+    this.manageButton = null;
     this.usersList = null;
     this.usersCount = null;
     this.roomsList = null;

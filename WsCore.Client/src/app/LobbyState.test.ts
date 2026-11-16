@@ -13,6 +13,11 @@ import { PresenceUpdateEvent } from '../network/protocol/PresenceUpdateEvent';
 import { PresenceUserInfo } from '../network/protocol/PresenceUserInfo';
 import { RoomUsersUpdateEvent } from '../network/protocol/RoomUsersUpdateEvent';
 import { RoomUserInfo } from '../network/protocol/RoomUserInfo';
+import { ChannelPermissionsEvent } from '../network/protocol/ChannelPermissionsEvent';
+import { ChannelPermissionsInfo } from '../network/protocol/ChannelPermissionsInfo';
+import { ChannelAdminInfo } from '../network/protocol/ChannelAdminInfo';
+import { ChannelRestrictionInfo } from '../network/protocol/ChannelRestrictionInfo';
+import { ChatMessageDeletedEvent } from '../network/protocol/ChatMessageDeletedEvent';
 
 // LobbyState drives the (DOM-only) LobbyUI from client events. The UI is replaced by
 // a recorder so the lobby's room flow can be checked without a DOM.
@@ -21,10 +26,27 @@ const ui = {
   calls: [] as string[],
   rooms: [] as { id: string; playable: boolean; userCount: number }[],
   current: null as string | null,
-  messages: [] as { id: number; own: boolean }[],
+  messages: [] as {
+    id: number;
+    own: boolean;
+    login?: string | null;
+    role?: string | null;
+    canDelete?: boolean;
+  }[],
+  canManage: false,
+  blocked: null as string | null,
   hasMore: false,
   loading: false,
-  members: [] as { name: string; status: string; isSelf: boolean; detail?: string }[],
+  members: [] as {
+    name: string;
+    status: string;
+    isSelf: boolean;
+    detail?: string;
+    login?: string | null;
+    role?: string | null;
+    manageable?: boolean;
+    restriction?: string | null;
+  }[],
 };
 
 vi.mock('../lobby/LobbyUI', () => ({
@@ -53,7 +75,31 @@ vi.mock('../lobby/LobbyUI', () => ({
     addSystemMessage(text: string) {
       ui.calls.push(`system:${text}`);
     }
-    refreshMessageAvatars() {}
+    refreshMessages(
+      resolve: (userId: number) => { login: string | null; role: string | null },
+      canDelete: (userId: number) => boolean
+    ) {
+      ui.messages = ui.messages.map(m => {
+        const userId = (m as any).userId as number;
+        const author = resolve(userId);
+        return { ...m, login: author.login, role: author.role, canDelete: canDelete(userId) };
+      });
+    }
+    setOnDeleteMessageCallback(cb: (id: number) => void) {
+      (ui as any).delete = cb;
+    }
+    setOnManageChannelCallback() {}
+    setOnManageMemberCallback() {}
+    setCanManageChannel(can: boolean) {
+      ui.canManage = can;
+    }
+    setComposerBlocked(reason: string | null) {
+      ui.blocked = reason;
+    }
+    removeMessage(id: number) {
+      ui.messages = ui.messages.filter(m => m.id !== id);
+      ui.calls.push(`remove:${id}`);
+    }
     setOnProfileCallback(cb: () => void) {
       (ui as any).profile = cb;
     }
@@ -132,6 +178,8 @@ describe('LobbyState room flow', () => {
     ui.hasMore = false;
     ui.loading = false;
     ui.members = [];
+    ui.canManage = false;
+    ui.blocked = null;
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
@@ -265,6 +313,8 @@ describe('LobbyState chat history and members', () => {
     ui.hasMore = false;
     ui.loading = false;
     ui.members = [];
+    ui.canManage = false;
+    ui.blocked = null;
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
@@ -393,5 +443,102 @@ describe('LobbyState chat history and members', () => {
       ['U1', 'online', true],
       ['Console', 'online', false],
     ]);
+  });
+
+  function permissions(
+    roomId: string,
+    opts: {
+      defaults?: number;
+      admins?: [number, number, string][];
+      restrictions?: [number, number, boolean, number][];
+    }
+  ): ChannelPermissionsEvent {
+    const info = new ChannelPermissionsInfo();
+    info.roomId = roomId;
+    info.defaultPermissions = opts.defaults ?? 3;
+    info.admins = (opts.admins ?? []).map(([userId, rights, title]) =>
+      Object.assign(new ChannelAdminInfo(), { userId, rights, title })
+    );
+    info.restrictions = (opts.restrictions ?? []).map(([userId, denied, banned, untilMs]) =>
+      Object.assign(new ChannelRestrictionInfo(), { userId, denied, banned, untilMs })
+    );
+    const e = new ChannelPermissionsEvent();
+    e.channels = [info];
+    return e;
+  }
+
+  it('roles: @login and the channel role on members and messages, refreshed as they change', async () => {
+    const { client } = await inLobby();
+    const author = presence(2, 1, 'lobby');
+    author.login = 'bob';
+    const update = new PresenceUpdateEvent();
+    update.user = author;
+    client.onPresenceUpdateEvent(update);
+    client.onChatHistoryEvent(historyPage('lobby', [10], { reset: true }));
+    (ui.messages[0] as any).userId = 2;
+
+    client.onChannelPermissionsEvent(permissions('lobby', { admins: [[2, 1, 'модератор']] }));
+    expect(ui.members.find(m => m.name === 'U2')).toMatchObject({
+      login: 'bob',
+      role: 'модератор',
+    });
+    expect(ui.messages[0]).toMatchObject({ login: 'bob', role: 'модератор', canDelete: false });
+
+    // Demoted: the badge goes away everywhere.
+    client.onChannelPermissionsEvent(permissions('lobby', {}));
+    expect(ui.members.find(m => m.name === 'U2')!.role).toBeNull();
+    expect(ui.messages[0].role).toBeNull();
+  });
+
+  it('a channel admin gets the management button, can delete and manage others', async () => {
+    const { client } = await inLobby();
+    expect(ui.canManage).toBe(false);
+
+    client.onChannelPermissionsEvent(permissions('lobby', { admins: [[1, 1 | 2, '']] }));
+    expect(ui.canManage).toBe(true);
+    expect(ui.members.find(m => m.isSelf)!.role).toBe('админ');
+
+    const deletes = vi.spyOn(client, 'sendDeleteChatMessageRequest');
+    vi.stubGlobal('window', { confirm: () => true }); // no DOM here
+    try {
+      (ui as any).delete(10);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(deletes).toHaveBeenCalledWith('lobby', 10);
+
+    // Not in this channel: the lobby admin has no say in the voice room.
+    (ui as any).join('voice');
+    client.onJoinRoomResultEvent(result(VOICE()));
+    expect(ui.canManage).toBe(false);
+  });
+
+  it('a muted member gets a blocked composer; a deleted message disappears', async () => {
+    const { client } = await inLobby();
+    client.onChatHistoryEvent(historyPage('lobby', [10, 11], { reset: true }));
+
+    client.onChannelPermissionsEvent(permissions('lobby', { restrictions: [[1, 1, false, 0]] }));
+    expect(ui.blocked).toMatch(/запрещено писать/);
+
+    client.onChannelPermissionsEvent(permissions('lobby', {}));
+    expect(ui.blocked).toBeNull();
+
+    const deleted = new ChatMessageDeletedEvent();
+    deleted.roomId = 'lobby';
+    deleted.messageId = 10;
+    client.onChatMessageDeletedEvent(deleted);
+    expect(ui.messages.map(m => m.id)).toEqual([11]);
+    expect(client.getChatLog('lobby').entries.map(e => e.id)).toEqual([11]);
+  });
+
+  it('a refused chat message is explained in the chat', async () => {
+    const { client } = await inLobby();
+    const { ModerationResultEvent } = await import('../network/protocol/ModerationResultEvent');
+    const refused = new ModerationResultEvent();
+    refused.action = 6;
+    refused.success = false;
+    refused.error = 'links_forbidden';
+    client.onModerationResultEvent(refused);
+    expect(ui.calls).toContain('system:В этом канале нельзя отправлять ссылки');
   });
 });

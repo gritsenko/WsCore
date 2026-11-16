@@ -9,6 +9,8 @@ export class PresenceUserInfo {
     lastSeenMs: number;
     about: string | null;
     avatarVersion: number;
+    login: string | null;
+    isAdmin: boolean;
 
     constructor() {
         this.userId = 0;
@@ -18,6 +20,8 @@ export class PresenceUserInfo {
         this.lastSeenMs = 0;
         this.about = null;
         this.avatarVersion = 0;
+        this.login = null;
+        this.isAdmin = false;
 
     }
 
@@ -33,7 +37,7 @@ export class PresenceUserInfo {
             return;
         }
 
-        writer.writeObjectHeader(7);
+        writer.writeObjectHeader(9);
         writer.writeUint32(value.userId);
         writer.writeString(value.name);
         writer.writeUint8(value.status);
@@ -41,6 +45,8 @@ export class PresenceUserInfo {
         writer.writeFloat64(value.lastSeenMs);
         writer.writeString(value.about);
         writer.writeUint32(value.avatarVersion);
+        writer.writeString(value.login);
+        writer.writeBoolean(value.isAdmin);
 
     }
 
@@ -65,7 +71,7 @@ export class PresenceUserInfo {
         }
 
         const value = new PresenceUserInfo();
-        if (count == 7) {
+        if (count == 9) {
             value.userId = reader.readUint32();
             value.name = reader.readString();
             value.status = reader.readUint8();
@@ -73,9 +79,11 @@ export class PresenceUserInfo {
             value.lastSeenMs = reader.readFloat64();
             value.about = reader.readString();
             value.avatarVersion = reader.readUint32();
+            value.login = reader.readString();
+            value.isAdmin = reader.readBoolean();
 
         }
-        else if (count > 7) {
+        else if (count > 9) {
             throw new Error("Current object's property count is larger than type schema, can't deserialize about versioning.");
         }
         else {
@@ -87,6 +95,8 @@ export class PresenceUserInfo {
             value.lastSeenMs = reader.readFloat64(); if (count == 5) return value;
             value.about = reader.readString(); if (count == 6) return value;
             value.avatarVersion = reader.readUint32(); if (count == 7) return value;
+            value.login = reader.readString(); if (count == 8) return value;
+            value.isAdmin = reader.readBoolean(); if (count == 9) return value;
 
         }
         return value;
