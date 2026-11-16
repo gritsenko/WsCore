@@ -1,4 +1,5 @@
 import styles from './LobbyUI.css?inline';
+import { linkify } from '../utils/Linkify';
 
 const svg = (body: string, size = 20): string =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" ` +
@@ -16,6 +17,7 @@ const ICONS = {
     '<path d="M7 7h10a5 5 0 0 1 4.900 4l.900 4.500a2.500 2.500 0 0 1-4.400 2L16.500 15h-9l-1.900 2.500a2.500 2.500 0 0 1-4.400-2L2.100 11A5 5 0 0 1 7 7z"/>' +
       '<path d="M7.500 10v3M6 11.500h3M15.500 10.500h.010M17.500 12.500h.010"/>'
   ),
+  menu: svg('<path d="M4 7h16M4 12h16M4 17h16"/>'),
   send: svg('<path d="M21 3 10.500 13.500M21 3l-6.500 18-4-7.500L3 9.500 21 3z"/>'),
   trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>', 16),
   shield: svg('<path d="M12 3 5 6v5c0 4.500 3 8.300 7 10 4-1.700 7-5.500 7-10V6l-7-3z"/>', 18),
@@ -169,6 +171,11 @@ export interface LobbyRoom {
  */
 export default class LobbyUI {
   private container: HTMLDivElement | null = null;
+  private sidebar: HTMLDivElement | null = null;
+  private header: HTMLDivElement | null = null;
+  /** Phone layout: the sidebar is a drawer over the chat (see LobbyUI.css). */
+  private readonly narrowQuery: MediaQueryList | null =
+    typeof window.matchMedia === 'function' ? window.matchMedia('(max-width: 760px)') : null;
   private usersList: HTMLDivElement | null = null;
   private usersCount: HTMLSpanElement | null = null;
   private chatMessages: HTMLDivElement | null = null;
@@ -189,6 +196,8 @@ export default class LobbyUI {
   private manageMemberCallback: ((userId: number) => void) | null = null;
   private manageButton: HTMLButtonElement | null = null;
   private sendButton: HTMLButtonElement | null = null;
+  /** "Open this link?" — a link in a message opens only once confirmed here. */
+  private linkPopover: HTMLDivElement | null = null;
   /** The profile card of a member (opened by clicking them in the list). */
   private userCard: HTMLDivElement | null = null;
   /** Top row of the message list: "loading…" while older history exists, else its start. */
@@ -215,13 +224,34 @@ export default class LobbyUI {
       e.preventDefault();
       this.userSearchInput?.focus();
     } else if (e.key === 'Escape') {
-      this.closeUserCard();
+      if (this.linkPopover) this.closeLinkPopover();
+      else if (this.userCard) this.closeUserCard();
+      else this.closeNav();
     }
+  };
+
+  private readonly onNarrowChange = (): void => this.updateSidebarInert();
+
+  // The on-screen keyboard shrinks the visual viewport, not the layout one (iOS): size
+  // the lobby to what is actually visible so the composer stays above the keyboard.
+  private readonly onViewportResize = (): void => {
+    const viewport = window.visualViewport;
+    if (!viewport || !this.container) return;
+    this.container.style.setProperty('--lobby-height', `${Math.round(viewport.height)}px`);
+    // iOS scrolls the page to reveal a focused input; the layout already made room.
+    if (window.scrollY !== 0) window.scrollTo(0, 0);
   };
 
   // A click anywhere else closes the open user card.
   private readonly onGlobalPointerDown = (e: PointerEvent): void => {
-    if (this.userCard && !this.userCard.contains(e.target as Node)) this.closeUserCard();
+    const target = e.target as Node;
+    if (this.userCard && !this.userCard.contains(target)) this.closeUserCard();
+    if (
+      this.linkPopover &&
+      !this.linkPopover.contains(target) &&
+      !(target instanceof Element && target.closest('.lobby-message-link'))
+    )
+      this.closeLinkPopover();
   };
 
   constructor() {
@@ -245,7 +275,12 @@ export default class LobbyUI {
     this.container = el('div');
     this.container.id = 'lobby-container';
 
-    this.container.appendChild(this.buildSidebar());
+    this.sidebar = this.buildSidebar();
+    this.container.appendChild(this.sidebar);
+    // Phone layout: dims the chat behind the open drawer; a tap on it closes the drawer.
+    const backdrop = el('div', 'lobby-nav-backdrop');
+    backdrop.onclick = () => this.closeNav();
+    this.container.appendChild(backdrop);
     this.container.appendChild(this.buildChatArea());
 
     document.body.appendChild(this.container);
@@ -257,6 +292,10 @@ export default class LobbyUI {
 
     document.addEventListener('keydown', this.onGlobalKeyDown);
     document.addEventListener('pointerdown', this.onGlobalPointerDown);
+    this.narrowQuery?.addEventListener('change', this.onNarrowChange);
+    window.visualViewport?.addEventListener('resize', this.onViewportResize);
+    this.onViewportResize();
+    this.updateSidebarInert();
 
     this.updateRoomsList();
     this.updateUsersList();
@@ -299,11 +338,15 @@ export default class LobbyUI {
     this.meSection.setAttribute('role', 'button');
     this.meSection.tabIndex = 0;
     this.meSection.title = 'Профиль';
-    this.meSection.onclick = () => this.profileCallback?.();
+    const openProfile = () => {
+      this.closeNav();
+      this.profileCallback?.();
+    };
+    this.meSection.onclick = openProfile;
     this.meSection.onkeydown = e => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
-        this.profileCallback?.();
+        openProfile();
       }
     };
     sidebar.appendChild(this.meSection);
@@ -315,19 +358,45 @@ export default class LobbyUI {
     const chatArea = el('div', 'lobby-chat-area');
 
     const header = el('div', 'lobby-chat-header');
-    const heading = el('div');
+    this.header = header;
+    // Phone layout only (CSS): opens the sidebar drawer — rooms, members, profile.
+    const navToggle = this.buildIconButton('lobby-nav-toggle', 'Комнаты и участники', ICONS.menu);
+    navToggle.setAttribute('aria-expanded', 'false');
+    navToggle.onclick = () => this.openNav();
+    header.appendChild(navToggle);
+    const heading = el('div', 'lobby-chat-heading');
     this.headerTitle = el('span', 'lobby-chat-header-title', 'Connecting…');
     this.headerOnline = el('div', 'lobby-chat-header-online', '0 online');
     heading.appendChild(this.headerTitle);
     heading.appendChild(this.headerOnline);
     header.appendChild(heading);
     const headerTools = el('div', 'lobby-chat-header-tools');
-    headerTools.appendChild(
-      this.buildSearch('Поиск в комнате…', 'lobby-room-search', value => {
-        this.messageFilter = value;
-        this.applyMessageFilter();
-      })
+    const roomSearch = this.buildSearch('Поиск в комнате…', 'lobby-room-search', value => {
+      this.messageFilter = value;
+      this.applyMessageFilter();
+    });
+    headerTools.appendChild(roomSearch);
+    // Phone layout only (CSS): the room search folds into this button.
+    const searchToggle = this.buildIconButton(
+      'lobby-search-toggle',
+      'Поиск в комнате',
+      ICONS.search
     );
+    searchToggle.onclick = () => {
+      const open = !header.classList.contains('lobby-search-open');
+      header.classList.toggle('lobby-search-open', open);
+      searchToggle.setAttribute('aria-expanded', String(open));
+      const input = roomSearch.querySelector('input');
+      if (open) input?.focus();
+      else if (input && input.value) {
+        // Closing the field drops its filter too — nothing should stay filtered unseen.
+        input.value = '';
+        this.messageFilter = '';
+        this.applyMessageFilter();
+      }
+    };
+    searchToggle.setAttribute('aria-expanded', 'false');
+    headerTools.appendChild(searchToggle);
     // Channel management (roles, permissions): shown to the channel's admins only.
     this.manageButton = el('button', 'lobby-channel-manage');
     this.manageButton.type = 'button';
@@ -378,6 +447,41 @@ export default class LobbyUI {
 
     chatArea.appendChild(inputContainer);
     return chatArea;
+  }
+
+  private buildIconButton(className: string, label: string, icon: string): HTMLButtonElement {
+    const button = el('button', `lobby-icon-btn ${className}`);
+    button.type = 'button';
+    button.title = label;
+    button.setAttribute('aria-label', label);
+    button.innerHTML = icon;
+    return button;
+  }
+
+  private isNarrow(): boolean {
+    return this.narrowQuery?.matches ?? false;
+  }
+
+  /** Phone layout: slide the sidebar in over the chat. */
+  private openNav(): void {
+    if (!this.container) return;
+    this.container.classList.add('lobby-nav-open');
+    this.header?.querySelector('.lobby-nav-toggle')?.setAttribute('aria-expanded', 'true');
+    this.updateSidebarInert();
+    this.roomsList?.querySelector<HTMLElement>('.lobby-room-item')?.focus({ preventScroll: true });
+  }
+
+  private closeNav(): void {
+    if (!this.container?.classList.contains('lobby-nav-open')) return;
+    this.container.classList.remove('lobby-nav-open');
+    this.header?.querySelector('.lobby-nav-toggle')?.setAttribute('aria-expanded', 'false');
+    this.updateSidebarInert();
+  }
+
+  // A closed drawer is off-screen: keep it out of the tab order and screen readers.
+  private updateSidebarInert(): void {
+    if (!this.sidebar || !this.container) return;
+    this.sidebar.inert = this.isNarrow() && !this.container.classList.contains('lobby-nav-open');
   }
 
   private buildSearch(
@@ -460,6 +564,7 @@ export default class LobbyUI {
 
     for (const [roomId, room] of this.rooms) {
       const roomElement = el('div', 'lobby-room-item');
+      roomElement.tabIndex = 0;
       if (roomId === this.currentRoomId) {
         roomElement.classList.add('lobby-room-current');
       }
@@ -486,6 +591,7 @@ export default class LobbyUI {
         playButton.type = 'button';
         playButton.onclick = e => {
           e.stopPropagation(); // Prevent triggering room join
+          this.closeNav();
           this.playCallback?.(roomId);
         };
         roomElement.appendChild(playButton);
@@ -494,10 +600,17 @@ export default class LobbyUI {
       // A game room is entered through the game (joining it gives you an avatar);
       // any other room is joined as a chat room.
       roomElement.onclick = () => {
+        this.closeNav();
         if (room.playable) {
           this.playCallback?.(roomId);
         } else if (this.roomJoinCallback && roomId !== this.currentRoomId) {
           this.roomJoinCallback(roomId);
+        }
+      };
+      roomElement.onkeydown = e => {
+        if (e.target === roomElement && (e.key === 'Enter' || e.key === ' ')) {
+          e.preventDefault();
+          roomElement.click();
         }
       };
 
@@ -663,6 +776,8 @@ export default class LobbyUI {
     this.container.appendChild(card);
     this.userCard = card;
 
+    // Phone layout: a bottom sheet, placed by CSS.
+    if (this.isNarrow()) return;
     // To the right of the member list, level with the entry, kept inside the window.
     const rect = anchor.getBoundingClientRect();
     const top = Math.max(12, Math.min(rect.top - 12, window.innerHeight - card.offsetHeight - 12));
@@ -713,11 +828,98 @@ export default class LobbyUI {
 
     const body = el('div', 'lobby-message-body');
     body.appendChild(this.buildMessageMeta(messageElement, message));
-    body.appendChild(el('div', 'lobby-message-text', message.text));
+    body.appendChild(this.buildMessageText(message.text));
     messageElement.appendChild(body);
 
     messageElement.hidden = !this.matchesMessageFilter(messageElement);
     return messageElement;
+  }
+
+  /** The message text, links in it clickable (each opens only after a confirmation). */
+  private buildMessageText(text: string): HTMLDivElement {
+    const node = el('div', 'lobby-message-text');
+    for (const part of linkify(text)) {
+      if (!part.href) {
+        node.appendChild(document.createTextNode(part.text));
+        continue;
+      }
+      const link = el('a', 'lobby-message-link', part.text);
+      const href = part.href;
+      link.href = href;
+      link.rel = 'noopener noreferrer nofollow';
+      link.target = '_blank';
+      link.onclick = e => {
+        // Any click — middle / ctrl too — goes through the confirmation.
+        e.preventDefault();
+        this.openLinkPopover(href, link);
+      };
+      link.onauxclick = e => {
+        if (e.button !== 1) return;
+        e.preventDefault();
+        this.openLinkPopover(href, link);
+      };
+      node.appendChild(link);
+    }
+    return node;
+  }
+
+  private openLinkPopover(href: string, anchor: HTMLElement): void {
+    const same = this.linkPopover?.dataset.href === href;
+    this.closeLinkPopover();
+    if (same || !this.container) return; // a second click on the link closes it
+
+    const url = new URL(href);
+    const popover = el('div', 'lobby-link-popover');
+    popover.dataset.href = href;
+    popover.setAttribute('role', 'dialog');
+    popover.setAttribute('aria-label', 'Открыть ссылку');
+    popover.appendChild(el('div', 'lobby-link-popover-title', 'Открыть ссылку?'));
+    // The host as the browser will resolve it (punycode for look-alike domains).
+    popover.appendChild(el('div', 'lobby-link-popover-host', url.host));
+    popover.appendChild(el('div', 'lobby-link-popover-url', href));
+    popover.appendChild(
+      el(
+        'div',
+        'lobby-link-popover-hint',
+        'Ссылка ведёт на внешний сайт. Открывайте, только если доверяете.'
+      )
+    );
+    const buttons = el('div', 'lobby-dialog-buttons');
+    const cancel = el('button', 'lobby-dialog-button lobby-dialog-button-quiet', 'Отмена');
+    cancel.type = 'button';
+    cancel.onclick = () => this.closeLinkPopover();
+    const open = el('button', 'lobby-dialog-button lobby-dialog-button-primary', 'Открыть');
+    open.type = 'button';
+    open.onclick = () => {
+      this.closeLinkPopover();
+      window.open(href, '_blank', 'noopener,noreferrer');
+    };
+    buttons.append(cancel, open);
+    popover.appendChild(buttons);
+
+    this.container.appendChild(popover);
+    this.linkPopover = popover;
+
+    // Below the link (above it if there is no room), kept inside the window.
+    const rect = anchor.getBoundingClientRect();
+    const margin = 8;
+    const below = rect.bottom + margin;
+    const top =
+      below + popover.offsetHeight <= window.innerHeight - margin
+        ? below
+        : Math.max(margin, rect.top - margin - popover.offsetHeight);
+    const left = Math.max(
+      margin,
+      Math.min(rect.left, window.innerWidth - popover.offsetWidth - margin)
+    );
+    popover.style.top = `${top}px`;
+    popover.style.left = `${left}px`;
+    open.focus({ preventScroll: true });
+  }
+
+  private closeLinkPopover(): void {
+    this.linkPopover?.remove();
+    this.linkPopover = null;
   }
 
   // Name, @login, role, time and (if allowed) the delete button. Its inputs are kept on
@@ -865,6 +1067,7 @@ export default class LobbyUI {
   }
 
   private readonly onMessagesScroll = (): void => {
+    this.closeLinkPopover(); // it would drift away from its link
     if (this.isNearBottom() && this.newMessagesButton) this.newMessagesButton.hidden = true;
     this.maybeLoadOlder();
   };
@@ -960,7 +1163,10 @@ export default class LobbyUI {
   destroy(): void {
     document.removeEventListener('keydown', this.onGlobalKeyDown);
     document.removeEventListener('pointerdown', this.onGlobalPointerDown);
+    this.narrowQuery?.removeEventListener('change', this.onNarrowChange);
+    window.visualViewport?.removeEventListener('resize', this.onViewportResize);
     this.closeUserCard();
+    this.closeLinkPopover();
     if (this.container && this.container.parentNode) {
       this.container.parentNode.removeChild(this.container);
     }
@@ -979,6 +1185,8 @@ export default class LobbyUI {
     this.meSection = null;
     this.userSearchInput = null;
     this.container = null;
+    this.sidebar = null;
+    this.header = null;
     this.members = [];
     this.rooms.clear();
   }

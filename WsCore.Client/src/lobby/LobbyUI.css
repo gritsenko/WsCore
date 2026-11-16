@@ -13,8 +13,11 @@
   --active: linear-gradient(90deg, #2b3a32, #232b27);
 
   display: flex;
+  /* --lobby-height: the visual viewport (LobbyUI), so an on-screen keyboard shrinks
+     the lobby instead of covering the composer. */
   height: 100vh;
-  width: 100vw;
+  height: var(--lobby-height, 100dvh);
+  width: 100%;
   background: var(--bg);
   color: var(--text);
   font-family:
@@ -545,40 +548,6 @@
 .lobby-users-list {
   scrollbar-width: thin;
   scrollbar-color: var(--line) transparent;
-}
-
-/* Narrow screens */
-@media (max-width: 760px) {
-  .lobby-left-sidebar {
-    width: 220px;
-  }
-
-  .lobby-brand,
-  .lobby-rooms-title,
-  .lobby-users-title {
-    padding-left: 20px;
-    padding-right: 20px;
-  }
-
-  .lobby-sidebar-search,
-  .lobby-me {
-    margin-left: 16px;
-    margin-right: 16px;
-  }
-
-  .lobby-rooms-list,
-  .lobby-users-list {
-    padding-left: 8px;
-    padding-right: 8px;
-  }
-
-  .lobby-chat-area {
-    padding: 0 16px;
-  }
-
-  .lobby-room-search {
-    display: none;
-  }
 }
 
 /* A room join awaiting the server's answer. */
@@ -1246,4 +1215,332 @@
   color: var(--text);
   font: inherit;
   font-size: 13px;
+}
+
+/* Links in messages: open only through the confirmation popover. */
+.lobby-message-link {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-color: rgba(163, 220, 184, 0.4);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.lobby-message-link:hover,
+.lobby-message-link:focus-visible {
+  text-decoration-color: currentColor;
+  outline: none;
+}
+
+.lobby-link-popover {
+  position: fixed;
+  z-index: 950;
+  width: min(340px, calc(100vw - 16px));
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+
+.lobby-link-popover-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.lobby-link-popover-host {
+  margin-top: 10px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent);
+  overflow-wrap: anywhere;
+}
+
+.lobby-link-popover-url {
+  margin-top: 2px;
+  max-height: 4.5em;
+  overflow: hidden;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.lobby-link-popover-hint {
+  margin-top: 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.lobby-link-popover .lobby-dialog-buttons {
+  justify-content: flex-end;
+}
+
+/* ==================== Adaptive layout ==================== */
+.lobby-chat-heading {
+  min-width: 0;
+}
+
+.lobby-chat-header-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Header icon buttons that exist only in the phone layout. */
+.lobby-icon-btn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 12px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.lobby-icon-btn:hover,
+.lobby-icon-btn:focus-visible,
+.lobby-icon-btn[aria-expanded='true'] {
+  background: var(--surface-hover);
+  color: var(--text);
+  outline: none;
+}
+
+.lobby-nav-backdrop {
+  display: none;
+}
+
+/* Laptops / tablets: a narrower sidebar, tighter gutters. */
+@media (max-width: 1024px) {
+  .lobby-left-sidebar {
+    width: 260px;
+  }
+
+  .lobby-brand,
+  .lobby-rooms-title,
+  .lobby-users-title {
+    padding-left: 22px;
+    padding-right: 22px;
+  }
+
+  .lobby-sidebar-search,
+  .lobby-me {
+    margin-left: 18px;
+    margin-right: 18px;
+  }
+
+  .lobby-rooms-list,
+  .lobby-users-list {
+    padding-left: 10px;
+    padding-right: 10px;
+  }
+
+  .lobby-chat-area {
+    padding: 0 20px;
+  }
+
+  .lobby-room-search {
+    width: 220px;
+  }
+}
+
+/* Phones: the chat takes the whole screen; the sidebar is a drawer behind ☰. */
+@media (max-width: 760px) {
+  .lobby-left-sidebar {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 800;
+    width: min(320px, 86vw);
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    box-shadow: 0 0 48px rgba(0, 0, 0, 0.5);
+    transform: translateX(-105%);
+    /* Hidden only once it has slid out, so closing animates too. */
+    transition:
+      transform 0.22s ease,
+      visibility 0s 0.22s;
+    visibility: hidden;
+  }
+
+  .lobby-nav-open .lobby-left-sidebar {
+    transform: none;
+    visibility: visible;
+    transition: transform 0.22s ease;
+  }
+
+  .lobby-nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 790;
+    background: rgba(8, 10, 9, 0.6);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.22s ease;
+  }
+
+  .lobby-nav-open .lobby-nav-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .lobby-brand {
+    padding-top: 20px;
+    padding-bottom: 16px;
+  }
+
+  /* No physical keyboard to press ⌘K with. */
+  .lobby-search kbd {
+    display: none;
+  }
+
+  .lobby-sidebar-search {
+    margin-bottom: 16px;
+  }
+
+  .lobby-room-item {
+    height: 48px;
+  }
+
+  .lobby-chat-area {
+    padding: 0 max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left));
+  }
+
+  .lobby-chat-header {
+    flex-wrap: wrap;
+    gap: 6px 8px;
+    padding: calc(10px + env(safe-area-inset-top)) 0 10px;
+  }
+
+  .lobby-icon-btn {
+    display: inline-flex;
+  }
+
+  .lobby-nav-toggle {
+    margin-left: -6px;
+  }
+
+  .lobby-chat-heading {
+    flex: 1;
+  }
+
+  .lobby-chat-header-title {
+    font-size: 19px;
+  }
+
+  .lobby-chat-header-online {
+    margin-top: 1px;
+    font-size: 12px;
+  }
+
+  .lobby-channel-manage {
+    width: 40px;
+    height: 40px;
+    border: none;
+    background: none;
+  }
+
+  /* The room search drops onto its own full-width row when its button opens it. */
+  .lobby-room-search {
+    display: none;
+    order: 1;
+    width: 100%;
+    min-width: 0;
+    height: 40px;
+  }
+
+  .lobby-chat-header-tools {
+    display: contents;
+  }
+
+  .lobby-search-open .lobby-room-search {
+    display: flex;
+  }
+
+  .lobby-messages {
+    padding: 14px 0 8px;
+    gap: 16px;
+  }
+
+  .lobby-message {
+    gap: 12px;
+    padding: 0 2px;
+  }
+
+  .lobby-message .lobby-avatar-md {
+    width: 36px;
+    height: 36px;
+    font-size: 13px;
+  }
+
+  .lobby-message-meta {
+    gap: 4px 8px;
+  }
+
+  .lobby-message-time {
+    font-size: 12px;
+  }
+
+  .lobby-input-container {
+    min-height: 50px;
+    margin: 6px 0 max(12px, env(safe-area-inset-bottom));
+    padding: 4px 5px 4px 18px;
+    border-radius: 25px;
+  }
+
+  .lobby-send-btn {
+    width: 40px;
+    height: 40px;
+  }
+
+  /* 16px+ keeps iOS Safari from zooming the page in on focus. */
+  .lobby-input,
+  .lobby-search input,
+  .lobby-dialog-input {
+    font-size: 16px;
+  }
+
+  /* A member's card: a bottom sheet instead of a popover beside the list. */
+  .lobby-user-card {
+    top: auto !important;
+    left: 12px !important;
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom));
+    width: auto;
+    max-height: 70%;
+    overflow-y: auto;
+    z-index: 900;
+  }
+
+  .lobby-dialog-overlay {
+    padding: max(12px, env(safe-area-inset-top)) 12px max(12px, env(safe-area-inset-bottom));
+  }
+
+  .lobby-dialog {
+    padding: 20px;
+    border-radius: 16px;
+  }
+}
+
+/* Touch screens have no hover: keep per-message actions visible. */
+@media (hover: none) {
+  .lobby-message-delete {
+    opacity: 0.6;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lobby-left-sidebar,
+  .lobby-nav-backdrop {
+    transition: none;
+  }
 }
