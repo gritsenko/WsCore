@@ -349,7 +349,7 @@ public class PushTests
         var auth = RandomNumberGenerator.GetBytes(16);
         var subscription = new PushSubscription("https://push.example/send/abc", 7, null, uaPublic, auth);
         var keys = VapidKeys.Generate();
-        var options = new GameServerOptions { PushSubject = "https://wave.example/", PushTtlSeconds = 600 };
+        var options = new GameServerOptions { PushSubject = "https://tox.example/", PushTtlSeconds = 600 };
         var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<WebPushSender>.Instance;
 
         var ok = new CapturingHandler(System.Net.HttpStatusCode.Created);

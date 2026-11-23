@@ -1,4 +1,4 @@
-/* Lobby — "Wave" look: near-black surfaces, warm off-white text, mint accent. */
+/* Lobby look: near-black surfaces, warm off-white text, mint accent. */
 #lobby-container {
   --bg: #141615;
   --bg-sidebar: #171918;
@@ -62,7 +62,7 @@
 .lobby-brand {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   padding: 26px 28px 22px;
   color: var(--accent);
 }
@@ -72,6 +72,37 @@
   font-size: 17px;
   font-weight: 600;
   letter-spacing: 0.24em;
+}
+
+.lobby-brand-version {
+  margin-left: -4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.lobby-update {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  margin: -4px 0 -4px auto;
+  padding: 0 10px;
+  border: none;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.lobby-update:hover,
+.lobby-update:focus-visible {
+  background: var(--accent-strong);
+  outline: none;
 }
 
 /* Search fields (sidebar + room header) */

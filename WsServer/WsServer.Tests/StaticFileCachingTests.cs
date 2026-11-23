@@ -11,6 +11,8 @@ public class StaticFileCachingTests
     // index.html (also served for "/" via UseDefaultFiles): always revalidated.
     [InlineData("/index.html", "index.html", StaticFileCaching.NoCache)]
     [InlineData("/", "index.html", StaticFileCaching.NoCache)]
+    // What open pages poll to notice a new build.
+    [InlineData("/version.json", "version.json", StaticFileCaching.NoCache)]
     // Unhashed public assets: no explicit Cache-Control.
     [InlineData("/assets/logo.png", "logo.png", null)]
     [InlineData("/assets/Murlyka_icon.png", "Murlyka_icon.png", null)]

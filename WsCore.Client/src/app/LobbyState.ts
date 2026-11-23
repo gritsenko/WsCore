@@ -26,6 +26,7 @@ import { prepareAvatar } from '../utils/AvatarImage';
 import { Unsubscribe } from '../utils/Emitter';
 import { RoomUsersUpdateEvent } from '../network/protocol/RoomUsersUpdateEvent';
 import { CommunicationMode } from '../network/rooms/CommunicationMode';
+import UpdateChecker from '../utils/UpdateChecker';
 
 /**
  * The lobby state: Discord-style text chat + room list. UI only — it drives
@@ -117,17 +118,20 @@ export default class LobbyState {
   private readonly alerts: ChatAlerts | null;
   /** Voice chat (owned by App, outlives this state); absent in tests. */
   private readonly voice: VoiceChat<Player> | null;
+  private readonly updates: UpdateChecker | null;
 
   constructor(
     client: WsClient<Player>,
     onEnterGame: (roomId: string) => void,
     alerts: ChatAlerts | null = null,
-    voice: VoiceChat<Player> | null = null
+    voice: VoiceChat<Player> | null = null,
+    updates: UpdateChecker | null = null
   ) {
     this.client = client;
     this.onEnterGame = onEnterGame;
     this.alerts = alerts;
     this.voice = voice;
+    this.updates = updates;
   }
 
   /** Show `roomId` (a clicked notification), unless it is already shown or a game room. */
@@ -182,6 +186,11 @@ export default class LobbyState {
       this.client.on('moderation', result => this.handleModeration(result)),
       this.client.on('account', result => this.handleAccount(result))
     );
+    if (this.updates) {
+      const updates = this.updates;
+      this.ui.setUpdateAvailable(updates.updateAvailable);
+      this.unsubs.push(updates.onUpdate(() => this.ui.setUpdateAvailable(true)));
+    }
     if (this.alerts)
       this.unsubs.push(this.alerts.onStatusChange(() => this.profile?.update(this.profileView())));
     if (this.voice) this.unsubs.push(this.voice.on('change', () => this.renderVoice()));

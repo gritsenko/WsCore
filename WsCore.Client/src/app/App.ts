@@ -6,6 +6,7 @@ import IdleDetector from '../utils/IdleDetector';
 import UnreadBadge from '../utils/UnreadBadge';
 import ChatAlerts from './ChatAlerts';
 import VoiceChat from '../voice/VoiceChat';
+import UpdateChecker, { browserUpdateDeps } from '../utils/UpdateChecker';
 import { AccountAction, AccountResult } from '../network/ClientEvents';
 import { clearIdentity, saveLogin, saveName, saveUserKey } from './IdentityStorage';
 // GameScene (and three.js with it) is imported dynamically in enterGame() — a
@@ -44,6 +45,8 @@ export default class App {
   private readonly alerts: ChatAlerts;
   /** Voice channels: lives as long as the app, across lobby ↔ game and reconnects. */
   private readonly voice: VoiceChat<Player>;
+  /** Notices a newer deployed build; the lobby then offers a reload. */
+  private readonly updates = new UpdateChecker(__APP_BUILD__, browserUpdateDeps());
   /** Called (once) if the login this app was started with is refused. */
   private onLoginFailed: ((error: string) => void) | null = null;
 
@@ -134,6 +137,7 @@ export default class App {
     this.idle.stop();
     this.alerts.stop();
     this.voice.dispose();
+    this.updates.stop();
     navigator.serviceWorker?.removeEventListener('message', this.onWorkerMessage);
     this.client.disconnect();
     this.banner.remove();
@@ -141,6 +145,8 @@ export default class App {
 
   start(): void {
     this.idle.start();
+    // The dev server has no version.json (and hot-reloads anyway).
+    if (!import.meta.env.DEV) this.updates.start();
     this.alerts.start();
     navigator.serviceWorker?.addEventListener('message', this.onWorkerMessage);
     this.enterLobby();
@@ -149,7 +155,13 @@ export default class App {
 
   private enterLobby(): void {
     this.transitionTo(
-      new LobbyState(this.client, roomId => this.enterGame(roomId), this.alerts, this.voice)
+      new LobbyState(
+        this.client,
+        roomId => this.enterGame(roomId),
+        this.alerts,
+        this.voice,
+        this.updates
+      )
     );
   }
 
@@ -207,6 +219,10 @@ export default class App {
   private onStatus(status: ConnectionStatus): void {
     switch (status) {
       case 'open':
+        // A reconnect usually means the server was restarted — often by a deploy.
+        if (!import.meta.env.DEV) void this.updates.check();
+        this.banner.style.display = 'none';
+        break;
       case 'closed':
         this.banner.style.display = 'none';
         break;

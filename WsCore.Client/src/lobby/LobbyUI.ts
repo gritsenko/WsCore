@@ -7,9 +7,13 @@ const svg = (body: string, size = 20): string =>
 
 /** Static inline icons (trusted markup — never interpolate user data into these). */
 const ICONS = {
+  // The moai of public/favicon.svg (one even-odd path, so it takes the text colour).
   logo:
-    '<svg width="44" height="18" viewBox="0 0 44 18" fill="currentColor" aria-hidden="true">' +
-    '<path d="M0 9c4 0 5-7 10.5-7S17 9 22 9s6-7 11.5-7S40 9 44 9c-4 0-5 7-10.500 7S27 9 22 9s-6 7-11.500 7S4 9 0 9z"/></svg>',
+    '<svg width="28" height="28" viewBox="0 0 64 64" fill="currentColor" fill-rule="evenodd" aria-hidden="true">' +
+    '<path d="M24 3H40Q44 3 44.5 7L46 17H48V22H47V24Q51 24 51 28V39Q51 42 47 42V45Q47 52 41 54V57H50Q54 57 54 61H10Q10 57 14 57H23V54Q17 52 17 45V42Q13 42 13 39V28Q13 24 17 24V22H16V17H18L19.5 7Q20 3 24 3Z' +
+    'M19 22H29L27.5 36L25 36L26 28Q22 29.5 19 27.5ZM45 22H35L36.5 36L39 36L38 28Q42 29.5 45 27.5Z' +
+    'M25 38H39V40H25ZM25.5 45H38.5V47.2H25.5Z"/></svg>',
+  reload: svg('<path d="M20 11a8 8 0 1 0-2.3 6.3"/><path d="M20 4v7h-7"/>', 15),
   search: svg('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.600-3.600"/>', 18),
   lobby: svg('<path d="M9 4 7 20M17 4l-2 16M4 9h17M3 15h17"/>'),
   voice: svg('<path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4"/>'),
@@ -250,6 +254,7 @@ export default class LobbyUI {
   private manageButton: HTMLButtonElement | null = null;
   private createChannelButton: HTMLButtonElement | null = null;
   private createChannelCallback: (() => void) | null = null;
+  private updateButton: HTMLButtonElement | null = null;
   private voiceJoinCallback: ((roomId: string) => void) | null = null;
   private voiceControlCallback: ((control: VoiceControl) => void) | null = null;
   /** Our voice: the panel above the profile (+ compact header controls on phones). */
@@ -376,7 +381,17 @@ export default class LobbyUI {
 
     const brand = el('div', 'lobby-brand');
     brand.innerHTML = ICONS.logo;
-    brand.appendChild(el('span', 'lobby-brand-name', 'WAVE'));
+    brand.appendChild(el('span', 'lobby-brand-name', 'TOX'));
+    brand.appendChild(el('span', 'lobby-brand-version', `v${__APP_VERSION__}`));
+    // Shown once a newer build is deployed (setUpdateAvailable): reloading picks it up.
+    this.updateButton = el('button', 'lobby-update');
+    this.updateButton.type = 'button';
+    this.updateButton.innerHTML = ICONS.reload;
+    this.updateButton.appendChild(el('span', undefined, 'Обновить'));
+    this.updateButton.title = 'Вышла новая версия — перезагрузить страницу';
+    this.updateButton.hidden = true;
+    this.updateButton.addEventListener('click', () => location.reload());
+    brand.appendChild(this.updateButton);
     sidebar.appendChild(brand);
 
     const search = this.buildSearch('Поиск…', 'lobby-sidebar-search', value => {
@@ -628,6 +643,11 @@ export default class LobbyUI {
   /** Show the "+" next to the channel list (server admins create channels). */
   setCanCreateChannel(canCreate: boolean): void {
     if (this.createChannelButton) this.createChannelButton.hidden = !canCreate;
+  }
+
+  /** Show the "Обновить" button next to the version: a newer build is deployed. */
+  setUpdateAvailable(available: boolean): void {
+    if (this.updateButton) this.updateButton.hidden = !available;
   }
 
   /** Show the channel management button (we hold an admin right in this channel). */

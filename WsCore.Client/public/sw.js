@@ -1,4 +1,4 @@
-// WAVE service worker: makes the site installable as an app and shows Web Push
+// TOX service worker: makes the site installable as an app and shows Web Push
 // notifications about chat messages (sent by the server while the user is away or
 // offline — see WsServer/WsServer/Push/PushService.cs and src/app/ChatAlerts.ts).
 //
@@ -25,7 +25,7 @@ self.addEventListener('push', event => {
 async function showPush(data) {
   if (!data || data.type !== 'chat') {
     // A push must always show something (userVisibleOnly).
-    await self.registration.showNotification('WAVE', { body: 'Новые сообщения', icon: APP_ICON });
+    await self.registration.showNotification('TOX', { body: 'Новые сообщения', icon: APP_ICON });
     return;
   }
 

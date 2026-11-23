@@ -131,8 +131,8 @@ const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 
 describe('UnreadBadge text', () => {
   it('puts the count in front of the title, capped at 99+', () => {
-    expect(titleWithCount('WAVE', 0)).toBe('WAVE');
-    expect(titleWithCount('WAVE', 3)).toBe('(3) WAVE');
+    expect(titleWithCount('TOX', 0)).toBe('TOX');
+    expect(titleWithCount('TOX', 3)).toBe('(3) TOX');
     expect(badgeText(99)).toBe('99');
     expect(badgeText(100)).toBe('99+');
   });

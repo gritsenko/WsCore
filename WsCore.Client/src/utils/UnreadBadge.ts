@@ -3,7 +3,7 @@ export function badgeText(count: number): string {
   return count > 99 ? '99+' : String(count);
 }
 
-/** The tab title with the unread count in front ("(3) WAVE"); the base title at 0. */
+/** The tab title with the unread count in front ("(3) TOX"); the base title at 0. */
 export function titleWithCount(baseTitle: string, count: number): string {
   return count > 0 ? `(${badgeText(count)}) ${baseTitle}` : baseTitle;
 }
