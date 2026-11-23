@@ -149,4 +149,47 @@ public class GameServerOptions
 
     /// <summary>Per-connection rate limit of (un)subscribe requests.</summary>
     public double PushRequestCooldownSeconds { get; set; } = 0.2;
+
+    // ---- voice ------------------------------------------------------------------------
+
+    /// <summary>
+    /// People in one voice channel at a time. Voice is a WebRTC mesh (everyone sends their
+    /// audio to everyone else), so the upload of each participant grows with this.
+    /// </summary>
+    public int VoiceMaxParticipants { get; set; } = 8;
+
+    /// <summary>STUN servers handed to clients (lets peers behind a simple NAT find each other).</summary>
+    public string[] VoiceStunUrls { get; set; } = ["stun:stun.l.google.com:19302"];
+
+    /// <summary>
+    /// TURN servers (coturn), e.g. <c>turn:example.com:3478?transport=udp</c> and
+    /// <c>turns:example.com:5349?transport=tcp</c> — the relay for peers that cannot reach
+    /// each other directly (symmetric NAT, mobile carriers, corporate firewalls). Used
+    /// only with <see cref="VoiceTurnSecret"/>.
+    /// </summary>
+    public string[] VoiceTurnUrls { get; set; } = [];
+
+    /// <summary>
+    /// coturn's <c>static-auth-secret</c> (<c>use-auth-secret</c>): every voice join gets
+    /// time-limited TURN credentials signed with it (the TURN REST API scheme). Empty =
+    /// no TURN, STUN only.
+    /// </summary>
+    public string VoiceTurnSecret { get; set; } = string.Empty;
+
+    /// <summary>How long the TURN credentials of a voice join stay valid.</summary>
+    public double VoiceTurnCredentialTtlSeconds { get; set; } = 12 * 3600;
+
+    /// <summary>Largest relayed WebRTC signal (an SDP offer / answer or an ICE candidate).</summary>
+    public int VoiceMaxSignalBytes { get; set; } = 16 * 1024;
+
+    /// <summary>
+    /// Signals a connection may relay: a burst of <see cref="VoiceSignalBurst"/>, refilled
+    /// at <see cref="VoiceSignalsPerSecond"/> (joining a full channel = a few dozen ICE
+    /// candidates per peer).
+    /// </summary>
+    public double VoiceSignalsPerSecond { get; set; } = 40;
+    public int VoiceSignalBurst { get; set; } = 400;
+
+    /// <summary>Per-connection rate limit of voice join / leave / mute requests.</summary>
+    public double VoiceRequestCooldownSeconds { get; set; } = 0.2;
 }

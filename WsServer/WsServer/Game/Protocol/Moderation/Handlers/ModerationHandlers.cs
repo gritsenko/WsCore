@@ -33,7 +33,7 @@ public class SetServerAdminRequestHandler(ModerationService moderation) : Reques
 public class CreateChannelRequestHandler(ModerationService moderation) : RequestHandlerBase<CreateChannelRequest>
 {
     protected override void Handle(uint clientId, CreateChannelRequest request)
-        => moderation.CreateChannel(clientId, request.Name ?? string.Empty, request.IsPrivate);
+        => moderation.CreateChannel(clientId, request.Name ?? string.Empty, request.IsPrivate, request.IsVoice);
 }
 
 public class UpdateChannelRequestHandler(ModerationService moderation) : RequestHandlerBase<UpdateChannelRequest>

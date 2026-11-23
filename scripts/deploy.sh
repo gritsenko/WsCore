@@ -158,6 +158,7 @@ echo -e "${YELLOW}[5/7] Creating deploy directory and uploading files...${NC}"
 ssh "${VDS_TARGET}" "mkdir -p ${DEPLOY_DIR} && echo 'Directory created'"
 scp docker-compose.yml "${VDS_TARGET}:${DEPLOY_DIR}/"
 scp nginx.conf "${VDS_TARGET}:${DEPLOY_DIR}/"
+scp turnserver.conf "${VDS_TARGET}:${DEPLOY_DIR}/"
 echo -e "${GREEN}✓ Configuration files uploaded${NC}"
 echo ""
 
@@ -187,6 +188,17 @@ ssh "${VDS_TARGET}" "
     # Update nginx.conf to use actual domain BEFORE starting containers
     sed -i 's/DOMAIN_PLACEHOLDER/${DOMAIN}/g' nginx.conf
     echo 'nginx.conf updated with domain: ${DOMAIN}'
+    sed -i 's/DOMAIN_PLACEHOLDER/${DOMAIN}/g' turnserver.conf
+
+    # Voice: the TURN relay (coturn) and the secret it shares with the game server —
+    # generated once and kept in .env (open 3478/udp+tcp and 49160-49360/udp yourself).
+    touch .env
+    if ! grep -q '^TURN_SECRET=' .env; then
+        echo \"TURN_SECRET=\$(openssl rand -hex 32)\" >> .env
+        echo 'TURN secret generated (.env)'
+    fi
+    grep -q '^TURN_HOST=' .env || echo 'TURN_HOST=${DOMAIN}' >> .env
+    grep -q '^COMPOSE_PROFILES=' .env || echo 'COMPOSE_PROFILES=turn' >> .env
     
     # Create a docker-compose override file to use the image instead of building
     cat > docker-compose.override.yml << 'COMPOSE_EOF'

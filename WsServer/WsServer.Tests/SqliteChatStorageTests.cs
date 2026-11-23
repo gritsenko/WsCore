@@ -329,6 +329,7 @@ public class SqliteChatStorageTests
                 ALTER TABLE channels DROP COLUMN is_private;
                 ALTER TABLE channels DROP COLUMN created_ms;
                 ALTER TABLE channel_members DROP COLUMN has_access;
+                ALTER TABLE channels DROP COLUMN is_voice;
                 PRAGMA user_version = 3;
                 """;
             cmd.ExecuteNonQuery();
@@ -338,6 +339,39 @@ public class SqliteChatStorageTests
         var snapshot = migrated.Load(10);
         Assert.Equal([new StoredChannel("voice", 1)], snapshot.Channels);
         Assert.Equal([new StoredChannelMember("voice", 3) { AdminRights = 7, Title = "boss" }], snapshot.ChannelMembers);
+    }
+
+    [Fact]
+    public void ACreatedChannelsDatabase_IsMigratedToVoiceChannels()
+    {
+        using var db = new TempDatabase();
+        using (var storage = Open(db.Path))
+        {
+            storage.Load(10);
+            storage.SaveChannel(new StoredChannel("c1", 3) { Name = "Talk", IsPrivate = true, CreatedMs = 5 });
+            storage.FlushAsync().Wait();
+        }
+        // Back to schema v4 (created channels, no voice flag).
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db.Path};Pooling=False"))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                ALTER TABLE channels DROP COLUMN is_voice;
+                PRAGMA user_version = 4;
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        using (var migrated = Open(db.Path))
+        {
+            Assert.Equal([new StoredChannel("c1", 3) { Name = "Talk", IsPrivate = true, CreatedMs = 5 }],
+                migrated.Load(10).Channels);
+            migrated.SaveChannel(new StoredChannel("c2", 3) { Name = "Voice", CreatedMs = 6, IsVoice = true });
+            migrated.FlushAsync().Wait();
+        }
+        using var reopened = Open(db.Path);
+        Assert.True(reopened.Load(10).Channels.Single(c => c.RoomId == "c2").IsVoice);
     }
 
     [Fact]

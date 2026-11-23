@@ -5,6 +5,7 @@ import LobbyState from './LobbyState';
 import IdleDetector from '../utils/IdleDetector';
 import UnreadBadge from '../utils/UnreadBadge';
 import ChatAlerts from './ChatAlerts';
+import VoiceChat from '../voice/VoiceChat';
 import { AccountAction, AccountResult } from '../network/ClientEvents';
 import { clearIdentity, saveLogin, saveName, saveUserKey } from './IdentityStorage';
 // GameScene (and three.js with it) is imported dynamically in enterGame() — a
@@ -41,6 +42,8 @@ export default class App {
   private readonly idle: IdleDetector;
   /** Unread counter (tab title, favicon, app icon) + notifications + push subscription. */
   private readonly alerts: ChatAlerts;
+  /** Voice channels: lives as long as the app, across lobby ↔ game and reconnects. */
+  private readonly voice: VoiceChat<Player>;
   /** Called (once) if the login this app was started with is refused. */
   private onLoginFailed: ((error: string) => void) | null = null;
 
@@ -52,6 +55,7 @@ export default class App {
     this.banner = this.createBanner();
     this.idle = new IdleDetector(document, away => this.client.setAway(away));
     this.alerts = new ChatAlerts(this.client, () => this.idle.isAway, new UnreadBadge());
+    this.voice = new VoiceChat<Player>(this.client);
 
     // A fresh InitPlayerEvent (first connect OR reconnect) → the active state
     // rejoins its room under the new clientId and rebuilds from server events.
@@ -129,6 +133,7 @@ export default class App {
     this.activeState = null;
     this.idle.stop();
     this.alerts.stop();
+    this.voice.dispose();
     navigator.serviceWorker?.removeEventListener('message', this.onWorkerMessage);
     this.client.disconnect();
     this.banner.remove();
@@ -143,7 +148,9 @@ export default class App {
   }
 
   private enterLobby(): void {
-    this.transitionTo(new LobbyState(this.client, roomId => this.enterGame(roomId), this.alerts));
+    this.transitionTo(
+      new LobbyState(this.client, roomId => this.enterGame(roomId), this.alerts, this.voice)
+    );
   }
 
   /** A notification was clicked (public/sw.js): show its room — from the lobby only. */

@@ -18,13 +18,25 @@ import { ChannelPermissionsInfo } from '../network/protocol/ChannelPermissionsIn
 import { ChannelAdminInfo } from '../network/protocol/ChannelAdminInfo';
 import { ChannelRestrictionInfo } from '../network/protocol/ChannelRestrictionInfo';
 import { ChatMessageDeletedEvent } from '../network/protocol/ChatMessageDeletedEvent';
+import { VoiceRosterEvent } from '../network/protocol/VoiceRosterEvent';
+import { VoiceRoomInfo } from '../network/protocol/VoiceRoomInfo';
+import { VoiceParticipantInfo } from '../network/protocol/VoiceParticipantInfo';
 
 // LobbyState drives the (DOM-only) LobbyUI from client events. The UI is replaced by
 // a recorder so the lobby's room flow can be checked without a DOM.
 
 const ui = {
   calls: [] as string[],
-  rooms: [] as { id: string; playable: boolean; userCount: number; isPrivate?: boolean }[],
+  rooms: [] as {
+    id: string;
+    playable: boolean;
+    userCount: number;
+    isPrivate?: boolean;
+    isVoice?: boolean;
+    voice?: { clientId: number; name: string; isSelf: boolean; muted: boolean }[];
+  }[],
+  voice: null as { status: string; roomName: string | null; error: string | null } | null,
+  voiceRoomId: null as string | null,
   current: null as string | null,
   messages: [] as {
     id: number;
@@ -92,6 +104,17 @@ vi.mock('../lobby/LobbyUI', () => ({
     setOnManageChannelCallback() {}
     setOnManageMemberCallback() {}
     setOnCreateChannelCallback() {}
+    setOnVoiceJoinCallback(cb: (id: string) => void) {
+      (ui as any).voiceJoin = cb;
+    }
+    setOnVoiceControlCallback(cb: (control: string) => void) {
+      (ui as any).voiceControl = cb;
+    }
+    setVoice(view: typeof ui.voice, roomId: string | null) {
+      ui.voice = view;
+      ui.voiceRoomId = roomId;
+    }
+    setVoiceSpeaking() {}
     setCanCreateChannel(can: boolean) {
       ui.canCreate = can;
     }
@@ -581,5 +604,55 @@ describe('LobbyState chat history and members', () => {
     // Refused entry to a private channel is explained.
     client.onJoinRoomResultEvent(result('c2', false, 'no_access'));
     expect(ui.calls.some(c => c.includes('нужен доступ'))).toBe(true);
+  });
+
+  it('voice channels list who talks there, and clicking one joins its voice', async () => {
+    const t = await setup();
+    const joined: string[] = [];
+    const fakeVoice = {
+      status: 'off',
+      error: null as string | null,
+      muted: false,
+      deafened: false,
+      roomId: null as string | null,
+      speaking: new Set<number>(),
+      on: () => () => {},
+      join: (id: string) => {
+        joined.push(id);
+        return Promise.resolve();
+      },
+    };
+    const { default: LobbyState } = await import('./LobbyState');
+    const state = new LobbyState(t.client, () => {}, null, fakeVoice as any);
+    state.enter();
+    init(t.client, 3);
+    const list = new RoomListEvent();
+    list.rooms = [LOBBY(), VOICE()];
+    t.client.onRoomListEvent(list);
+    const snapshot = new PresenceSnapshotEvent();
+    snapshot.yourUserId = 1;
+    snapshot.users = [presence(1, 1, 'lobby'), presence(2, 1, 'lobby')];
+    t.client.onPresenceSnapshotEvent(snapshot);
+
+    expect(ui.rooms.find(r => r.id === 'voice')?.isVoice).toBe(true);
+    expect(ui.rooms.find(r => r.id === 'lobby')?.isVoice).toBe(false);
+
+    const roster = new VoiceRosterEvent();
+    roster.reset = true;
+    const voiceRoom = new VoiceRoomInfo();
+    voiceRoom.roomId = 'voice';
+    const other = new VoiceParticipantInfo();
+    other.clientId = 9;
+    other.userId = 2;
+    other.muted = true;
+    voiceRoom.participants = [other];
+    roster.rooms = [voiceRoom];
+    t.client.onVoiceRosterEvent(roster);
+    expect(ui.rooms.find(r => r.id === 'voice')?.voice).toEqual([
+      expect.objectContaining({ clientId: 9, name: 'U2', isSelf: false, muted: true }),
+    ]);
+
+    (ui as any).voiceJoin('voice');
+    expect(joined).toEqual(['voice']);
   });
 });

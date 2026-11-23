@@ -28,6 +28,8 @@ public sealed record StoredChannel(string RoomId, byte DefaultPermissions)
     public string? Name { get; init; }
     public bool IsPrivate { get; init; }
     public long CreatedMs { get; init; }
+    /// <summary>A created channel that is a voice channel (voice + its text chat).</summary>
+    public bool IsVoice { get; init; }
 }
 
 /// <summary>

@@ -626,6 +626,162 @@
   font-size: 28px;
 }
 
+.lobby-avatar-xs {
+  width: 24px;
+  height: 24px;
+  font-size: 10px;
+}
+
+/* ==================== Voice ==================== */
+/* Who talks in a voice channel, listed under it. */
+.lobby-voice-members {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: -2px 0 4px;
+  padding-left: 44px;
+}
+
+.lobby-voice-member {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.lobby-voice-member .lobby-avatar {
+  transition: box-shadow 0.12s;
+}
+
+/* Speaking: a mint ring around the picture. */
+.lobby-voice-speaking .lobby-avatar {
+  box-shadow:
+    0 0 0 2px var(--bg-sidebar),
+    0 0 0 4px var(--accent);
+}
+
+.lobby-voice-speaking .lobby-voice-member-name,
+.lobby-voice-self .lobby-voice-member-name {
+  color: var(--text);
+}
+
+.lobby-voice-member-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lobby-voice-member-state {
+  color: #e57373;
+}
+
+.lobby-voice-member-state svg {
+  width: 15px;
+  height: 15px;
+}
+
+.lobby-room-in-voice .lobby-room-icon {
+  color: var(--accent);
+}
+
+/* Our voice: above the profile. */
+.lobby-voice-panel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 24px;
+  padding: 12px 0;
+  border-top: 1px solid var(--line);
+}
+
+.lobby-voice-panel-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.lobby-voice-panel-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #e2b34a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lobby-voice-panel-connected .lobby-voice-panel-title {
+  color: var(--accent);
+}
+
+.lobby-voice-panel-title.lobby-voice-panel-error {
+  color: #e57373;
+}
+
+.lobby-voice-panel-detail {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lobby-voice-panel-error + .lobby-voice-panel-detail {
+  white-space: normal;
+}
+
+.lobby-voice-controls {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.lobby-voice-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 20px;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+
+.lobby-voice-btn:hover,
+.lobby-voice-btn:focus-visible {
+  background: var(--surface-hover);
+  color: var(--text);
+  outline: none;
+}
+
+.lobby-voice-btn.lobby-voice-btn-off {
+  color: #e57373;
+}
+
+.lobby-voice-btn.lobby-voice-leave:hover,
+.lobby-voice-btn.lobby-voice-leave:focus-visible {
+  background: rgba(229, 115, 115, 0.16);
+  color: #e57373;
+}
+
+/* Compact voice controls in the chat header: phones only (the panel is in the drawer). */
+.lobby-header-voice {
+  display: none;
+}
+
 /* The picture covers the initials (which show while it loads or if it fails). */
 .lobby-avatar-img {
   position: absolute;
@@ -1367,6 +1523,7 @@
   }
 
   .lobby-sidebar-search,
+  .lobby-voice-panel,
   .lobby-me {
     margin-left: 18px;
     margin-right: 18px;
@@ -1446,6 +1603,16 @@
 
   .lobby-room-item {
     height: 48px;
+  }
+
+  .lobby-header-voice {
+    display: flex;
+    gap: 2px;
+  }
+
+  .lobby-voice-btn {
+    width: 40px;
+    height: 40px;
   }
 
   .lobby-chat-area {

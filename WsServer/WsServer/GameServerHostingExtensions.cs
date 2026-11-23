@@ -10,6 +10,7 @@ using WsServer.Push;
 using WsServer.Rooms;
 using WsServer.ServerInfo;
 using WsServer.Sessions;
+using WsServer.Voice;
 
 namespace WsServer;
 
@@ -78,6 +79,7 @@ public static class GameServerHostingExtensions
 
         services.AddSingleton<GameModel>();
         services.AddSingleton<SessionManager>();
+        services.AddSingleton<VoiceService>();
         services.AddSingleton<GameServer>();
         services.AddSingleton<IGameServer>(sp => sp.GetRequiredService<GameServer>());
         services.AddHostedService(sp => sp.GetRequiredService<GameServer>());

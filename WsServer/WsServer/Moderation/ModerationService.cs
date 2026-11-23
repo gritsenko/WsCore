@@ -267,7 +267,7 @@ public sealed partial class ModerationService(
 
     // ---- channels ---------------------------------------------------------------------
 
-    public void CreateChannel(uint clientId, string name, bool isPrivate)
+    public void CreateChannel(uint clientId, string name, bool isPrivate, bool isVoice = false)
     {
         const byte action = ModerationAction.CreateChannel;
         if (Begin(clientId, action) is not { } actor)
@@ -287,13 +287,13 @@ public sealed partial class ModerationService(
         }
 
         var roomId = NewChannelId();
-        permissions.CreateChannel(roomId, name, isPrivate);
-        GameServer.CreateChannelRoom(roomManager, roomId, name);
+        permissions.CreateChannel(roomId, name, isPrivate, isVoice);
+        GameServer.CreateChannelRoom(roomManager, roomId, name, isVoice);
         sessions.BroadcastRoomList();
         BroadcastChannel(roomId);
         Succeed(clientId, action, roomId);
-        logger.LogInformation("User {ActorId} created {Kind} channel {RoomId}",
-            actor.Id, isPrivate ? "a private" : "a public", roomId);
+        logger.LogInformation("User {ActorId} created {Kind} {Type} channel {RoomId}",
+            actor.Id, isPrivate ? "a private" : "a public", isVoice ? "voice" : "text", roomId);
     }
 
     public void UpdateChannel(uint clientId, string roomId, string name, bool isPrivate)
@@ -330,6 +330,7 @@ public sealed partial class ModerationService(
         roomManager.RemoveRoom(roomId);
         permissions.DeleteChannel(roomId);
         history.DropRoom(roomId);
+        sessions.NotifyChannelChanged(roomId); // voice: everyone in it is taken out
         sessions.BroadcastRoomList();
         Succeed(clientId, action, roomId);
         logger.LogInformation("Channel {RoomId} deleted", roomId);

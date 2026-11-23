@@ -25,6 +25,10 @@ export enum ServerEventType {
   PresenceUpdateEvent = 111,
   AccountResultEvent = 112,
   PushConfigEvent = 130,
+  VoiceJoinResultEvent = 140,
+  VoiceLeftEvent = 141,
+  VoiceSignalEvent = 142,
+  VoiceRosterEvent = 143,
   RoomListEvent = 250,
   RoomUsersUpdateEvent = 251,
   JoinRoomResultEvent = 252,
@@ -60,6 +64,10 @@ export enum ClientMessageType {
   SetAvatarRequest = 116,
   PushSubscribeRequest = 130,
   PushUnsubscribeRequest = 131,
+  VoiceJoinRequest = 140,
+  VoiceLeaveRequest = 141,
+  VoiceSignalRequest = 142,
+  VoiceStateRequest = 143,
   GetRoomListRequest = 250,
   JoinRoomRequest = 251,
 }
@@ -122,6 +130,14 @@ import { SetChannelAccessRequest } from './protocol/SetChannelAccessRequest';
 import { PushConfigEvent } from './protocol/PushConfigEvent';
 import { PushSubscribeRequest } from './protocol/PushSubscribeRequest';
 import { PushUnsubscribeRequest } from './protocol/PushUnsubscribeRequest';
+import { VoiceJoinResultEvent } from './protocol/VoiceJoinResultEvent';
+import { VoiceLeftEvent } from './protocol/VoiceLeftEvent';
+import { VoiceSignalEvent } from './protocol/VoiceSignalEvent';
+import { VoiceRosterEvent } from './protocol/VoiceRosterEvent';
+import { VoiceJoinRequest } from './protocol/VoiceJoinRequest';
+import { VoiceLeaveRequest } from './protocol/VoiceLeaveRequest';
+import { VoiceSignalRequest } from './protocol/VoiceSignalRequest';
+import { VoiceStateRequest } from './protocol/VoiceStateRequest';
 
 import { MemoryPackReader } from './protocol/MemoryPackReader';
 import Emitter, { Unsubscribe } from '../utils/Emitter';
@@ -156,6 +172,10 @@ export interface ServerEventHandlers {
   onPresenceUpdateEvent(msg: PresenceUpdateEvent): void;
   onAccountResultEvent(msg: AccountResultEvent): void;
   onPushConfigEvent(msg: PushConfigEvent): void;
+  onVoiceJoinResultEvent(msg: VoiceJoinResultEvent): void;
+  onVoiceLeftEvent(msg: VoiceLeftEvent): void;
+  onVoiceSignalEvent(msg: VoiceSignalEvent): void;
+  onVoiceRosterEvent(msg: VoiceRosterEvent): void;
   onRoomListEvent(msg: RoomListEvent): void;
   onRoomUsersUpdateEvent(msg: RoomUsersUpdateEvent): void;
   onJoinRoomResultEvent(msg: JoinRoomResultEvent): void;
@@ -248,6 +268,12 @@ export const SERVER_EVENT_ROUTES: { readonly [K in ServerEventType]: ServerEvent
     h.onAccountResultEvent(m)
   ),
   [ServerEventType.PushConfigEvent]: route(PushConfigEvent, (h, m) => h.onPushConfigEvent(m)),
+  [ServerEventType.VoiceJoinResultEvent]: route(VoiceJoinResultEvent, (h, m) =>
+    h.onVoiceJoinResultEvent(m)
+  ),
+  [ServerEventType.VoiceLeftEvent]: route(VoiceLeftEvent, (h, m) => h.onVoiceLeftEvent(m)),
+  [ServerEventType.VoiceSignalEvent]: route(VoiceSignalEvent, (h, m) => h.onVoiceSignalEvent(m)),
+  [ServerEventType.VoiceRosterEvent]: route(VoiceRosterEvent, (h, m) => h.onVoiceRosterEvent(m)),
   [ServerEventType.RoomListEvent]: route(RoomListEvent, (h, m) => h.onRoomListEvent(m)),
   [ServerEventType.RoomUsersUpdateEvent]: route(RoomUsersUpdateEvent, (h, m) =>
     h.onRoomUsersUpdateEvent(m)
@@ -338,6 +364,10 @@ export default class WsConnection<T extends IPlayer = IPlayer> implements Server
   onPresenceUpdateEvent(_msg: PresenceUpdateEvent): void {}
   onAccountResultEvent(_msg: AccountResultEvent): void {}
   onPushConfigEvent(_msg: PushConfigEvent): void {}
+  onVoiceJoinResultEvent(_msg: VoiceJoinResultEvent): void {}
+  onVoiceLeftEvent(_msg: VoiceLeftEvent): void {}
+  onVoiceSignalEvent(_msg: VoiceSignalEvent): void {}
+  onVoiceRosterEvent(_msg: VoiceRosterEvent): void {}
   onRoomListEvent(_msg: RoomListEvent): void {}
   onRoomUsersUpdateEvent(_msg: RoomUsersUpdateEvent): void {}
   onJoinRoomResultEvent(_msg: JoinRoomResultEvent): void {}
@@ -761,10 +791,11 @@ export default class WsConnection<T extends IPlayer = IPlayer> implements Server
     );
   }
 
-  sendCreateChannelRequest(name: string, isPrivate: boolean): void {
+  sendCreateChannelRequest(name: string, isPrivate: boolean, isVoice = false): void {
     const request = new CreateChannelRequest();
     request.name = name;
     request.isPrivate = isPrivate;
+    request.isVoice = isVoice;
     this.sendMessage(
       ClientMessageType.CreateChannelRequest,
       CreateChannelRequest.serialize(request)
@@ -800,6 +831,34 @@ export default class WsConnection<T extends IPlayer = IPlayer> implements Server
       ClientMessageType.SetChannelAccessRequest,
       SetChannelAccessRequest.serialize(request)
     );
+  }
+
+  sendVoiceJoinRequest(roomId: string): void {
+    const request = new VoiceJoinRequest();
+    request.roomId = roomId;
+    this.sendMessage(ClientMessageType.VoiceJoinRequest, VoiceJoinRequest.serialize(request));
+  }
+
+  sendVoiceLeaveRequest(): void {
+    this.sendMessage(
+      ClientMessageType.VoiceLeaveRequest,
+      VoiceLeaveRequest.serialize(new VoiceLeaveRequest())
+    );
+  }
+
+  sendVoiceSignalRequest(targetClientId: number, kind: number, data: string): void {
+    const request = new VoiceSignalRequest();
+    request.targetClientId = targetClientId;
+    request.kind = kind;
+    request.data = data;
+    this.sendMessage(ClientMessageType.VoiceSignalRequest, VoiceSignalRequest.serialize(request));
+  }
+
+  sendVoiceStateRequest(muted: boolean, deafened: boolean): void {
+    const request = new VoiceStateRequest();
+    request.muted = muted;
+    request.deafened = deafened;
+    this.sendMessage(ClientMessageType.VoiceStateRequest, VoiceStateRequest.serialize(request));
   }
 
   sendGetRoomListRequest(): void {

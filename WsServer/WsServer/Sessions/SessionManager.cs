@@ -77,6 +77,19 @@ public sealed class SessionManager(
 
     public int Count => Volatile.Read(ref _count);
 
+    /// <summary>
+    /// What the connection may see may have changed: it identified / logged in / out, or
+    /// its user's access or role changed (raised after the room list and permissions went
+    /// out). Voice follows it (<see cref="WsServer.Voice.VoiceService"/>).
+    /// </summary>
+    public event Action<ClientSession>? VisibilityChanged;
+
+    /// <summary>A channel's permissions / privacy changed, or it was deleted.</summary>
+    public event Action<string>? ChannelChanged;
+
+    /// <summary>Raises <see cref="ChannelChanged"/> (a channel deleted — no permissions to broadcast).</summary>
+    public void NotifyChannelChanged(string roomId) => ChannelChanged?.Invoke(roomId);
+
     public ClientSession? Get(uint clientId) => _sessions.GetValueOrDefault(clientId);
 
     // ---- connection lifecycle ---------------------------------------------------------
@@ -248,6 +261,7 @@ public sealed class SessionManager(
             messenger.Send(session.Id, BuildRoomList(session.User));
         if (session.User != null)
             messenger.Send(session.Id, BuildChannelPermissions(session.User));
+        VisibilityChanged?.Invoke(session);
     }
 
     /// <summary>Moves every client in the room that may no longer see it back to the home room.</summary>
@@ -261,6 +275,7 @@ public sealed class SessionManager(
             if (!permissions.CanSee(Get(clientId)?.User, roomId))
                 JoinRoom(clientId, DefaultRoomId);
         }
+        ChannelChanged?.Invoke(roomId);
     }
 
     private void BroadcastRoomUsers(string roomId)
@@ -393,6 +408,7 @@ public sealed class SessionManager(
         // The user may see private channels an anonymous connection does not.
         if (permissions.CreatedChannelCount > 0 && !roomManager.ShouldReceiveSpatialUpdates(session.Id))
             messenger.Send(session.Id, BuildRoomList(user));
+        VisibilityChanged?.Invoke(session);
     }
 
     // The session stops being a connection of its user, who stays in the member list —
@@ -774,7 +790,16 @@ public sealed class SessionManager(
         var evt = new ChannelPermissionsEvent { Channels = [permissions.Describe(roomId)] };
         messenger.BroadcastWhere(evt,
             id => _sessions.TryGetValue(id, out var s) && s.User != null && permissions.CanSee(s.User, roomId));
+        ChannelChanged?.Invoke(roomId);
     }
+
+    /// <summary>Sends to every identified connection that may see the channel.</summary>
+    public void BroadcastToChannelViewers<TEvent>(string roomId, TEvent evt) where TEvent : IServerEvent
+        => messenger.BroadcastWhere(evt,
+            id => _sessions.TryGetValue(id, out var s) && s.User != null && permissions.CanSee(s.User, roomId));
+
+    /// <summary>Every connection (tick thread).</summary>
+    public IEnumerable<ClientSession> Sessions => _sessions.Values;
 
     // Where the user is: the room of an active connection if there is one. A private
     // channel is not told (presence goes to everyone).

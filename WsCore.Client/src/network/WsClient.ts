@@ -1,6 +1,7 @@
 ﻿import WsConnection from './WsConnection';
 import { AccountAction } from './ClientEvents';
-import type { IPlayer, PresenceUser } from './ClientEvents';
+import { VoiceSignalKind } from './ClientEvents';
+import type { IPlayer, PresenceUser, VoiceIceServerConfig, VoiceParticipant } from './ClientEvents';
 import { AccountResultEvent } from './protocol/AccountResultEvent';
 import { InitPlayerEvent } from './protocol/InitPlayerEvent';
 import { PlayerJoinedEvent } from './protocol/PlayerJoinedEvent';
@@ -28,6 +29,10 @@ import { ChatMessageDeletedEvent } from './protocol/ChatMessageDeletedEvent';
 import { ChannelPermissionsEvent } from './protocol/ChannelPermissionsEvent';
 import { ModerationResultEvent } from './protocol/ModerationResultEvent';
 import { PushConfigEvent } from './protocol/PushConfigEvent';
+import { VoiceJoinResultEvent } from './protocol/VoiceJoinResultEvent';
+import { VoiceLeftEvent } from './protocol/VoiceLeftEvent';
+import { VoiceSignalEvent } from './protocol/VoiceSignalEvent';
+import { VoiceRosterEvent } from './protocol/VoiceRosterEvent';
 import {
   ChannelAdmin,
   ChannelPermissions,
@@ -131,6 +136,14 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
   pushPublicKey: string | null = null;
   /** Whether we last reported ourselves idle; re-sent on every new session. */
   private away = false;
+
+  /**
+   * Who is in which voice channel (voice channels we may see; only occupied ones are
+   * listed). Server-sent: a reset after every identify, then per-channel updates.
+   */
+  readonly voiceRoster = new Map<string, VoiceParticipant[]>();
+  /** The voice channel the server has us in (null = not in voice). */
+  voiceRoomId: string | null = null;
 
   /** Roles and permissions per channel (server-sent; see Permissions.ts). */
   readonly permissions = new PermissionStore();
@@ -238,6 +251,7 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
       if (info) this.presence.set(info.userId, toPresenceUser(info));
     }
     this.emitter.emit('presence');
+    this.emitter.emit('identified');
   }
 
   override onPresenceUpdateEvent(msg: PresenceUpdateEvent): void {
@@ -296,6 +310,81 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
     this.pushPublicKey = msg.publicKey || null;
     // Sent on every identify: the subscription is (re)registered for the user we now are.
     if (this.pushPublicKey) this.emitter.emit('pushConfig', this.pushPublicKey);
+  }
+
+  override onVoiceRosterEvent(msg: VoiceRosterEvent): void {
+    if (msg.reset) this.voiceRoster.clear();
+    for (const room of msg.rooms ?? []) {
+      if (!room?.roomId) continue;
+      const participants: VoiceParticipant[] = [];
+      for (const p of room.participants ?? []) {
+        if (p)
+          participants.push({
+            clientId: p.clientId,
+            userId: p.userId,
+            muted: p.muted,
+            deafened: p.deafened,
+          });
+      }
+      if (participants.length > 0) this.voiceRoster.set(room.roomId, participants);
+      else this.voiceRoster.delete(room.roomId);
+    }
+    this.emitter.emit('voiceRoster');
+  }
+
+  override onVoiceJoinResultEvent(msg: VoiceJoinResultEvent): void {
+    const roomId = msg.roomId || '';
+    if (!msg.success) {
+      this.emitter.emit('voiceJoinFailed', roomId, msg.error || 'failed');
+      return;
+    }
+    this.voiceRoomId = roomId;
+    const iceServers: VoiceIceServerConfig[] = [];
+    for (const server of msg.iceServers ?? []) {
+      const urls = (server?.urls ?? []).filter((u): u is string => !!u);
+      if (!server || urls.length === 0) continue;
+      iceServers.push(
+        server.username
+          ? { urls, username: server.username, credential: server.credential || '' }
+          : { urls }
+      );
+    }
+    this.emitter.emit('voiceJoined', roomId, msg.peers ?? [], iceServers);
+  }
+
+  override onVoiceLeftEvent(msg: VoiceLeftEvent): void {
+    const roomId = msg.roomId || '';
+    if (this.voiceRoomId === roomId) this.voiceRoomId = null;
+    this.emitter.emit('voiceLeft', roomId, msg.reason || 'left');
+  }
+
+  override onVoiceSignalEvent(msg: VoiceSignalEvent): void {
+    if (!this.voiceRoomId || !msg.data) return;
+    this.emitter.emit('voiceSignal', msg.fromClientId, msg.kind as VoiceSignalKind, msg.data);
+  }
+
+  /** Ask to talk in the voice channel `roomId` (answered with `voiceJoined` / `voiceJoinFailed`). */
+  joinVoice(roomId: string): void {
+    this.sendVoiceJoinRequest(roomId);
+  }
+
+  /** Leave voice (answered with `voiceLeft`). */
+  leaveVoice(): void {
+    this.voiceRoomId = null;
+    this.sendVoiceLeaveRequest();
+  }
+
+  sendVoiceSignal(toClientId: number, kind: VoiceSignalKind, data: string): void {
+    if (this.voiceRoomId) this.sendVoiceSignalRequest(toClientId, kind, data);
+  }
+
+  setVoiceState(muted: boolean, deafened: boolean): void {
+    if (this.voiceRoomId) this.sendVoiceStateRequest(muted, deafened);
+  }
+
+  /** The participants of a voice channel (empty if nobody is there). */
+  voiceParticipants(roomId: string): readonly VoiceParticipant[] {
+    return this.voiceRoster.get(roomId) ?? [];
   }
 
   /** Register this browser's push subscription for our user (idempotent on the server). */
@@ -422,8 +511,8 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
   }
 
   /** Create a channel (server admins); the answer carries its id (`moderation` event). */
-  createChannel(name: string, isPrivate: boolean): void {
-    this.sendCreateChannelRequest(name, isPrivate);
+  createChannel(name: string, isPrivate: boolean, isVoice = false): void {
+    this.sendCreateChannelRequest(name, isPrivate, isVoice);
   }
 
   /** Rename a created channel and / or make it private / public (server admins). */
@@ -712,6 +801,10 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
     this.pendingRoomId = null;
     this.homeRoomId = null; // re-learnt from the new session's automatic join
     this.awaitingHomeRoom = false;
+    // The server forgot our voice with the old connection (the roster follows the identify).
+    this.voiceRoomId = null;
+    this.voiceRoster.clear();
+    this.emitter.emit('voiceRoster');
     // The chat cache is deliberately kept (message ids stay valid across sessions; the
     // next join only fetches what was missed).
     this.chatLog.onSessionReset();

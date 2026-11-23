@@ -258,6 +258,33 @@ curl -I https://your-domain.com
 
 Should show `HTTP/1.1 200 OK` with SSL certificate info.
 
+## Step 7b: Voice channels — TURN relay (coturn)
+
+Voice channels are a WebRTC mesh: the audio goes peer to peer, the server only relays
+the signalling. Microphones need HTTPS (Step 7). Peers find each other through STUN
+(`GameServer:VoiceStunUrls`, Google's public server by default) — enough for most home
+networks. Peers behind symmetric NAT (mobile carriers, corporate firewalls) need a
+**TURN relay**: `coturn` in `docker-compose.yml` (profile `turn`, config `turnserver.conf`).
+
+`scripts/deploy.sh` sets it up on first deploy: it uploads `turnserver.conf` and writes
+`.env` on the server with a random `TURN_SECRET`, `TURN_HOST=<domain>` and
+`COMPOSE_PROFILES=turn`. The game server reads the same secret
+(`GameServer__VoiceTurnSecret`) and hands every voice join time-limited credentials
+(`GameServer:VoiceTurnCredentialTtlSeconds`, the TURN REST API scheme coturn checks with
+`use-auth-secret`).
+
+**Open on the host firewall:** `3478/udp`, `3478/tcp`, and the relay range
+`49160-49360/udp`. If the public IP is not on the host's interface (NAT), set
+`external-ip` in `turnserver.conf`.
+
+Check that it relays (from two devices on **different** networks — localhost proves
+nothing, there are always host candidates): the trickle-ICE sample
+(webrtc.github.io/samples/src/content/peerconnection/trickle-ice/) with
+`turn:<domain>:3478`, a username `<unix expiry>:test` and the password
+`base64(HMAC-SHA1(TURN_SECRET, username))` must list `relay` candidates.
+
+Without a secret (empty `TURN_SECRET`) voice runs on STUN only.
+
 ## Step 8: Test Room Navigation
 
 ### Verify Room System

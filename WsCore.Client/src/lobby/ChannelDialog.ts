@@ -829,12 +829,12 @@ function hint(text: string): HTMLDivElement {
 }
 
 export interface CreateChannelHandlers {
-  onCreate(name: string, isPrivate: boolean): void;
+  onCreate(name: string, isPrivate: boolean, isVoice: boolean): void;
   onClose(): void;
 }
 
 /**
- * "Новый канал": a name and whether it is private. Presentational like ChannelDialog —
+ * "Новый канал": a name, whether it is private and whether it is a voice channel. Presentational like ChannelDialog —
  * the caller closes it once the server confirms (and then enters the new channel), or
  * shows the server's refusal through showStatus().
  */
@@ -875,6 +875,12 @@ export class CreateChannelDialog {
       false,
       'Видят только администраторы и те, кому вы дадите доступ'
     );
+    const isVoice = checkbox(
+      'Голосовой канал',
+      false,
+      false,
+      'Участники могут говорить в нём голосом; у канала есть и текстовый чат'
+    );
     this.submit = el('button', 'lobby-dialog-button lobby-dialog-button-primary', 'Создать');
     this.submit.type = 'submit';
     this.status = el('div', 'lobby-dialog-status');
@@ -885,6 +891,7 @@ export class CreateChannelDialog {
       el('div', 'lobby-dialog-label', 'Название'),
       name,
       isPrivate.row,
+      isVoice.row,
       buttonRow(this.submit)
     );
     dialog.append(header, body, this.status);
@@ -897,7 +904,7 @@ export class CreateChannelDialog {
       }
       this.submit.disabled = true;
       this.showStatus('');
-      handlers.onCreate(value, isPrivate.input.checked);
+      handlers.onCreate(value, isPrivate.input.checked, isVoice.input.checked);
     };
 
     (document.getElementById('lobby-container') ?? document.body).appendChild(this.overlay);

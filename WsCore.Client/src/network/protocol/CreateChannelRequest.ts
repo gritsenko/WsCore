@@ -4,10 +4,12 @@ import { MemoryPackReader } from "./MemoryPackReader.js";
 export class CreateChannelRequest {
     name: string | null;
     isPrivate: boolean;
+    isVoice: boolean;
 
     constructor() {
         this.name = null;
         this.isPrivate = false;
+        this.isVoice = false;
 
     }
 
@@ -23,9 +25,10 @@ export class CreateChannelRequest {
             return;
         }
 
-        writer.writeObjectHeader(2);
+        writer.writeObjectHeader(3);
         writer.writeString(value.name);
         writer.writeBoolean(value.isPrivate);
+        writer.writeBoolean(value.isVoice);
 
     }
 
@@ -50,18 +53,20 @@ export class CreateChannelRequest {
         }
 
         const value = new CreateChannelRequest();
-        if (count == 2) {
+        if (count == 3) {
             value.name = reader.readString();
             value.isPrivate = reader.readBoolean();
+            value.isVoice = reader.readBoolean();
 
         }
-        else if (count > 2) {
+        else if (count > 3) {
             throw new Error("Current object's property count is larger than type schema, can't deserialize about versioning.");
         }
         else {
             if (count == 0) return value;
             value.name = reader.readString(); if (count == 1) return value;
             value.isPrivate = reader.readBoolean(); if (count == 2) return value;
+            value.isVoice = reader.readBoolean(); if (count == 3) return value;
 
         }
         return value;

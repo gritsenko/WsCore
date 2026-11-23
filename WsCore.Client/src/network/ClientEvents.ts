@@ -80,7 +80,41 @@ export type ClientEvents<T extends IPlayer = IPlayer> = {
    * browser's subscription, if notifications are on (see ChatAlerts).
    */
   pushConfig: (publicKey: string) => void;
+  /** The server answered our identify / login with the member list (we have a user id). */
+  identified: () => void;
+  /** Who is in which voice channel changed (WsClient.voiceRoster). */
+  voiceRoster: () => void;
+  /** We are in voice in `roomId`: call `peers` (client ids already there) with these ICE servers. */
+  voiceJoined: (roomId: string, peers: number[], iceServers: VoiceIceServerConfig[]) => void;
+  /** The server refused our voice join (server `VoiceError` code). */
+  voiceJoinFailed: (roomId: string, error: string) => void;
+  /** We are out of voice: we left, or the server took us out (`moved`, `removed`). */
+  voiceLeft: (roomId: string, reason: string) => void;
+  /** A WebRTC signal from another participant of our voice channel. */
+  voiceSignal: (fromClientId: number, kind: VoiceSignalKind, data: string) => void;
 };
+
+/** VoiceSignalRequest/Event.kind on the wire (server `VoiceSignalKind`). */
+export enum VoiceSignalKind {
+  Offer = 1,
+  Answer = 2,
+  Candidate = 3,
+}
+
+/** An ICE server as RTCPeerConnection takes it. */
+export interface VoiceIceServerConfig {
+  urls: string[];
+  username?: string;
+  credential?: string;
+}
+
+/** Someone in a voice channel. */
+export interface VoiceParticipant {
+  clientId: number;
+  userId: number;
+  muted: boolean;
+  deafened: boolean;
+}
 
 /** AccountResultEvent.action on the wire (server `AccountAction`). */
 export enum AccountAction {

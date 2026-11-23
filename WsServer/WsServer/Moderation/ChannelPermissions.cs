@@ -5,7 +5,7 @@ using WsServer.Sessions;
 namespace WsServer.Moderation;
 
 /// <summary>A channel created by an admin (see <see cref="ChannelPermissions.CreatedChannels"/>).</summary>
-public sealed record CreatedChannel(string RoomId, string Name, bool IsPrivate);
+public sealed record CreatedChannel(string RoomId, string Name, bool IsPrivate, bool IsVoice);
 
 /// <summary>A user's standing in one channel: admin rights + title and / or a restriction.</summary>
 public sealed class ChannelMember(uint userId)
@@ -50,6 +50,7 @@ public sealed class ChannelPermissions
         // Set for a created channel (null = a built-in room, named in code).
         public string? Name;
         public bool IsPrivate;
+        public bool IsVoice;
         public long CreatedMs;
         public readonly Dictionary<uint, ChannelMember> Members = new();
     }
@@ -70,6 +71,7 @@ public sealed class ChannelPermissions
             channel.Name = c.Name;
             channel.IsPrivate = c.Name != null && c.IsPrivate;
             channel.CreatedMs = c.CreatedMs;
+            channel.IsVoice = c.Name != null && c.IsVoice;
         }
         foreach (var m in snapshot.ChannelMembers)
         {
@@ -91,7 +93,7 @@ public sealed class ChannelPermissions
     public IEnumerable<CreatedChannel> CreatedChannels
         => _channels.Where(p => p.Value.Name != null)
             .OrderBy(p => p.Value.CreatedMs).ThenBy(p => p.Key, StringComparer.Ordinal)
-            .Select(p => new CreatedChannel(p.Key, p.Value.Name!, p.Value.IsPrivate));
+            .Select(p => new CreatedChannel(p.Key, p.Value.Name!, p.Value.IsPrivate, p.Value.IsVoice));
 
     public int CreatedChannelCount => _channels.Values.Count(c => c.Name != null);
 
@@ -160,11 +162,12 @@ public sealed class ChannelPermissions
     }
 
     /// <summary>Records a channel created by an admin (its room is created by the caller).</summary>
-    public void CreateChannel(string roomId, string name, bool isPrivate)
+    public void CreateChannel(string roomId, string name, bool isPrivate, bool isVoice = false)
     {
         var channel = Get(roomId);
         channel.Name = name;
         channel.IsPrivate = isPrivate;
+        channel.IsVoice = isVoice;
         channel.CreatedMs = NowMs();
         SaveChannel(roomId, channel);
     }
@@ -199,6 +202,7 @@ public sealed class ChannelPermissions
             Name = channel.Name,
             IsPrivate = channel.IsPrivate,
             CreatedMs = channel.CreatedMs,
+            IsVoice = channel.IsVoice,
         });
 
     /// <summary>Promotes / updates (rights != 0) or demotes (rights == 0). Promoting lifts any restriction.</summary>

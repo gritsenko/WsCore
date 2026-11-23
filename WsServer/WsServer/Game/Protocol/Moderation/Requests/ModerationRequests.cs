@@ -75,6 +75,8 @@ public partial class CreateChannelRequest : IClientRequest
     public string Name = string.Empty;
     // Private: seen and entered only by admins and the members given access.
     public bool IsPrivate;
+    // A voice channel: members may join its voice (besides its text chat).
+    public bool IsVoice;
 }
 
 /// <summary>Renames a created channel and / or makes it private / public. Server admins only.</summary>

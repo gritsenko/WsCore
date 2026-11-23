@@ -132,7 +132,8 @@ public sealed class SqliteChatStorage : IChatStorage
     //       the device key it came with).
     //   4 — created channels: channels.name / is_private / created_ms (a channel with a
     //       name was created by an admin) and channel_members.has_access (private channels).
-    private const int SchemaVersion = 4;
+    //   5 — voice channels: channels.is_voice (a created channel that is a voice channel).
+    private const int SchemaVersion = 5;
 
     private void MigrateUsers()
     {
@@ -186,6 +187,8 @@ public sealed class SqliteChatStorage : IChatStorage
                 ALTER TABLE channel_members ADD COLUMN has_access INTEGER NOT NULL DEFAULT 0;
                 """);
         }
+        if (version < 5)
+            Execute("ALTER TABLE channels ADD COLUMN is_voice INTEGER NOT NULL DEFAULT 0;");
         Execute($"PRAGMA user_version = {SchemaVersion};");
         tx.Commit();
 
@@ -272,7 +275,7 @@ public sealed class SqliteChatStorage : IChatStorage
         var channels = new List<StoredChannel>();
         using (var cmd = _db.CreateCommand())
         {
-            cmd.CommandText = "SELECT room_id, default_permissions, name, is_private, created_ms FROM channels;";
+            cmd.CommandText = "SELECT room_id, default_permissions, name, is_private, created_ms, is_voice FROM channels;";
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
@@ -281,6 +284,7 @@ public sealed class SqliteChatStorage : IChatStorage
                     Name = reader.IsDBNull(2) ? null : reader.GetString(2),
                     IsPrivate = reader.GetInt64(3) != 0,
                     CreatedMs = reader.GetInt64(4),
+                    IsVoice = reader.GetInt64(5) != 0,
                 });
             }
         }
@@ -440,10 +444,10 @@ public sealed class SqliteChatStorage : IChatStorage
 
         _upsertChannel = _db.CreateCommand();
         _upsertChannel.CommandText = """
-            INSERT OR REPLACE INTO channels(room_id, default_permissions, name, is_private, created_ms)
-            VALUES($room, $perms, $name, $private, $created);
+            INSERT OR REPLACE INTO channels(room_id, default_permissions, name, is_private, created_ms, is_voice)
+            VALUES($room, $perms, $name, $private, $created, $voice);
             """;
-        AddParameters(_upsertChannel, "$room", "$perms", "$name", "$private", "$created");
+        AddParameters(_upsertChannel, "$room", "$perms", "$name", "$private", "$created", "$voice");
 
         // A deleted channel takes its members and its history with it.
         _deleteChannel = _db.CreateCommand();
@@ -630,6 +634,7 @@ public sealed class SqliteChatStorage : IChatStorage
                         _upsertChannel.Parameters[2].Value = (object?)c.Name ?? DBNull.Value;
                         _upsertChannel.Parameters[3].Value = c.IsPrivate ? 1L : 0L;
                         _upsertChannel.Parameters[4].Value = c.CreatedMs;
+                        _upsertChannel.Parameters[5].Value = c.IsVoice ? 1L : 0L;
                         _upsertChannel.ExecuteNonQuery();
                         break;
                     case SaveChannelMemberOp(var cm):

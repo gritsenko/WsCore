@@ -7,6 +7,7 @@ using WsServer.Chat;
 using WsServer.Moderation;
 using WsServer.Rooms;
 using WsServer.Sessions;
+using WsServer.Voice;
 
 namespace WsServer;
 
@@ -34,6 +35,7 @@ public class GameServer : GameServerBase<GameModel>
         SessionManager sessions,
         ChatHistoryService chatHistory,
         ChannelPermissions channels,
+        VoiceService voice,
         GameServerOptions options,
         ILogger<GameServer> logger) : base(gameModel, messenger, connectionManager, serverLogicProvider, options, logger)
     {
@@ -48,6 +50,7 @@ public class GameServer : GameServerBase<GameModel>
         // only when it joins a spatial room (see SessionManager).
         OnClientAdded += _sessions.Connect;
         OnClientRemoved += _sessions.Disconnect;
+        OnClientRemoved += voice.Disconnect; // after the session: the roster goes to who is left
         OnTick += GameServer_OnTick;
 
         _snapshotSendEveryTicks = Math.Max(1, options.SnapshotSendEveryTicks);
@@ -71,9 +74,10 @@ public class GameServer : GameServerBase<GameModel>
             new[] { RoomCompatibility.TextChat },
             isPersistent: true);
 
-        // Voice room - voice chat only (persistent)
+        // Voice room - a voice channel with its own text chat (persistent). Voice is joined
+        // separately from the text room (see VoiceService).
         _roomManager.CreateRoom(
-            "voice",
+            VoiceRoomId,
             "Voice Room",
             new[] { RoomCompatibility.VoiceChat, RoomCompatibility.TextChat },
             isPersistent: true);
@@ -88,16 +92,21 @@ public class GameServer : GameServerBase<GameModel>
             isPersistent: true,
             isHidden: true);
 
-        // Channels created by admins: plain text-chat rooms.
+        // Channels created by admins: text-chat rooms, voice channels also with voice.
         foreach (var channel in _channels.CreatedChannels)
-            CreateChannelRoom(_roomManager, channel.RoomId, channel.Name);
+            CreateChannelRoom(_roomManager, channel.RoomId, channel.Name, channel.IsVoice);
     }
 
     public const string GameRoomId = "game";
+    public const string VoiceRoomId = "voice";
 
     /// <summary>The room of a channel created by an admin.</summary>
-    public static Room CreateChannelRoom(RoomManager rooms, string roomId, string name)
-        => rooms.CreateRoom(roomId, name, new[] { RoomCompatibility.TextChat }, isPersistent: true, isCreated: true);
+    public static Room CreateChannelRoom(RoomManager rooms, string roomId, string name, bool isVoice = false)
+        => rooms.CreateRoom(roomId, name,
+            isVoice
+                ? new[] { RoomCompatibility.VoiceChat, RoomCompatibility.TextChat }
+                : new[] { RoomCompatibility.TextChat },
+            isPersistent: true, isCreated: true);
 
     private void GameServer_OnTick()
     {

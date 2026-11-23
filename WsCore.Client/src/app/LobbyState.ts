@@ -1,6 +1,7 @@
 import WsClient from '../network/WsClient';
 import Player from '../game/Player';
-import LobbyUI, { LobbyMember, LobbyMessage } from '../lobby/LobbyUI';
+import LobbyUI, { LobbyMember, LobbyMessage, VoiceControl } from '../lobby/LobbyUI';
+import type VoiceChat from '../voice/VoiceChat';
 import { ChatEntry, ChatLogChange } from '../network/ChatLog';
 import {
   AccountAction,
@@ -75,6 +76,28 @@ const MODERATION_DONE: Partial<Record<ModerationAction, string>> = {
   [ModerationAction.SetAccess]: 'Доступ обновлён',
 };
 
+/** Why voice stopped / could not start (VoiceChat's and the server's `VoiceError` codes). */
+const VOICE_ERRORS: Record<string, string> = {
+  mic_denied: 'Нет доступа к микрофону — разрешите его в настройках браузера',
+  mic_missing: 'Микрофон не найден',
+  mic_unavailable: 'Микрофон занят или недоступен',
+  mic_lost: 'Микрофон отключился',
+  insecure: 'Голос работает только по HTTPS',
+  full: 'В канале нет мест',
+  banned: 'Вы заблокированы в этом канале',
+  no_access: 'Нет доступа к каналу',
+  no_channel: 'Канал не найден',
+  not_voice: 'Это не голосовой канал',
+  not_identified: 'Сервер ещё не знает вас — попробуйте через секунду',
+  too_fast: 'Слишком часто — попробуйте через секунду',
+  moved: 'Вы подключились к голосу в другой вкладке',
+  removed: 'Вас отключили от голосового канала',
+};
+
+export function describeVoiceError(code: string): string {
+  return VOICE_ERRORS[code] ?? 'Не удалось подключиться к голосу';
+}
+
 const ACCOUNT_DONE: Partial<Record<AccountAction, string>> = {
   [AccountAction.Claim]: 'Аккаунт закреплён',
   [AccountAction.Profile]: 'Сохранено',
@@ -92,15 +115,19 @@ export default class LobbyState {
 
   /** Notifications on this device (the profile dialog's switch); absent in tests. */
   private readonly alerts: ChatAlerts | null;
+  /** Voice chat (owned by App, outlives this state); absent in tests. */
+  private readonly voice: VoiceChat<Player> | null;
 
   constructor(
     client: WsClient<Player>,
     onEnterGame: (roomId: string) => void,
-    alerts: ChatAlerts | null = null
+    alerts: ChatAlerts | null = null,
+    voice: VoiceChat<Player> | null = null
   ) {
     this.client = client;
     this.onEnterGame = onEnterGame;
     this.alerts = alerts;
+    this.voice = voice;
   }
 
   /** Show `roomId` (a clicked notification), unless it is already shown or a game room. */
@@ -128,6 +155,8 @@ export default class LobbyState {
     this.ui.setOnManageChannelCallback(() => this.openChannelDialog());
     this.ui.setOnManageMemberCallback(userId => this.openChannelDialog()?.openMember(userId));
     this.ui.setOnCreateChannelCallback(() => this.openCreateChannel());
+    this.ui.setOnVoiceJoinCallback(roomId => this.joinVoice(roomId));
+    this.ui.setOnVoiceControlCallback(control => this.voiceControl(control));
 
     this.unsubs.push(
       this.client.on('roomList', () => {
@@ -143,7 +172,9 @@ export default class LobbyState {
       this.client.on('presence', () => {
         this.refreshRoles();
         this.profile?.update(this.profileView());
+        if (this.client.voiceRoster.size > 0) this.renderRooms(); // names / pictures in voice
       }),
+      this.client.on('voiceRoster', () => this.renderRooms()),
       this.client.on('permissions', () => this.refreshRoles()),
       this.client.on('chatDeleted', (roomId, messageId) => {
         if (roomId === this.ui.getCurrentRoomId()) this.ui.removeMessage(messageId);
@@ -153,9 +184,11 @@ export default class LobbyState {
     );
     if (this.alerts)
       this.unsubs.push(this.alerts.onStatusChange(() => this.profile?.update(this.profileView())));
+    if (this.voice) this.unsubs.push(this.voice.on('change', () => this.renderVoice()));
 
     // Rooms may already be known (coming back from the game).
     this.renderRooms();
+    this.renderVoice();
   }
 
   /**
@@ -342,15 +375,78 @@ export default class LobbyState {
   }
 
   private renderRooms(): void {
+    const client = this.client;
     this.ui.setRooms(
-      this.client.roomManager.getAllRooms().map(room => ({
+      client.roomManager.getAllRooms().map(room => ({
         id: room.id,
         name: room.name,
         userCount: room.userCount,
         playable: room.supportsMode(CommunicationMode.Spatial),
         isPrivate: room.isPrivate,
+        isVoice: room.supportsMode(CommunicationMode.VoiceChat),
+        voice: client.voiceParticipants(room.id).map(p => {
+          const user = client.presence.get(p.userId);
+          return {
+            clientId: p.clientId,
+            name: user?.name ?? `User ${p.userId}`,
+            avatarUrl: client.avatarUrl(user),
+            isSelf: p.clientId === client.clientId,
+            muted: p.muted,
+            deafened: p.deafened,
+          };
+        }),
       }))
     );
+    if (this.voice) this.ui.setVoiceSpeaking(this.voice.speaking);
+  }
+
+  // ==================== voice ====================
+
+  private renderVoice(): void {
+    const voice = this.voice;
+    if (!voice) return;
+    const roomId = voice.roomId;
+    this.ui.setVoice(
+      {
+        status: voice.status,
+        roomName: roomId ? this.roomName(roomId) : null,
+        muted: voice.muted,
+        deafened: voice.deafened,
+        error: voice.error ? describeVoiceError(voice.error) : null,
+      },
+      roomId
+    );
+    this.ui.setVoiceSpeaking(voice.speaking);
+  }
+
+  private joinVoice(roomId: string): void {
+    if (!this.voice) return;
+    // Banned there: the server would refuse; say so without asking for the microphone.
+    if (this.client.permissions.isBanned(this.client.subject, roomId)) {
+      this.ui.addSystemMessage(`Вы заблокированы в канале «${this.roomName(roomId)}»`);
+      return;
+    }
+    void this.voice.join(roomId);
+  }
+
+  private voiceControl(control: VoiceControl): void {
+    const voice = this.voice;
+    if (!voice) return;
+    switch (control) {
+      case 'mute':
+        voice.toggleMute();
+        break;
+      case 'deafen':
+        voice.toggleDeafen();
+        break;
+      case 'leave':
+        voice.leave();
+        break;
+      case 'dismiss':
+        voice.error = null;
+        this.renderVoice();
+        break;
+    }
   }
 
   // ==================== members ====================
@@ -524,7 +620,7 @@ export default class LobbyState {
   private openCreateChannel(): void {
     if (this.createChannelDialog || !this.client.subject?.isAdmin) return;
     this.createChannelDialog = new CreateChannelDialog({
-      onCreate: (name, isPrivate) => this.client.createChannel(name, isPrivate),
+      onCreate: (name, isPrivate, isVoice) => this.client.createChannel(name, isPrivate, isVoice),
       onClose: () => this.closeCreateChannel(),
     });
   }

@@ -8,6 +8,10 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:80
+      # Voice: TURN credentials for the coturn service below (empty secret = STUN only).
+      - GameServer__VoiceTurnSecret=${TURN_SECRET:-}
+      - GameServer__VoiceTurnUrls__0=turn:${TURN_HOST:-localhost}:3478?transport=udp
+      - GameServer__VoiceTurnUrls__1=turn:${TURN_HOST:-localhost}:3478?transport=tcp
     expose:
       - "80"
     volumes:
@@ -37,6 +41,24 @@ services:
       - game-network
     depends_on:
       - game-server
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # TURN relay for voice channels (WebRTC). Enabled by COMPOSE_PROFILES=turn in .env,
+  # with TURN_SECRET (shared with game-server above) and TURN_HOST (the public host name).
+  # Host networking: it needs a public UDP port range, which bridged Docker handles badly.
+  coturn:
+    image: coturn/coturn:4.6.3
+    container_name: coturn
+    restart: unless-stopped
+    profiles: ["turn"]
+    network_mode: host
+    volumes:
+      - ./turnserver.conf:/etc/coturn/turnserver.conf:ro
+    command: ["-c", "/etc/coturn/turnserver.conf", "--static-auth-secret=${TURN_SECRET:-}"]
     logging:
       driver: "json-file"
       options:

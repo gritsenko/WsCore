@@ -22,6 +22,26 @@ const ICONS = {
       '<path d="M7.500 10v3M6 11.500h3M15.500 10.500h.010M17.500 12.500h.010"/>'
   ),
   menu: svg('<path d="M4 7h16M4 12h16M4 17h16"/>'),
+  mic: svg(
+    '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>',
+    18
+  ),
+  micOff: svg(
+    '<path d="M15 10V6a3 3 0 0 0-5.700-1.300M9 9v2a3 3 0 0 0 4.900 2.300M5 11a7 7 0 0 0 11.500 5.400M19 11a7 7 0 0 1-.400 2.300M12 18v3M3 3l18 18"/>',
+    18
+  ),
+  headphones: svg(
+    '<path d="M4 15v-3a8 8 0 0 1 16 0v3"/><rect x="3" y="14" width="5" height="7" rx="2"/><rect x="16" y="14" width="5" height="7" rx="2"/>',
+    18
+  ),
+  headphonesOff: svg(
+    '<path d="M4 15v-3a8 8 0 0 1 12.600-6.500M20 12v3"/><rect x="3" y="14" width="5" height="7" rx="2"/><rect x="16" y="14" width="5" height="7" rx="2"/><path d="M3 3l18 18"/>',
+    18
+  ),
+  hangUp: svg(
+    '<path d="M3 15.500c5-4.700 13-4.700 18 0l-2.300 2.300-3.200-1.500v-2.600a12 12 0 0 0-7 0v2.600l-3.200 1.500z"/>',
+    18
+  ),
   send: svg('<path d="M21 3 10.500 13.500M21 3l-6.500 18-4-7.500L3 9.500 21 3z"/>'),
   trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>', 16),
   shield: svg('<path d="M12 3 5 6v5c0 4.500 3 8.300 7 10 4-1.700 7-5.500 7-10V6l-7-3z"/>', 18),
@@ -55,7 +75,7 @@ export function el<K extends keyof HTMLElementTagNameMap>(
  */
 export function createAvatar(
   name: string,
-  size: 'sm' | 'md' | 'lg',
+  size: 'xs' | 'sm' | 'md' | 'lg',
   status?: 'online' | 'away' | 'offline',
   imageUrl?: string | null
 ): HTMLDivElement {
@@ -166,7 +186,34 @@ export interface LobbyRoom {
   playable: boolean;
   /** A private channel (seen only by admins and the members given access): a lock icon. */
   isPrivate?: boolean;
+  /** A voice channel: clicking it also joins its voice; who talks there is listed under it. */
+  isVoice?: boolean;
+  /** Who is in its voice right now. */
+  voice?: LobbyVoiceParticipant[];
 }
+
+/** Someone in a voice channel, as listed under it. */
+export interface LobbyVoiceParticipant {
+  clientId: number;
+  name: string;
+  avatarUrl?: string | null;
+  isSelf: boolean;
+  muted: boolean;
+  deafened: boolean;
+}
+
+/** Our own voice: the panel above the profile. */
+export interface LobbyVoiceView {
+  status: 'off' | 'connecting' | 'connected';
+  /** The voice channel (connecting / connected). */
+  roomName: string | null;
+  muted: boolean;
+  deafened: boolean;
+  /** Why voice stopped / could not start, worded; shown while off. */
+  error: string | null;
+}
+
+export type VoiceControl = 'mute' | 'deafen' | 'leave' | 'dismiss';
 
 /**
  * Lobby UI: sidebar (brand, rooms, member list, current user) + room chat.
@@ -203,6 +250,21 @@ export default class LobbyUI {
   private manageButton: HTMLButtonElement | null = null;
   private createChannelButton: HTMLButtonElement | null = null;
   private createChannelCallback: (() => void) | null = null;
+  private voiceJoinCallback: ((roomId: string) => void) | null = null;
+  private voiceControlCallback: ((control: VoiceControl) => void) | null = null;
+  /** Our voice: the panel above the profile (+ compact header controls on phones). */
+  private voicePanel: HTMLDivElement | null = null;
+  private headerVoice: HTMLDivElement | null = null;
+  private voice: LobbyVoiceView = {
+    status: 'off',
+    roomName: null,
+    muted: false,
+    deafened: false,
+    error: null,
+  };
+  /** Voice channel we are in (or joining) — its row says so. */
+  private voiceRoomId: string | null = null;
+  private speaking: ReadonlySet<number> = new Set();
   private sendButton: HTMLButtonElement | null = null;
   /** "Open this link?" — a link in a message opens only once confirmed here. */
   private linkPopover: HTMLDivElement | null = null;
@@ -354,6 +416,10 @@ export default class LobbyUI {
     usersSection.appendChild(this.usersList);
     sidebar.appendChild(usersSection);
 
+    this.voicePanel = el('div', 'lobby-voice-panel');
+    this.voicePanel.hidden = true;
+    sidebar.appendChild(this.voicePanel);
+
     // Our own entry; a click opens the profile (name, avatar, about, account).
     this.meSection = el('div', 'lobby-me');
     this.meSection.setAttribute('role', 'button');
@@ -427,6 +493,10 @@ export default class LobbyUI {
     this.manageButton.hidden = true;
     this.manageButton.onclick = () => this.manageChannelCallback?.();
     headerTools.appendChild(this.manageButton);
+    // Phone layout only (CSS): mute / leave voice without opening the drawer.
+    this.headerVoice = el('div', 'lobby-header-voice');
+    this.headerVoice.hidden = true;
+    headerTools.appendChild(this.headerVoice);
     header.appendChild(headerTools);
     chatArea.appendChild(header);
 
@@ -585,6 +655,147 @@ export default class LobbyUI {
     this.profileCallback = callback;
   }
 
+  /** Clicking a voice channel we are not talking in. */
+  setOnVoiceJoinCallback(callback: (roomId: string) => void): void {
+    this.voiceJoinCallback = callback;
+  }
+
+  /** The voice panel's buttons. */
+  setOnVoiceControlCallback(callback: (control: VoiceControl) => void): void {
+    this.voiceControlCallback = callback;
+  }
+
+  /** Our voice state (the panel); `roomId` = the voice channel we are in / joining. */
+  setVoice(view: LobbyVoiceView, roomId: string | null): void {
+    const roomChanged = roomId !== this.voiceRoomId;
+    this.voice = view;
+    this.voiceRoomId = roomId;
+    this.updateVoicePanel();
+    if (roomChanged) this.updateRoomsList();
+  }
+
+  /** Who is speaking (client ids): only the rings under the voice channels change. */
+  setVoiceSpeaking(speaking: ReadonlySet<number>): void {
+    this.speaking = new Set(speaking);
+    this.roomsList?.querySelectorAll<HTMLElement>('.lobby-voice-member').forEach(item => {
+      item.classList.toggle(
+        'lobby-voice-speaking',
+        this.speaking.has(Number(item.dataset.clientId))
+      );
+    });
+    this.voicePanel?.classList.toggle(
+      'lobby-voice-panel-speaking',
+      [...this.speaking].some(id => this.isSelfVoice(id))
+    );
+  }
+
+  private isSelfVoice(clientId: number): boolean {
+    return (
+      this.rooms
+        .get(this.voiceRoomId ?? '')
+        ?.voice?.some(p => p.clientId === clientId && p.isSelf) ?? false
+    );
+  }
+
+  private updateVoicePanel(): void {
+    const panel = this.voicePanel;
+    if (!panel) return;
+    const v = this.voice;
+    panel.innerHTML = '';
+    panel.hidden = v.status === 'off' && !v.error;
+    panel.classList.toggle('lobby-voice-panel-connected', v.status === 'connected');
+    if (this.headerVoice) {
+      this.headerVoice.innerHTML = '';
+      this.headerVoice.hidden = v.status === 'off';
+    }
+    if (panel.hidden) return;
+
+    if (v.status === 'off') {
+      // Only an error to tell.
+      const text = el('div', 'lobby-voice-panel-text');
+      text.appendChild(
+        el('div', 'lobby-voice-panel-title lobby-voice-panel-error', 'Голос отключён')
+      );
+      text.appendChild(el('div', 'lobby-voice-panel-detail', v.error ?? ''));
+      panel.appendChild(text);
+      const dismiss = this.voiceButton('Скрыть', '×', 'dismiss');
+      dismiss.classList.add('lobby-voice-dismiss');
+      panel.appendChild(dismiss);
+      return;
+    }
+
+    const text = el('div', 'lobby-voice-panel-text');
+    text.appendChild(
+      el(
+        'div',
+        'lobby-voice-panel-title',
+        v.status === 'connected' ? 'Голос подключён' : 'Подключение…'
+      )
+    );
+    text.appendChild(el('div', 'lobby-voice-panel-detail', v.roomName ?? ''));
+    panel.appendChild(text);
+
+    const controls = el('div', 'lobby-voice-controls');
+    controls.append(...this.voiceControls());
+    panel.appendChild(controls);
+    if (this.headerVoice) {
+      const compact = this.voiceControls();
+      this.headerVoice.append(compact[0], compact[2]); // mute + leave
+    }
+  }
+
+  private voiceControls(): HTMLButtonElement[] {
+    const v = this.voice;
+    const mute = this.voiceButton(
+      v.muted ? 'Включить микрофон' : 'Выключить микрофон',
+      v.muted ? ICONS.micOff : ICONS.mic,
+      'mute'
+    );
+    mute.classList.toggle('lobby-voice-btn-off', v.muted);
+    mute.setAttribute('aria-pressed', String(v.muted));
+    const deafen = this.voiceButton(
+      v.deafened ? 'Включить звук' : 'Выключить звук',
+      v.deafened ? ICONS.headphonesOff : ICONS.headphones,
+      'deafen'
+    );
+    deafen.classList.toggle('lobby-voice-btn-off', v.deafened);
+    deafen.setAttribute('aria-pressed', String(v.deafened));
+    const leave = this.voiceButton('Отключиться', ICONS.hangUp, 'leave');
+    leave.classList.add('lobby-voice-leave');
+    return [mute, deafen, leave];
+  }
+
+  private voiceButton(label: string, icon: string, control: VoiceControl): HTMLButtonElement {
+    const button = el('button', 'lobby-voice-btn');
+    button.type = 'button';
+    button.title = label;
+    button.setAttribute('aria-label', label);
+    if (icon.startsWith('<svg')) button.innerHTML = icon;
+    else button.textContent = icon;
+    button.onclick = () => this.voiceControlCallback?.(control);
+    return button;
+  }
+
+  private buildVoiceMembers(room: LobbyRoom): HTMLDivElement {
+    const list = el('div', 'lobby-voice-members');
+    for (const p of room.voice ?? []) {
+      const item = el('div', 'lobby-voice-member');
+      item.dataset.clientId = String(p.clientId);
+      if (this.speaking.has(p.clientId)) item.classList.add('lobby-voice-speaking');
+      if (p.isSelf) item.classList.add('lobby-voice-self');
+      item.appendChild(createAvatar(p.name, 'xs', undefined, p.avatarUrl));
+      item.appendChild(el('span', 'lobby-voice-member-name', p.name));
+      if (p.deafened || p.muted) {
+        const state = el('span', 'lobby-voice-member-state');
+        state.innerHTML = p.deafened ? ICONS.headphonesOff : ICONS.micOff;
+        state.title = p.deafened ? 'Звук выключен' : 'Микрофон выключен';
+        item.appendChild(state);
+      }
+      list.appendChild(item);
+    }
+    return list;
+  }
+
   /**
    * Update room list display
    */
@@ -606,8 +817,13 @@ export default class LobbyUI {
       const icon = el('span', 'lobby-room-icon');
       icon.innerHTML = room.isPrivate
         ? ICONS.lock
-        : (ROOM_ICONS[roomId] ?? (room.playable ? ICONS.game : ICONS.lobby));
-      if (room.isPrivate) icon.title = 'Закрытый канал';
+        : room.isVoice
+          ? ICONS.voice
+          : (ROOM_ICONS[roomId] ?? (room.playable ? ICONS.game : ICONS.lobby));
+      if (room.isPrivate) icon.title = room.isVoice ? 'Закрытый голосовой канал' : 'Закрытый канал';
+      else if (room.isVoice) icon.title = 'Голосовой канал';
+      if (room.isVoice) roomElement.classList.add('lobby-room-voice');
+      if (roomId === this.voiceRoomId) roomElement.classList.add('lobby-room-in-voice');
       roomElement.appendChild(icon);
 
       const roomContent = el('div', 'lobby-room-content');
@@ -632,14 +848,15 @@ export default class LobbyUI {
       }
 
       // A game room is entered through the game (joining it gives you an avatar);
-      // any other room is joined as a chat room.
+      // any other room is joined as a chat room — a voice channel also joins its voice.
       roomElement.onclick = () => {
         this.closeNav();
         if (room.playable) {
           this.playCallback?.(roomId);
-        } else if (this.roomJoinCallback && roomId !== this.currentRoomId) {
-          this.roomJoinCallback(roomId);
+          return;
         }
+        if (this.roomJoinCallback && roomId !== this.currentRoomId) this.roomJoinCallback(roomId);
+        if (room.isVoice && roomId !== this.voiceRoomId) this.voiceJoinCallback?.(roomId);
       };
       roomElement.onkeydown = e => {
         if (e.target === roomElement && (e.key === 'Enter' || e.key === ' ')) {
@@ -649,6 +866,8 @@ export default class LobbyUI {
       };
 
       this.roomsList.appendChild(roomElement);
+      if (room.isVoice && room.voice && room.voice.length > 0)
+        this.roomsList.appendChild(this.buildVoiceMembers(room));
     }
   }
 
@@ -1212,6 +1431,8 @@ export default class LobbyUI {
     this.sendButton = null;
     this.manageButton = null;
     this.createChannelButton = null;
+    this.voicePanel = null;
+    this.headerVoice = null;
     this.usersList = null;
     this.usersCount = null;
     this.roomsList = null;
