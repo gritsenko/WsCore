@@ -7,6 +7,8 @@ function channel(
     defaults?: number;
     admins?: [number, number, string][];
     restrictions?: [number, number, boolean, number][];
+    isPrivate?: boolean;
+    members?: number[];
   } = {}
 ): ChannelPermissions {
   return {
@@ -21,6 +23,8 @@ function channel(
         { userId, denied, banned, untilMs },
       ])
     ),
+    isPrivate: opts.isPrivate ?? false,
+    members: new Set(opts.members ?? []),
   };
 }
 
@@ -90,5 +94,19 @@ describe('PermissionStore', () => {
 
     store.apply([], true);
     expect(store.rightsOf(user(2), 'lobby')).toBe(0);
+  });
+
+  it('knows who was given access to a private channel', () => {
+    const store = new PermissionStore();
+    store.apply([channel('c1', { isPrivate: true, members: [5] })], true);
+    expect(store.channel('c1').isPrivate).toBe(true);
+    expect(store.hasAccess('c1', 5)).toBe(true);
+    expect(store.hasAccess('c1', 6)).toBe(false);
+    expect(store.hasAccess('elsewhere', 5)).toBe(false);
+    expect(store.channel('unknown').isPrivate).toBe(false);
+  });
+
+  it('the invite right is one of all rights', () => {
+    expect(ChannelRight.All & ChannelRight.InviteUsers).toBe(ChannelRight.InviteUsers);
   });
 });

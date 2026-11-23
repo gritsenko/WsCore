@@ -8,6 +8,8 @@
  *  * A channel admin has the rights it was given (+ an optional title).
  *  * Everyone else has the channel's default permissions, minus what a restriction of
  *    theirs denies (a ban denies everything). Admins are never restricted.
+ *  * A private channel is seen only by server admins, its admins and the members given
+ *    access (the server does not even list it for anyone else).
  *
  * Pure state (no socket, no DOM), so it is unit-tested directly.
  */
@@ -19,7 +21,9 @@ export enum ChannelRight {
   RestrictMembers = 2,
   /** Promote / demote admins (never with more rights than one's own). */
   AddAdmins = 4,
-  All = 7,
+  /** Give / take away access to a private channel. */
+  InviteUsers = 8,
+  All = 15,
 }
 
 /** What a member may do (server `MemberPermissions`). */
@@ -37,6 +41,10 @@ export enum ModerationAction {
   SetServerAdmin = 4,
   DeleteMessage = 5,
   SendMessage = 6,
+  CreateChannel = 7,
+  UpdateChannel = 8,
+  DeleteChannel = 9,
+  SetAccess = 10,
 }
 
 export interface ModerationResult {
@@ -44,6 +52,8 @@ export interface ModerationResult {
   success: boolean;
   /** Server `ModerationError` code ("forbidden", "muted"…); null on success. */
   error: string | null;
+  /** The channel the action was about (for CreateChannel: the new channel). */
+  roomId: string | null;
 }
 
 export interface ChannelAdmin {
@@ -67,6 +77,10 @@ export interface ChannelPermissions {
   defaults: number;
   admins: Map<number, ChannelAdmin>;
   restrictions: Map<number, ChannelRestriction>;
+  /** Only admins and the members given access see and enter it. */
+  isPrivate: boolean;
+  /** The users given access (meaningful while private). */
+  members: Set<number>;
 }
 
 /** Whoever the rules are asked about: a user id plus whether they are a server admin. */
@@ -101,6 +115,8 @@ export class PermissionStore {
         defaults: MemberPermission.All,
         admins: new Map(),
         restrictions: new Map(),
+        isPrivate: false,
+        members: new Set(),
       }
     );
   }
@@ -137,6 +153,11 @@ export class PermissionStore {
   isBanned(who: Subject | undefined, roomId: string): boolean {
     if (!who || this.rightsOf(who, roomId) !== 0) return false;
     return this.restriction(roomId, who.userId)?.banned === true;
+  }
+
+  /** Whether `userId` was given access to the (private) channel. */
+  hasAccess(roomId: string, userId: number): boolean {
+    return this.channels.get(roomId)?.members.has(userId) ?? false;
   }
 
   /** Whether `who` may delete a message written by `authorId` in the channel. */
@@ -179,6 +200,10 @@ export const MODERATION_ERRORS: Record<string, string> = {
   banned: 'Вы заблокированы в этом канале',
   links_forbidden: 'В этом канале нельзя отправлять ссылки',
   too_fast: 'Слишком часто — попробуйте через секунду',
+  no_access: 'Это закрытый канал — попросите администратора дать вам доступ',
+  bad_name: 'Укажите название канала',
+  too_many: 'Создано слишком много каналов',
+  built_in: 'Встроенный канал нельзя изменить или удалить',
 };
 
 export function describeModerationError(error: string | null): string {

@@ -13,6 +13,8 @@ export interface ChannelUser {
   admin: { rights: number; title: string } | null;
   /** Their active restriction in this channel. */
   restriction: { denied: number; banned: boolean; untilMs: number } | null;
+  /** Given access to this channel (matters while it is private). */
+  hasAccess: boolean;
   isSelf: boolean;
 }
 
@@ -21,6 +23,10 @@ export interface ChannelDialogView {
   roomName: string;
   /** The room every connection lands in: it can mute, but not ban. */
   isHomeRoom: boolean;
+  /** Created by an admin: a server admin may rename it, make it private, delete it. */
+  isCreated: boolean;
+  /** Seen only by admins and the members given access. */
+  isPrivate: boolean;
   /** Our admin rights here (ChannelRight flags; all of them for a server admin). */
   myRights: number;
   iAmServerAdmin: boolean;
@@ -37,16 +43,18 @@ export interface ChannelDialogHandlers {
   onSetAdmin(userId: number, rights: number, title: string): void;
   onRestrict(userId: number, denied: number, banned: boolean, durationSeconds: number): void;
   onSetServerAdmin(userId: number, isAdmin: boolean): void;
+  onSetAccess(userId: number, hasAccess: boolean): void;
+  onUpdateChannel(name: string, isPrivate: boolean): void;
+  onDeleteChannel(): void;
   /** Manage another channel instead. */
   onSwitchChannel(roomId: string): void;
   onClose(): void;
 }
 
-type Tab = 'permissions' | 'admins' | 'restricted';
+type Tab = 'permissions' | 'admins' | 'restricted' | 'access' | 'settings';
+type Purpose = 'admin' | 'restrict' | 'access';
 type Page =
-  | { kind: 'tab' }
-  | { kind: 'pick'; purpose: 'admin' | 'restrict' }
-  | { kind: 'member'; userId: number };
+  { kind: 'tab' } | { kind: 'pick'; purpose: Purpose } | { kind: 'member'; userId: number };
 
 const RIGHTS: { flag: ChannelRight; label: string; hint: string }[] = [
   {
@@ -64,7 +72,15 @@ const RIGHTS: { flag: ChannelRight; label: string; hint: string }[] = [
     label: 'Назначение администраторов',
     hint: 'Только с теми правами, которые есть у вас',
   },
+  {
+    flag: ChannelRight.InviteUsers,
+    label: 'Приглашение участников',
+    hint: 'Давать и забирать доступ к закрытому каналу',
+  },
 ];
+
+/** Longest channel name (server `MaxChannelNameLength`). */
+export const CHANNEL_NAME_MAX_LENGTH = 32;
 
 const PERMISSIONS: { flag: MemberPermission; label: string }[] = [
   { flag: MemberPermission.SendMessages, label: 'Отправка сообщений' },
@@ -111,7 +127,10 @@ function roleOf(user: ChannelUser): string | null {
  *  * Разрешения — what every member may do;
  *  * Администраторы — who holds which rights (+ a title), promote / demote;
  *  * Ограничения — muted / banned members;
- * and one member's page (their rights, their restriction, the server-admin role).
+ *  * Доступ — who may see a private channel (with the InviteUsers right);
+ *  * Канал — name, private / public, deletion (a server admin, created channels only);
+ * and one member's page (their rights, their restriction, their access, the server-admin
+ * role).
  *
  * Purely presentational, like ProfileDialog: it reports what the user did through the
  * handlers; the server's answer and the resulting state come back through update() and
@@ -144,6 +163,7 @@ export default class ChannelDialog {
     this.view = view;
     this.handlers = handlers;
     this.tab = view.myRights & ChannelRight.RestrictMembers ? 'permissions' : 'admins';
+    if (view.isPrivate && view.myRights & ChannelRight.InviteUsers) this.tab = 'access';
 
     this.overlay = el('div', 'lobby-dialog-overlay');
     this.overlay.onpointerdown = e => {
@@ -244,6 +264,22 @@ export default class ChannelDialog {
     return (this.view.myRights & ChannelRight.AddAdmins) !== 0;
   }
 
+  private get canInvite(): boolean {
+    return (this.view.myRights & ChannelRight.InviteUsers) !== 0;
+  }
+
+  /** The tabs this channel has for us (Доступ only while private, Канал for created ones). */
+  private availableTabs(): [Tab, string][] {
+    const tabs: [Tab, string][] = [
+      ['permissions', 'Разрешения'],
+      ['admins', 'Администраторы'],
+      ['restricted', 'Ограничения'],
+    ];
+    if (this.view.isPrivate) tabs.push(['access', 'Доступ']);
+    if (this.view.isCreated && this.view.iAmServerAdmin) tabs.push(['settings', 'Канал']);
+    return tabs;
+  }
+
   private user(userId: number): ChannelUser | undefined {
     return this.view.users.find(u => u.userId === userId);
   }
@@ -253,13 +289,16 @@ export default class ChannelDialog {
   // What the current page shows: it is rebuilt only when this changes.
   private pageKey(): string {
     const v = this.view;
-    const base = `${v.roomId}|${v.myRights}|${v.iAmServerAdmin}|${JSON.stringify(this.page)}`;
+    const base = `${v.roomId}|${v.myRights}|${v.iAmServerAdmin}|${v.isPrivate}|${v.isCreated}|${JSON.stringify(this.page)}`;
     switch (this.page.kind) {
       case 'tab':
         if (this.tab === 'permissions') return `${base}|${this.tab}|${v.defaults}`;
+        if (this.tab === 'settings') return `${base}|${this.tab}|${v.roomName}`;
+        if (this.tab === 'access')
+          return `${base}|${this.tab}|${JSON.stringify(v.users.filter(u => u.hasAccess).map(u => [u.userId, u.name, u.login, u.avatarUrl]))}`;
         return `${base}|${this.tab}|${JSON.stringify(v.users.filter(u => u.admin || u.isServerAdmin || u.restriction))}`;
       case 'pick':
-        return `${base}|${JSON.stringify(v.users.map(u => [u.userId, u.name, u.login, !!u.admin, u.isServerAdmin]))}`;
+        return `${base}|${JSON.stringify(v.users.map(u => [u.userId, u.name, u.login, !!u.admin, u.isServerAdmin, u.hasAccess]))}`;
       case 'member':
         return `${base}|${v.isHomeRoom}|${JSON.stringify(this.user(this.page.userId) ?? null)}`;
     }
@@ -284,6 +323,8 @@ export default class ChannelDialog {
     this.channelPicker.value = this.view.roomId;
     this.back.hidden = this.page.kind === 'tab';
     this.tabs.hidden = this.page.kind !== 'tab';
+    // The tab may have gone away (the channel was made public).
+    if (!this.availableTabs().some(([tab]) => tab === this.tab)) this.tab = 'permissions';
 
     const key = this.pageKey();
     if (key === this.renderedKey) return;
@@ -294,6 +335,8 @@ export default class ChannelDialog {
       case 'tab':
         if (this.tab === 'permissions') this.renderPermissions();
         else if (this.tab === 'admins') this.renderAdmins();
+        else if (this.tab === 'access') this.renderAccess();
+        else if (this.tab === 'settings') this.renderSettings();
         else this.renderRestricted();
         break;
       case 'pick':
@@ -306,11 +349,7 @@ export default class ChannelDialog {
   }
 
   private renderTabs(): void {
-    const tabs: [Tab, string][] = [
-      ['permissions', 'Разрешения'],
-      ['admins', 'Администраторы'],
-      ['restricted', 'Ограничения'],
-    ];
+    const tabs = this.availableTabs();
     this.tabs.replaceChildren(
       ...tabs.map(([tab, label]) => {
         const button = el('button', 'lobby-channel-tab', label);
@@ -410,11 +449,79 @@ export default class ChannelDialog {
     this.body.replaceChildren(...children);
   }
 
-  private renderPicker(purpose: 'admin' | 'restrict'): void {
+  private renderAccess(): void {
+    const members = this.view.users
+      .filter(u => u.hasAccess)
+      .sort((a, b) => a.name.localeCompare(b.name));
+    const children: Node[] = [
+      hint(
+        'Закрытый канал видят только администраторы сервера, администраторы канала ' +
+          'и участники, которым дан доступ.'
+      ),
+    ];
+    if (this.canInvite) {
+      children.push(
+        buttonRow(
+          button('+ Дать доступ', 'primary', () => this.go({ kind: 'pick', purpose: 'access' }))
+        )
+      );
+    }
+    const list = el('div', 'lobby-channel-list');
+    for (const user of members) list.appendChild(this.userRow(user, 'есть доступ'));
+    if (members.length === 0) list.appendChild(hint('Пока доступ никому не дан.'));
+    children.push(list);
+    this.body.replaceChildren(...children);
+  }
+
+  private renderSettings(): void {
+    const name = el('input', 'lobby-dialog-input');
+    name.type = 'text';
+    name.maxLength = CHANNEL_NAME_MAX_LENGTH;
+    name.value = this.view.roomName;
+    const isPrivate = checkbox(
+      'Закрытый канал',
+      this.view.isPrivate,
+      false,
+      'Видят только администраторы и те, кому дан доступ; остальные выйдут из канала'
+    );
+    const save = button('Сохранить', 'primary', () => {
+      const value = name.value.trim();
+      if (!value) {
+        this.showStatus('Укажите название канала', true);
+        return;
+      }
+      this.handlers.onUpdateChannel(value, isPrivate.input.checked);
+    });
+
+    // Deleting asks once more, inline (the viewer has no confirm()).
+    const remove = button('Удалить канал', 'quiet', () => {
+      if (remove.dataset.armed) {
+        this.handlers.onDeleteChannel();
+        return;
+      }
+      remove.dataset.armed = '1';
+      remove.textContent = 'Точно удалить? Вся история пропадёт';
+      remove.classList.add('lobby-dialog-button-danger');
+    });
+
+    this.body.replaceChildren(
+      el('div', 'lobby-dialog-label', 'Название'),
+      name,
+      isPrivate.row,
+      buttonRow(save),
+      sectionTitle('Удаление'),
+      hint('Канал исчезнет вместе с историей сообщений; кто внутри — вернётся в общий канал.'),
+      buttonRow(remove)
+    );
+  }
+
+  private renderPicker(purpose: Purpose): void {
     const candidates = this.view.users.filter(u =>
       purpose === 'admin'
         ? !u.isServerAdmin && !u.admin && u.login !== null && !u.isSelf
-        : !u.isServerAdmin && !u.admin && !u.isSelf
+        : purpose === 'access'
+          ? !u.isServerAdmin && !u.admin && !u.hasAccess && !u.isSelf
+          : !u.isServerAdmin && !u.admin && !u.isSelf
     );
     const search = el('input', 'lobby-dialog-input');
     search.type = 'search';
@@ -441,7 +548,9 @@ export default class ChannelDialog {
     const hint =
       purpose === 'admin'
         ? 'Администратором можно сделать только закреплённый аккаунт (с логином).'
-        : 'Кого ограничить в этом канале.';
+        : purpose === 'access'
+          ? 'Кому открыть этот канал. Администраторы видят его и так.'
+          : 'Кого ограничить в этом канале.';
     this.body.replaceChildren(el('div', 'lobby-dialog-hint', hint), search, list);
     search.focus();
   }
@@ -492,6 +601,7 @@ export default class ChannelDialog {
     head.appendChild(who);
     children.push(head);
 
+    children.push(...this.accessSection(user));
     children.push(...this.adminSection(user));
     children.push(...this.restrictionSection(user));
 
@@ -522,6 +632,28 @@ export default class ChannelDialog {
     if (children.length === 1)
       children.push(hint('У вас нет прав, чтобы что-то изменить для этого участника.'));
     this.body.replaceChildren(...children);
+  }
+
+  private accessSection(user: ChannelUser): Node[] {
+    if (!this.view.isPrivate || !this.canInvite || user.isSelf) return [];
+    const nodes: Node[] = [sectionTitle('Доступ к закрытому каналу')];
+    if (user.isServerAdmin || user.admin)
+      return [...nodes, hint('Администратор видит канал и без отдельного доступа.')];
+    return [
+      ...nodes,
+      hint(
+        user.hasAccess
+          ? 'Видит канал и может в него войти.'
+          : 'Не видит канал, пока ему не дан доступ.'
+      ),
+      buttonRow(
+        button(
+          user.hasAccess ? 'Забрать доступ' : 'Дать доступ',
+          user.hasAccess ? 'quiet' : 'primary',
+          () => this.handlers.onSetAccess(user.userId, !user.hasAccess)
+        )
+      ),
+    ];
   }
 
   private adminSection(user: ChannelUser): Node[] {
@@ -694,4 +826,94 @@ function sectionTitle(text: string): HTMLDivElement {
 
 function hint(text: string): HTMLDivElement {
   return el('div', 'lobby-dialog-hint', text);
+}
+
+export interface CreateChannelHandlers {
+  onCreate(name: string, isPrivate: boolean): void;
+  onClose(): void;
+}
+
+/**
+ * "Новый канал": a name and whether it is private. Presentational like ChannelDialog —
+ * the caller closes it once the server confirms (and then enters the new channel), or
+ * shows the server's refusal through showStatus().
+ */
+export class CreateChannelDialog {
+  private readonly overlay: HTMLDivElement;
+  private readonly status: HTMLDivElement;
+  private readonly submit: HTMLButtonElement;
+  private readonly onKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') this.handlers.onClose();
+  };
+
+  constructor(private readonly handlers: CreateChannelHandlers) {
+    this.overlay = el('div', 'lobby-dialog-overlay');
+    this.overlay.onpointerdown = e => {
+      if (e.target === this.overlay) handlers.onClose();
+    };
+    const dialog = el('form', 'lobby-dialog lobby-create-channel');
+    dialog.setAttribute('role', 'dialog');
+    dialog.setAttribute('aria-label', 'Новый канал');
+    this.overlay.appendChild(dialog);
+
+    const header = el('div', 'lobby-dialog-header');
+    header.appendChild(el('span', 'lobby-dialog-title', 'Новый канал'));
+    const close = el('button', 'lobby-dialog-close', '×');
+    close.type = 'button';
+    close.setAttribute('aria-label', 'Закрыть');
+    close.onclick = () => handlers.onClose();
+    header.appendChild(close);
+
+    const name = el('input', 'lobby-dialog-input lobby-create-channel-name');
+    name.type = 'text';
+    name.maxLength = CHANNEL_NAME_MAX_LENGTH;
+    name.placeholder = 'Название канала';
+    name.required = true;
+    const isPrivate = checkbox(
+      'Закрытый канал',
+      true,
+      false,
+      'Видят только администраторы и те, кому вы дадите доступ'
+    );
+    this.submit = el('button', 'lobby-dialog-button lobby-dialog-button-primary', 'Создать');
+    this.submit.type = 'submit';
+    this.status = el('div', 'lobby-dialog-status');
+    this.status.hidden = true;
+
+    const body = el('div', 'lobby-channel-body');
+    body.append(
+      el('div', 'lobby-dialog-label', 'Название'),
+      name,
+      isPrivate.row,
+      buttonRow(this.submit)
+    );
+    dialog.append(header, body, this.status);
+    dialog.onsubmit = e => {
+      e.preventDefault();
+      const value = name.value.trim();
+      if (!value) {
+        this.showStatus('Укажите название канала', true);
+        return;
+      }
+      this.submit.disabled = true;
+      this.showStatus('');
+      handlers.onCreate(value, isPrivate.input.checked);
+    };
+
+    (document.getElementById('lobby-container') ?? document.body).appendChild(this.overlay);
+    document.addEventListener('keydown', this.onKeyDown);
+    name.focus();
+  }
+
+  showStatus(text: string, isError = false): void {
+    this.status.textContent = text;
+    this.status.hidden = !text;
+    this.status.classList.toggle('lobby-dialog-status-error', isError);
+    if (isError) this.submit.disabled = false;
+  }
+
+  destroy(): void {
+    document.removeEventListener('keydown', this.onKeyDown);
+    this.overlay.remove();
+  }
 }

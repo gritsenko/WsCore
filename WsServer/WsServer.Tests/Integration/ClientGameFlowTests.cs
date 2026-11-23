@@ -114,7 +114,8 @@ public class ClientGameFlowTests(EmbeddedServerFixture fixture) : IClassFixture<
         // A: room list on request, from the server.
         await SendRequest(a.Socket, new GetRoomListRequest(), cts.Token);
         var list = await a.WaitFor<RoomListEvent>(cts.Token);
-        Assert.Contains(list.Rooms, r => r.Id == "game" && r.SupportedModes.Contains("Spatial"));
+        Assert.Contains(list.Rooms, r => r.Id == "lobby");
+        Assert.DoesNotContain(list.Rooms, r => r.Id == "game"); // hidden from lists, joinable by id
 
         // B enters the game: confirmed, then the whole world (itself included), then ticks.
         await SendRequest(b.Socket, new JoinRoomRequest("game"), cts.Token);

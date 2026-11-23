@@ -4,6 +4,9 @@ using WsServer.Sessions;
 
 namespace WsServer.Moderation;
 
+/// <summary>A channel created by an admin (see <see cref="ChannelPermissions.CreatedChannels"/>).</summary>
+public sealed record CreatedChannel(string RoomId, string Name, bool IsPrivate);
+
 /// <summary>A user's standing in one channel: admin rights + title and / or a restriction.</summary>
 public sealed class ChannelMember(uint userId)
 {
@@ -14,6 +17,8 @@ public sealed class ChannelMember(uint userId)
     public bool Banned { get; set; }
     /// <summary>Unix ms when the restriction ends; 0 = forever.</summary>
     public long UntilMs { get; set; }
+    /// <summary>May see and enter the channel while it is private.</summary>
+    public bool HasAccess { get; set; }
 
     public bool IsAdmin => AdminRights != 0;
     public bool HasRestriction => Denied != 0 || Banned;
@@ -29,6 +34,11 @@ public sealed class ChannelMember(uint userId)
 ///    restriction of theirs denies (a ban denies everything, including entering).
 /// Admins are never restricted. Restrictions expire by themselves (checked on use).
 ///
+/// Channels and rooms are the same thing: besides the built-in rooms (defined in code)
+/// a server admin may create channels (<see cref="CreatedChannel"/>, persisted here and
+/// turned into rooms at startup). A private one is seen and entered only by server admins,
+/// its own admins and the members given access (<see cref="CanSee"/>).
+///
 /// Pure state + persistence (write-behind through <see cref="IChatStorage"/>); the rules
 /// about who may change it live in <see cref="ModerationService"/>. Tick thread only.
 /// </summary>
@@ -37,6 +47,10 @@ public sealed class ChannelPermissions
     private sealed class Channel
     {
         public byte DefaultPermissions = MemberPermissions.All;
+        // Set for a created channel (null = a built-in room, named in code).
+        public string? Name;
+        public bool IsPrivate;
+        public long CreatedMs;
         public readonly Dictionary<uint, ChannelMember> Members = new();
     }
 
@@ -50,7 +64,13 @@ public sealed class ChannelPermissions
     {
         _storage = storage;
         foreach (var c in snapshot.Channels)
-            Get(c.RoomId).DefaultPermissions = (byte)(c.DefaultPermissions & MemberPermissions.All);
+        {
+            var channel = Get(c.RoomId);
+            channel.DefaultPermissions = (byte)(c.DefaultPermissions & MemberPermissions.All);
+            channel.Name = c.Name;
+            channel.IsPrivate = c.Name != null && c.IsPrivate;
+            channel.CreatedMs = c.CreatedMs;
+        }
         foreach (var m in snapshot.ChannelMembers)
         {
             Get(m.RoomId).Members[m.UserId] = new ChannelMember(m.UserId)
@@ -60,11 +80,40 @@ public sealed class ChannelPermissions
                 Denied = (byte)(m.Denied & MemberPermissions.All),
                 Banned = m.Banned,
                 UntilMs = m.UntilMs,
+                HasAccess = m.HasAccess,
             };
         }
     }
 
     // ---- queries ----------------------------------------------------------------------
+
+    /// <summary>The channels created by admins, oldest first (rooms to create at startup).</summary>
+    public IEnumerable<CreatedChannel> CreatedChannels
+        => _channels.Where(p => p.Value.Name != null)
+            .OrderBy(p => p.Value.CreatedMs).ThenBy(p => p.Key, StringComparer.Ordinal)
+            .Select(p => new CreatedChannel(p.Key, p.Value.Name!, p.Value.IsPrivate));
+
+    public int CreatedChannelCount => _channels.Values.Count(c => c.Name != null);
+
+    public bool IsCreated(string roomId) => _channels.TryGetValue(roomId, out var c) && c.Name != null;
+
+    public bool IsPrivate(string roomId) => _channels.TryGetValue(roomId, out var c) && c.IsPrivate;
+
+    /// <summary>
+    /// Whether the user may see (and enter) the channel: anyone for a public one; for a
+    /// private one a server admin, an admin of the channel or a member given access —
+    /// never an anonymous connection. A ban is checked separately (<see cref="IsBanned"/>).
+    /// </summary>
+    public bool CanSee(UserAccount? user, string roomId)
+    {
+        if (!IsPrivate(roomId))
+            return true;
+        if (user == null)
+            return false;
+        if (user.IsAdmin)
+            return true;
+        return Member(roomId, user.Id) is { } m && (m.IsAdmin || m.HasAccess);
+    }
 
     public byte DefaultPermissions(string roomId)
         => _channels.TryGetValue(roomId, out var c) ? c.DefaultPermissions : MemberPermissions.All;
@@ -107,8 +156,50 @@ public sealed class ChannelPermissions
     {
         var channel = Get(roomId);
         channel.DefaultPermissions = (byte)(permissions & MemberPermissions.All);
-        _storage.SaveChannel(new StoredChannel(roomId, channel.DefaultPermissions));
+        SaveChannel(roomId, channel);
     }
+
+    /// <summary>Records a channel created by an admin (its room is created by the caller).</summary>
+    public void CreateChannel(string roomId, string name, bool isPrivate)
+    {
+        var channel = Get(roomId);
+        channel.Name = name;
+        channel.IsPrivate = isPrivate;
+        channel.CreatedMs = NowMs();
+        SaveChannel(roomId, channel);
+    }
+
+    /// <summary>Renames a created channel and / or makes it private or public.</summary>
+    public void UpdateChannel(string roomId, string name, bool isPrivate)
+    {
+        var channel = Get(roomId);
+        channel.Name = name;
+        channel.IsPrivate = isPrivate;
+        SaveChannel(roomId, channel);
+    }
+
+    /// <summary>Forgets a created channel with everyone's standing in it (and, in storage, its history).</summary>
+    public void DeleteChannel(string roomId)
+    {
+        _channels.Remove(roomId);
+        _storage.DeleteChannel(roomId);
+    }
+
+    /// <summary>Gives / takes away access to a (private) channel.</summary>
+    public void SetAccess(string roomId, uint userId, bool hasAccess)
+    {
+        var member = GetMember(roomId, userId);
+        member.HasAccess = hasAccess;
+        Save(roomId, member);
+    }
+
+    private void SaveChannel(string roomId, Channel channel)
+        => _storage.SaveChannel(new StoredChannel(roomId, channel.DefaultPermissions)
+        {
+            Name = channel.Name,
+            IsPrivate = channel.IsPrivate,
+            CreatedMs = channel.CreatedMs,
+        });
 
     /// <summary>Promotes / updates (rights != 0) or demotes (rights == 0). Promoting lifts any restriction.</summary>
     public void SetAdmin(string roomId, uint userId, byte rights, string title)
@@ -154,10 +245,10 @@ public sealed class ChannelPermissions
         return member;
     }
 
-    // A member that is neither admin nor restricted is no longer worth a row.
+    // A member that is neither admin nor restricted nor given access is no longer worth a row.
     private void Save(string roomId, ChannelMember member)
     {
-        if (!member.IsAdmin && !member.HasRestriction)
+        if (!member.IsAdmin && !member.HasRestriction && !member.HasAccess)
         {
             Get(roomId).Members.Remove(member.UserId);
             _storage.DeleteChannelMember(roomId, member.UserId);
@@ -170,6 +261,7 @@ public sealed class ChannelPermissions
             Denied = member.Denied,
             Banned = member.Banned,
             UntilMs = member.UntilMs,
+            HasAccess = member.HasAccess,
         });
     }
 
@@ -177,13 +269,18 @@ public sealed class ChannelPermissions
 
     public ChannelPermissionsInfo Describe(string roomId)
     {
-        var info = new ChannelPermissionsInfo { RoomId = roomId, DefaultPermissions = DefaultPermissions(roomId) };
+        var info = new ChannelPermissionsInfo
+        {
+            RoomId = roomId, DefaultPermissions = DefaultPermissions(roomId), IsPrivate = IsPrivate(roomId),
+        };
         if (!_channels.TryGetValue(roomId, out var channel))
             return info;
 
         var now = NowMs();
         foreach (var m in channel.Members.Values.OrderBy(m => m.UserId))
         {
+            if (m.HasAccess)
+                info.Members.Add(m.UserId);
             if (m.IsAdmin)
                 info.Admins.Add(new ChannelAdminInfo { UserId = m.UserId, Rights = m.AdminRights, Title = m.Title });
             if (m.IsRestrictedAt(now))

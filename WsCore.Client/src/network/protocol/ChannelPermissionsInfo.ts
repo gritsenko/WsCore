@@ -8,12 +8,16 @@ export class ChannelPermissionsInfo {
     defaultPermissions: number;
     admins: (ChannelAdminInfo | null)[] | null;
     restrictions: (ChannelRestrictionInfo | null)[] | null;
+    isPrivate: boolean;
+    members: number[] | null;
 
     constructor() {
         this.roomId = null;
         this.defaultPermissions = 0;
         this.admins = null;
         this.restrictions = null;
+        this.isPrivate = false;
+        this.members = null;
 
     }
 
@@ -29,11 +33,13 @@ export class ChannelPermissionsInfo {
             return;
         }
 
-        writer.writeObjectHeader(4);
+        writer.writeObjectHeader(6);
         writer.writeString(value.roomId);
         writer.writeUint8(value.defaultPermissions);
         writer.writeArray(value.admins, (writer, x) => ChannelAdminInfo.serializeCore(writer, x));
         writer.writeArray(value.restrictions, (writer, x) => ChannelRestrictionInfo.serializeCore(writer, x));
+        writer.writeBoolean(value.isPrivate);
+        writer.writeArray(value.members, (writer, x) => writer.writeUint32(x));
 
     }
 
@@ -58,14 +64,16 @@ export class ChannelPermissionsInfo {
         }
 
         const value = new ChannelPermissionsInfo();
-        if (count == 4) {
+        if (count == 6) {
             value.roomId = reader.readString();
             value.defaultPermissions = reader.readUint8();
             value.admins = reader.readArray(reader => ChannelAdminInfo.deserializeCore(reader));
             value.restrictions = reader.readArray(reader => ChannelRestrictionInfo.deserializeCore(reader));
+            value.isPrivate = reader.readBoolean();
+            value.members = reader.readArray(reader => reader.readUint32());
 
         }
-        else if (count > 4) {
+        else if (count > 6) {
             throw new Error("Current object's property count is larger than type schema, can't deserialize about versioning.");
         }
         else {
@@ -74,6 +82,8 @@ export class ChannelPermissionsInfo {
             value.defaultPermissions = reader.readUint8(); if (count == 2) return value;
             value.admins = reader.readArray(reader => ChannelAdminInfo.deserializeCore(reader)); if (count == 3) return value;
             value.restrictions = reader.readArray(reader => ChannelRestrictionInfo.deserializeCore(reader)); if (count == 4) return value;
+            value.isPrivate = reader.readBoolean(); if (count == 5) return value;
+            value.members = reader.readArray(reader => reader.readUint32()); if (count == 6) return value;
 
         }
         return value;

@@ -7,6 +7,8 @@ export class RoomInfo {
     userCount: number;
     supportedModes: (string | null)[] | null;
     isPersistent: boolean;
+    isPrivate: boolean;
+    isCreated: boolean;
 
     constructor() {
         this.id = null;
@@ -14,6 +16,8 @@ export class RoomInfo {
         this.userCount = 0;
         this.supportedModes = null;
         this.isPersistent = false;
+        this.isPrivate = false;
+        this.isCreated = false;
 
     }
 
@@ -29,12 +33,14 @@ export class RoomInfo {
             return;
         }
 
-        writer.writeObjectHeader(5);
+        writer.writeObjectHeader(7);
         writer.writeString(value.id);
         writer.writeString(value.name);
         writer.writeInt32(value.userCount);
         writer.writeArray(value.supportedModes, (writer, x) => writer.writeString(x));
         writer.writeBoolean(value.isPersistent);
+        writer.writeBoolean(value.isPrivate);
+        writer.writeBoolean(value.isCreated);
 
     }
 
@@ -59,15 +65,17 @@ export class RoomInfo {
         }
 
         const value = new RoomInfo();
-        if (count == 5) {
+        if (count == 7) {
             value.id = reader.readString();
             value.name = reader.readString();
             value.userCount = reader.readInt32();
             value.supportedModes = reader.readArray(reader => reader.readString());
             value.isPersistent = reader.readBoolean();
+            value.isPrivate = reader.readBoolean();
+            value.isCreated = reader.readBoolean();
 
         }
-        else if (count > 5) {
+        else if (count > 7) {
             throw new Error("Current object's property count is larger than type schema, can't deserialize about versioning.");
         }
         else {
@@ -77,6 +85,8 @@ export class RoomInfo {
             value.userCount = reader.readInt32(); if (count == 3) return value;
             value.supportedModes = reader.readArray(reader => reader.readString()); if (count == 4) return value;
             value.isPersistent = reader.readBoolean(); if (count == 5) return value;
+            value.isPrivate = reader.readBoolean(); if (count == 6) return value;
+            value.isCreated = reader.readBoolean(); if (count == 7) return value;
 
         }
         return value;

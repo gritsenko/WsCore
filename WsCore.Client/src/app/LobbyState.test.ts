@@ -24,7 +24,7 @@ import { ChatMessageDeletedEvent } from '../network/protocol/ChatMessageDeletedE
 
 const ui = {
   calls: [] as string[],
-  rooms: [] as { id: string; playable: boolean; userCount: number }[],
+  rooms: [] as { id: string; playable: boolean; userCount: number; isPrivate?: boolean }[],
   current: null as string | null,
   messages: [] as {
     id: number;
@@ -34,6 +34,7 @@ const ui = {
     canDelete?: boolean;
   }[],
   canManage: false,
+  canCreate: false,
   blocked: null as string | null,
   hasMore: false,
   loading: false,
@@ -90,6 +91,10 @@ vi.mock('../lobby/LobbyUI', () => ({
     }
     setOnManageChannelCallback() {}
     setOnManageMemberCallback() {}
+    setOnCreateChannelCallback() {}
+    setCanCreateChannel(can: boolean) {
+      ui.canCreate = can;
+    }
     setCanManageChannel(can: boolean) {
       ui.canManage = can;
     }
@@ -179,6 +184,7 @@ describe('LobbyState room flow', () => {
     ui.loading = false;
     ui.members = [];
     ui.canManage = false;
+    ui.canCreate = false;
     ui.blocked = null;
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -540,5 +546,40 @@ describe('LobbyState chat history and members', () => {
     refused.error = 'links_forbidden';
     client.onModerationResultEvent(refused);
     expect(ui.calls).toContain('system:В этом канале нельзя отправлять ссылки');
+  });
+
+  it('a server admin may create channels; a private one is marked and entered once created', async () => {
+    const { client } = await inLobby();
+    expect(ui.canCreate).toBe(false);
+
+    const admin = presence(1, 1, 'lobby');
+    admin.isAdmin = true;
+    const update = new PresenceUpdateEvent();
+    update.user = admin;
+    client.onPresenceUpdateEvent(update);
+    expect(ui.canCreate).toBe(true);
+
+    const secret = room('c1', ['TextChat']);
+    secret.name = 'Штаб';
+    secret.isPrivate = true;
+    secret.isCreated = true;
+    const list = new RoomListEvent();
+    list.rooms = [LOBBY(), VOICE(), secret];
+    client.onRoomListEvent(list);
+    expect(ui.rooms.find(r => r.id === 'c1')?.isPrivate).toBe(true);
+    expect(client.roomManager.getRoom('c1')?.isCreated).toBe(true);
+
+    const { ModerationResultEvent } = await import('../network/protocol/ModerationResultEvent');
+    const created = new ModerationResultEvent();
+    created.action = 7;
+    created.success = true;
+    created.roomId = 'c1';
+    const joins = vi.spyOn(client, 'joinRoom');
+    client.onModerationResultEvent(created);
+    expect(joins).toHaveBeenCalledWith('c1');
+
+    // Refused entry to a private channel is explained.
+    client.onJoinRoomResultEvent(result('c2', false, 'no_access'));
+    expect(ui.calls.some(c => c.includes('нужен доступ'))).toBe(true);
   });
 });

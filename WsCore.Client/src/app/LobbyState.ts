@@ -10,7 +10,11 @@ import {
 } from '../network/ClientEvents';
 import type ChatAlerts from './ChatAlerts';
 import ProfileDialog, { ProfileSection, ProfileView } from '../lobby/ProfileDialog';
-import ChannelDialog, { ChannelDialogView, describeRestriction } from '../lobby/ChannelDialog';
+import ChannelDialog, {
+  ChannelDialogView,
+  CreateChannelDialog,
+  describeRestriction,
+} from '../lobby/ChannelDialog';
 import {
   ModerationAction,
   ModerationResult,
@@ -67,6 +71,8 @@ const MODERATION_DONE: Partial<Record<ModerationAction, string>> = {
   [ModerationAction.Restrict]: 'Ограничения обновлены',
   [ModerationAction.SetDefaults]: 'Разрешения канала сохранены',
   [ModerationAction.SetServerAdmin]: 'Роль администратора сервера обновлена',
+  [ModerationAction.UpdateChannel]: 'Канал сохранён',
+  [ModerationAction.SetAccess]: 'Доступ обновлён',
 };
 
 const ACCOUNT_DONE: Partial<Record<AccountAction, string>> = {
@@ -82,6 +88,7 @@ export default class LobbyState {
   private unsubs: Unsubscribe[] = [];
   private profile: ProfileDialog | null = null;
   private channelDialog: ChannelDialog | null = null;
+  private createChannelDialog: CreateChannelDialog | null = null;
 
   /** Notifications on this device (the profile dialog's switch); absent in tests. */
   private readonly alerts: ChatAlerts | null;
@@ -120,9 +127,13 @@ export default class LobbyState {
     this.ui.setOnDeleteMessageCallback(id => this.deleteMessage(id));
     this.ui.setOnManageChannelCallback(() => this.openChannelDialog());
     this.ui.setOnManageMemberCallback(userId => this.openChannelDialog()?.openMember(userId));
+    this.ui.setOnCreateChannelCallback(() => this.openCreateChannel());
 
     this.unsubs.push(
-      this.client.on('roomList', () => this.renderRooms()),
+      this.client.on('roomList', () => {
+        this.renderRooms();
+        this.updateChannelControls(); // a channel may have been renamed, closed or deleted
+      }),
       this.client.on('roomJoined', roomId => this.handleRoomJoined(roomId)),
       this.client.on('roomJoinFailed', (roomId, error) => this.handleJoinFailed(roomId, error)),
       this.client.on('playerName', (id, name) => this.handlePlayerName(id, name)),
@@ -170,6 +181,7 @@ export default class LobbyState {
     this.unsubs = [];
     this.closeProfile();
     this.closeChannelDialog();
+    this.closeCreateChannel();
     this.ui.destroy();
   }
 
@@ -264,6 +276,7 @@ export default class LobbyState {
     const me = this.client.subject;
     const permissions = this.client.permissions;
     this.ui.setCanManageChannel(permissions.canManage(me, roomId));
+    this.ui.setCanCreateChannel(me?.isAdmin ?? false);
 
     let blocked: string | null = null;
     if (!this.client.canSendIn(roomId)) {
@@ -275,10 +288,12 @@ export default class LobbyState {
     this.ui.setComposerBlocked(blocked);
 
     if (this.channelDialog) {
-      if (permissions.canManage(me, this.channelDialog.roomId))
-        this.channelDialog.update(this.channelView(this.channelDialog.roomId));
-      else this.closeChannelDialog(); // our rights were taken away
+      const shown = this.channelDialog.roomId;
+      if (permissions.canManage(me, shown) && this.client.roomManager.getRoom(shown))
+        this.channelDialog.update(this.channelView(shown));
+      else this.closeChannelDialog(); // our rights were taken away, or the channel is gone
     }
+    if (this.createChannelDialog && !me?.isAdmin) this.closeCreateChannel();
   }
 
   private renderChat(roomId: string): void {
@@ -317,6 +332,8 @@ export default class LobbyState {
     this.ui.setPendingRoom(null);
     const name = this.roomName(roomId);
     if (error === 'banned') this.ui.addSystemMessage(`Вы заблокированы в канале «${name}»`);
+    else if (error === 'no_access')
+      this.ui.addSystemMessage(`Канал «${name}» закрыт — нужен доступ от администратора`);
     else this.ui.addSystemMessage(`Could not join ${name}: ${error}`);
   }
 
@@ -331,6 +348,7 @@ export default class LobbyState {
         name: room.name,
         userCount: room.userCount,
         playable: room.supportsMode(CommunicationMode.Spatial),
+        isPrivate: room.isPrivate,
       }))
     );
   }
@@ -449,13 +467,17 @@ export default class LobbyState {
         restriction: restriction
           ? { denied: restriction.denied, banned: restriction.banned, untilMs: restriction.untilMs }
           : null,
+        hasAccess: permissions.hasAccess(roomId, user.userId),
         isSelf: user.userId === client.myUserId,
       };
     });
+    const room = client.roomManager.getRoom(roomId);
     return {
       roomId,
-      roomName: client.roomManager.getRoom(roomId)?.name ?? roomId,
+      roomName: room?.name ?? roomId,
       isHomeRoom: roomId === client.homeRoomId,
+      isCreated: room?.isCreated ?? false,
+      isPrivate: room?.isPrivate ?? permissions.channel(roomId).isPrivate,
       myRights: permissions.rightsOf(me, roomId),
       iAmServerAdmin: me?.isAdmin ?? false,
       defaults: permissions.channel(roomId).defaults,
@@ -482,6 +504,9 @@ export default class LobbyState {
       onRestrict: (userId, denied, banned, seconds) =>
         client.restrictMember(shown(), userId, denied, banned, seconds),
       onSetServerAdmin: (userId, isAdmin) => client.setServerAdmin(userId, isAdmin),
+      onSetAccess: (userId, hasAccess) => client.setChannelAccess(shown(), userId, hasAccess),
+      onUpdateChannel: (name, isPrivate) => client.updateChannel(shown(), name, isPrivate),
+      onDeleteChannel: () => client.deleteChannel(shown()),
       onSwitchChannel: id => {
         if (client.permissions.canManage(client.subject, id))
           this.channelDialog?.update(this.channelView(id));
@@ -496,6 +521,19 @@ export default class LobbyState {
     this.channelDialog = null;
   }
 
+  private openCreateChannel(): void {
+    if (this.createChannelDialog || !this.client.subject?.isAdmin) return;
+    this.createChannelDialog = new CreateChannelDialog({
+      onCreate: (name, isPrivate) => this.client.createChannel(name, isPrivate),
+      onClose: () => this.closeCreateChannel(),
+    });
+  }
+
+  private closeCreateChannel(): void {
+    this.createChannelDialog?.destroy();
+    this.createChannelDialog = null;
+  }
+
   private handleModeration(result: ModerationResult): void {
     switch (result.action) {
       case ModerationAction.SendMessage:
@@ -503,6 +541,22 @@ export default class LobbyState {
         // Refused chat actions are told in the chat itself.
         if (!result.success) this.ui.addSystemMessage(describeModerationError(result.error));
         return;
+      case ModerationAction.CreateChannel:
+        if (!result.success) {
+          this.createChannelDialog?.showStatus(describeModerationError(result.error), true);
+          return;
+        }
+        // Created: go there (the room list announcing it has already arrived).
+        this.closeCreateChannel();
+        if (result.roomId) this.requestJoin(result.roomId);
+        return;
+      case ModerationAction.DeleteChannel:
+        if (result.success) {
+          this.closeChannelDialog();
+          this.ui.addSystemMessage('Канал удалён');
+          return;
+        }
+        break;
     }
     if (!this.channelDialog) return;
     if (result.success) this.channelDialog.showStatus(MODERATION_DONE[result.action] ?? 'Готово');

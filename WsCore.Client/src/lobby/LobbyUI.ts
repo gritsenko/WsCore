@@ -13,6 +13,10 @@ const ICONS = {
   search: svg('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.600-3.600"/>', 18),
   lobby: svg('<path d="M9 4 7 20M17 4l-2 16M4 9h17M3 15h17"/>'),
   voice: svg('<path d="M4 10v4M8 6v12M12 3v18M16 7v10M20 10v4"/>'),
+  lock: svg(
+    '<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>'
+  ),
+  plus: svg('<path d="M12 5v14M5 12h14"/>', 16),
   game: svg(
     '<path d="M7 7h10a5 5 0 0 1 4.900 4l.900 4.500a2.500 2.500 0 0 1-4.400 2L16.500 15h-9l-1.900 2.500a2.500 2.500 0 0 1-4.400-2L2.100 11A5 5 0 0 1 7 7z"/>' +
       '<path d="M7.500 10v3M6 11.500h3M15.500 10.500h.010M17.500 12.500h.010"/>'
@@ -160,6 +164,8 @@ export interface LobbyRoom {
   userCount: number;
   /** A spatial (3D game) room: shows a Play button, and clicking it enters the game. */
   playable: boolean;
+  /** A private channel (seen only by admins and the members given access): a lock icon. */
+  isPrivate?: boolean;
 }
 
 /**
@@ -195,6 +201,8 @@ export default class LobbyUI {
   private manageChannelCallback: (() => void) | null = null;
   private manageMemberCallback: ((userId: number) => void) | null = null;
   private manageButton: HTMLButtonElement | null = null;
+  private createChannelButton: HTMLButtonElement | null = null;
+  private createChannelCallback: (() => void) | null = null;
   private sendButton: HTMLButtonElement | null = null;
   /** "Open this link?" — a link in a message opens only once confirmed here. */
   private linkPopover: HTMLDivElement | null = null;
@@ -319,7 +327,20 @@ export default class LobbyUI {
     sidebar.appendChild(search);
 
     const roomsSection = el('div', 'lobby-rooms-section');
-    roomsSection.appendChild(el('div', 'lobby-rooms-title', 'Rooms'));
+    const roomsTitle = el('div', 'lobby-rooms-title');
+    roomsTitle.appendChild(el('span', undefined, 'Каналы'));
+    this.createChannelButton = el('button', 'lobby-rooms-add');
+    this.createChannelButton.type = 'button';
+    this.createChannelButton.title = 'Создать канал';
+    this.createChannelButton.setAttribute('aria-label', 'Создать канал');
+    this.createChannelButton.innerHTML = ICONS.plus;
+    this.createChannelButton.hidden = true;
+    this.createChannelButton.onclick = () => {
+      this.closeNav();
+      this.createChannelCallback?.();
+    };
+    roomsTitle.appendChild(this.createChannelButton);
+    roomsSection.appendChild(roomsTitle);
     this.roomsList = el('div', 'lobby-rooms-list');
     roomsSection.appendChild(this.roomsList);
     sidebar.appendChild(roomsSection);
@@ -529,6 +550,16 @@ export default class LobbyUI {
     this.manageMemberCallback = callback;
   }
 
+  /** Set callback for the "+" next to the channel list (create a channel). */
+  setOnCreateChannelCallback(callback: () => void): void {
+    this.createChannelCallback = callback;
+  }
+
+  /** Show the "+" next to the channel list (server admins create channels). */
+  setCanCreateChannel(canCreate: boolean): void {
+    if (this.createChannelButton) this.createChannelButton.hidden = !canCreate;
+  }
+
   /** Show the channel management button (we hold an admin right in this channel). */
   setCanManageChannel(canManage: boolean): void {
     if (this.manageButton) this.manageButton.hidden = !canManage;
@@ -573,7 +604,10 @@ export default class LobbyUI {
       }
 
       const icon = el('span', 'lobby-room-icon');
-      icon.innerHTML = ROOM_ICONS[roomId] ?? (room.playable ? ICONS.game : ICONS.lobby);
+      icon.innerHTML = room.isPrivate
+        ? ICONS.lock
+        : (ROOM_ICONS[roomId] ?? (room.playable ? ICONS.game : ICONS.lobby));
+      if (room.isPrivate) icon.title = 'Закрытый канал';
       roomElement.appendChild(icon);
 
       const roomContent = el('div', 'lobby-room-content');
@@ -1177,6 +1211,7 @@ export default class LobbyUI {
     this.chatInput = null;
     this.sendButton = null;
     this.manageButton = null;
+    this.createChannelButton = null;
     this.usersList = null;
     this.usersCount = null;
     this.roomsList = null;

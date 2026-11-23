@@ -116,6 +116,12 @@ public sealed class ChatHistoryService
     }
 
     /// <summary>
+    /// Forgets a deleted channel's in-memory window (its stored messages go with the
+    /// channel — <see cref="IChatStorage.DeleteChannel"/>).
+    /// </summary>
+    public void DropRoom(string roomId) => _rooms.Remove(roomId);
+
+    /// <summary>
     /// Catch-up for a client that knows the room up to <paramref name="afterId"/> (0 =
     /// nothing): the messages after it if the window still covers that point and they fit
     /// one page, otherwise the latest page as a reset. Never touches storage.

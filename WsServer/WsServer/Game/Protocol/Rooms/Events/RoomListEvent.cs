@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using MemoryPack;
@@ -32,8 +33,8 @@ public partial class RoomListEvent : IServerEvent
     }
 
     /// <summary>Snapshot of the given rooms in creation order (stable for the UI).</summary>
-    public static RoomListEvent From(IEnumerable<Room> rooms) =>
-        new(rooms.OrderBy(r => r.Order).Select(RoomInfo.From).ToList());
+    public static RoomListEvent From(IEnumerable<Room> rooms, Func<Room, bool> isPrivate) =>
+        new(rooms.OrderBy(r => r.Order).Select(r => RoomInfo.From(r, isPrivate(r))).ToList());
 }
 
 /// <summary>
@@ -54,12 +55,20 @@ public partial class RoomInfo
     // Persistent rooms are never removed when they become empty (lobby / voice / game).
     public bool IsPersistent { get; set; }
 
-    public static RoomInfo From(Room room) => new()
+    // Seen only by admins and the members given access.
+    public bool IsPrivate { get; set; }
+
+    // Created by an admin (can be renamed, made private, deleted); false = a built-in room.
+    public bool IsCreated { get; set; }
+
+    public static RoomInfo From(Room room, bool isPrivate = false) => new()
     {
         Id = room.Id,
         Name = room.Name,
         UserCount = room.ClientCount,
         SupportedModes = room.SupportedModes.OrderBy(m => m).Select(m => m.ToString()).ToList(),
         IsPersistent = room.IsPersistent,
+        IsPrivate = isPrivate,
+        IsCreated = room.IsCreated,
     };
 }

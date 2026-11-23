@@ -29,3 +29,28 @@ public class SetServerAdminRequestHandler(ModerationService moderation) : Reques
     protected override void Handle(uint clientId, SetServerAdminRequest request)
         => moderation.SetServerAdmin(clientId, request.UserId, request.IsAdmin);
 }
+
+public class CreateChannelRequestHandler(ModerationService moderation) : RequestHandlerBase<CreateChannelRequest>
+{
+    protected override void Handle(uint clientId, CreateChannelRequest request)
+        => moderation.CreateChannel(clientId, request.Name ?? string.Empty, request.IsPrivate);
+}
+
+public class UpdateChannelRequestHandler(ModerationService moderation) : RequestHandlerBase<UpdateChannelRequest>
+{
+    protected override void Handle(uint clientId, UpdateChannelRequest request)
+        => moderation.UpdateChannel(clientId, request.RoomId ?? string.Empty, request.Name ?? string.Empty,
+            request.IsPrivate);
+}
+
+public class DeleteChannelRequestHandler(ModerationService moderation) : RequestHandlerBase<DeleteChannelRequest>
+{
+    protected override void Handle(uint clientId, DeleteChannelRequest request)
+        => moderation.DeleteChannel(clientId, request.RoomId ?? string.Empty);
+}
+
+public class SetChannelAccessRequestHandler(ModerationService moderation) : RequestHandlerBase<SetChannelAccessRequest>
+{
+    protected override void Handle(uint clientId, SetChannelAccessRequest request)
+        => moderation.SetAccess(clientId, request.RoomId ?? string.Empty, request.UserId, request.HasAccess);
+}

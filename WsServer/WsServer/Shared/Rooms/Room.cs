@@ -19,6 +19,15 @@ public class Room
     // Creation sequence number assigned by RoomManager: a stable order for room lists
     // (the room dictionary itself is unordered).
     public int Order { get; init; }
+
+    /// <summary>
+    /// Left out of room lists (still joinable by id) — the game room: the 3D scene is not
+    /// offered in the lobby for now.
+    /// </summary>
+    public bool IsHidden { get; init; }
+
+    /// <summary>Created by an admin at runtime (or restored from storage), not built in.</summary>
+    public bool IsCreated { get; init; }
     
     public int ClientCount => Clients.Count;
     

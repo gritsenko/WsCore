@@ -47,6 +47,10 @@ export enum ClientMessageType {
   SetChannelRestrictionRequest = 121,
   SetChannelDefaultsRequest = 122,
   SetServerAdminRequest = 123,
+  CreateChannelRequest = 124,
+  UpdateChannelRequest = 125,
+  DeleteChannelRequest = 126,
+  SetChannelAccessRequest = 127,
   IdentifyRequest = 110,
   SetAwayRequest = 111,
   ClaimAccountRequest = 112,
@@ -111,6 +115,10 @@ import { SetChannelAdminRequest } from './protocol/SetChannelAdminRequest';
 import { SetChannelRestrictionRequest } from './protocol/SetChannelRestrictionRequest';
 import { SetChannelDefaultsRequest } from './protocol/SetChannelDefaultsRequest';
 import { SetServerAdminRequest } from './protocol/SetServerAdminRequest';
+import { CreateChannelRequest } from './protocol/CreateChannelRequest';
+import { UpdateChannelRequest } from './protocol/UpdateChannelRequest';
+import { DeleteChannelRequest } from './protocol/DeleteChannelRequest';
+import { SetChannelAccessRequest } from './protocol/SetChannelAccessRequest';
 import { PushConfigEvent } from './protocol/PushConfigEvent';
 import { PushSubscribeRequest } from './protocol/PushSubscribeRequest';
 import { PushUnsubscribeRequest } from './protocol/PushUnsubscribeRequest';
@@ -750,6 +758,47 @@ export default class WsConnection<T extends IPlayer = IPlayer> implements Server
     this.sendMessage(
       ClientMessageType.SetServerAdminRequest,
       SetServerAdminRequest.serialize(request)
+    );
+  }
+
+  sendCreateChannelRequest(name: string, isPrivate: boolean): void {
+    const request = new CreateChannelRequest();
+    request.name = name;
+    request.isPrivate = isPrivate;
+    this.sendMessage(
+      ClientMessageType.CreateChannelRequest,
+      CreateChannelRequest.serialize(request)
+    );
+  }
+
+  sendUpdateChannelRequest(roomId: string, name: string, isPrivate: boolean): void {
+    const request = new UpdateChannelRequest();
+    request.roomId = roomId;
+    request.name = name;
+    request.isPrivate = isPrivate;
+    this.sendMessage(
+      ClientMessageType.UpdateChannelRequest,
+      UpdateChannelRequest.serialize(request)
+    );
+  }
+
+  sendDeleteChannelRequest(roomId: string): void {
+    const request = new DeleteChannelRequest();
+    request.roomId = roomId;
+    this.sendMessage(
+      ClientMessageType.DeleteChannelRequest,
+      DeleteChannelRequest.serialize(request)
+    );
+  }
+
+  sendSetChannelAccessRequest(roomId: string, userId: number, hasAccess: boolean): void {
+    const request = new SetChannelAccessRequest();
+    request.roomId = roomId;
+    request.userId = userId;
+    request.hasAccess = hasAccess;
+    this.sendMessage(
+      ClientMessageType.SetChannelAccessRequest,
+      SetChannelAccessRequest.serialize(request)
     );
   }
 

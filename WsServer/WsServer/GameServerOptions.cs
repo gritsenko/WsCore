@@ -113,6 +113,12 @@ public class GameServerOptions
     /// <summary>Longest custom admin title (Telegram's limit).</summary>
     public int MaxAdminTitleLength { get; set; } = 16;
 
+    /// <summary>Longest name of a channel created by an admin.</summary>
+    public int MaxChannelNameLength { get; set; } = 32;
+
+    /// <summary>How many channels admins may create (built-in rooms not counted).</summary>
+    public int MaxCreatedChannels { get; set; } = 100;
+
     // ---- push notifications ------------------------------------------------------------
 
     /// <summary>Web Push for chat messages (users offline / away). Off = no PushConfigEvent, nothing sent.</summary>

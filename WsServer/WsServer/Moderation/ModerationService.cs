@@ -23,6 +23,10 @@ namespace WsServer.Moderation;
 ///    room cannot ban (every connection lands there) — it can only mute.
 ///  * Deleting: one's own message (while it is in the in-memory window), anyone's with
 ///    DeleteMessages.
+///  * Channels (= rooms): a server admin creates, renames, makes private / public and
+///    deletes channels (built-in rooms stay as they are). Access to a private channel is
+///    given / taken with InviteUsers; whoever loses sight of a channel while inside goes
+///    back to the home room.
 ///
 /// Every change goes to every identified connection as a <see cref="ChannelPermissionsEvent"/>
 /// (server-admin changes travel with presence); the requester also gets a
@@ -143,6 +147,9 @@ public sealed partial class ModerationService(
 
         permissions.SetAdmin(roomId, userId, rights, InputSanitizer.Clean(title, options.MaxAdminTitleLength));
         BroadcastChannel(roomId);
+        // Admins see a private channel: being promoted / demoted there changes that.
+        if (permissions.IsPrivate(roomId))
+            sessions.RefreshVisibility(target);
         Succeed(clientId, action);
         logger.LogInformation("User {ActorId} set the rights of user {UserId} in {RoomId} to {Rights}",
             actor.Id, userId, roomId, rights);
@@ -251,10 +258,146 @@ public sealed partial class ModerationService(
             target.IsAdmin = isAdmin;
             users.Save(target);
             sessions.RefreshPresence(target);
+            sessions.RefreshVisibility(target); // server admins see every private channel
         }
         Succeed(clientId, action);
         logger.LogInformation("User {ActorId} {Change} user {UserId} as server admin",
             actor.Id, isAdmin ? "appointed" : "removed", userId);
+    }
+
+    // ---- channels ---------------------------------------------------------------------
+
+    public void CreateChannel(uint clientId, string name, bool isPrivate)
+    {
+        const byte action = ModerationAction.CreateChannel;
+        if (Begin(clientId, action) is not { } actor)
+            return;
+        name = InputSanitizer.Clean(name, options.MaxChannelNameLength);
+        string? error = null;
+        if (!actor.IsAdmin)
+            error = ModerationError.Forbidden;
+        else if (name.Length == 0)
+            error = ModerationError.BadName;
+        else if (permissions.CreatedChannelCount >= options.MaxCreatedChannels)
+            error = ModerationError.TooMany;
+        if (error != null)
+        {
+            Fail(clientId, action, error);
+            return;
+        }
+
+        var roomId = NewChannelId();
+        permissions.CreateChannel(roomId, name, isPrivate);
+        GameServer.CreateChannelRoom(roomManager, roomId, name);
+        sessions.BroadcastRoomList();
+        BroadcastChannel(roomId);
+        Succeed(clientId, action, roomId);
+        logger.LogInformation("User {ActorId} created {Kind} channel {RoomId}",
+            actor.Id, isPrivate ? "a private" : "a public", roomId);
+    }
+
+    public void UpdateChannel(uint clientId, string roomId, string name, bool isPrivate)
+    {
+        const byte action = ModerationAction.UpdateChannel;
+        if (BeginCreated(clientId, action, roomId) is not { } room)
+            return;
+        name = InputSanitizer.Clean(name, options.MaxChannelNameLength);
+        if (name.Length == 0)
+        {
+            Fail(clientId, action, ModerationError.BadName, roomId);
+            return;
+        }
+
+        var wasPrivate = permissions.IsPrivate(roomId);
+        permissions.UpdateChannel(roomId, name, isPrivate);
+        room.Name = name;
+        if (isPrivate && !wasPrivate)
+            sessions.EvictUnauthorized(roomId);
+        sessions.BroadcastRoomList();
+        BroadcastChannel(roomId); // made public: that is everyone now
+        Succeed(clientId, action, roomId);
+        logger.LogInformation("Channel {RoomId} updated (private: {IsPrivate})", roomId, isPrivate);
+    }
+
+    public void DeleteChannel(uint clientId, string roomId)
+    {
+        const byte action = ModerationAction.DeleteChannel;
+        if (BeginCreated(clientId, action, roomId) is not { } room)
+            return;
+
+        foreach (var id in room.GetClientIds().ToList())
+            sessions.JoinRoom(id, SessionManager.DefaultRoomId);
+        roomManager.RemoveRoom(roomId);
+        permissions.DeleteChannel(roomId);
+        history.DropRoom(roomId);
+        sessions.BroadcastRoomList();
+        Succeed(clientId, action, roomId);
+        logger.LogInformation("Channel {RoomId} deleted", roomId);
+    }
+
+    public void SetAccess(uint clientId, string roomId, uint userId, bool hasAccess)
+    {
+        const byte action = ModerationAction.SetAccess;
+        if (Begin(clientId, action) is not { } actor)
+            return;
+        if (roomManager.GetRoom(roomId) == null)
+        {
+            Fail(clientId, action, ModerationError.NoChannel, roomId);
+            return;
+        }
+        if (users.FindById(userId) is not { } target)
+        {
+            Fail(clientId, action, ModerationError.NoUser, roomId);
+            return;
+        }
+        if (!permissions.Has(actor, roomId, ChannelRights.InviteUsers))
+        {
+            Fail(clientId, action, ModerationError.Forbidden, roomId);
+            return;
+        }
+
+        permissions.SetAccess(roomId, userId, hasAccess);
+        BroadcastChannel(roomId);
+        sessions.RefreshVisibility(target);
+        Succeed(clientId, action, roomId);
+        logger.LogInformation("User {ActorId} {Change} access to {RoomId} for user {UserId}",
+            actor.Id, hasAccess ? "gave" : "took away", roomId, userId);
+    }
+
+    // A server admin acting on a channel created by an admin; otherwise answered.
+    private Room? BeginCreated(uint clientId, byte action, string roomId)
+    {
+        if (Begin(clientId, action) is not { } actor)
+            return null;
+        string? error = null;
+        var room = roomManager.GetRoom(roomId);
+        if (!actor.IsAdmin)
+            error = ModerationError.Forbidden;
+        else if (room == null)
+            error = ModerationError.NoChannel;
+        else if (!room.IsCreated)
+            error = ModerationError.BuiltIn;
+        if (error == null)
+            return room;
+        Fail(clientId, action, error, roomId);
+        return null;
+    }
+
+    // "c" + 10 random base-36 characters: unguessable enough not to leak a private
+    // channel's existence, and never one of the built-in ids.
+    private string NewChannelId()
+    {
+        const string alphabet = "abcdefghijklmnopqrstuvwxyz0123456789";
+        while (true)
+        {
+            var id = "c" + string.Create(10, 0, (span, _) =>
+            {
+                for (var i = 0; i < span.Length; i++)
+                    span[i] = alphabet[System.Security.Cryptography.RandomNumberGenerator.GetInt32(alphabet.Length)];
+            });
+            if (roomManager.GetRoom(id) == null)
+                return id;
+        }
     }
 
     // ---- helpers ----------------------------------------------------------------------
@@ -278,12 +421,11 @@ public sealed partial class ModerationService(
         return session.User;
     }
 
-    private void BroadcastChannel(string roomId)
-        => sessions.BroadcastToIdentified(new ChannelPermissionsEvent { Channels = [permissions.Describe(roomId)] });
+    private void BroadcastChannel(string roomId) => sessions.BroadcastChannelPermissions(roomId);
 
-    private void Succeed(uint clientId, byte action)
-        => messenger.Send(clientId, new ModerationResultEvent { Action = action, Success = true });
+    private void Succeed(uint clientId, byte action, string? roomId = null)
+        => messenger.Send(clientId, new ModerationResultEvent { Action = action, Success = true, RoomId = roomId });
 
-    private void Fail(uint clientId, byte action, string error)
-        => messenger.Send(clientId, new ModerationResultEvent { Action = action, Success = false, Error = error });
+    private void Fail(uint clientId, byte action, string error, string? roomId = null)
+        => messenger.Send(clientId, new ModerationResultEvent { Action = action, Success = false, Error = error, RoomId = roomId });
 }

@@ -18,8 +18,17 @@ public sealed record StoredUser(uint Id, string Name, long LastSeenMs)
     public bool IsAdmin { get; init; }
 }
 
-/// <summary>A channel's (room's) settings that differ from the defaults.</summary>
-public sealed record StoredChannel(string RoomId, byte DefaultPermissions);
+/// <summary>
+/// A channel's (room's) settings that differ from the defaults. A channel with a
+/// <see cref="Name"/> was created by an admin (a built-in room has none — its name comes
+/// from the code); <see cref="IsPrivate"/> = only members with access see and enter it.
+/// </summary>
+public sealed record StoredChannel(string RoomId, byte DefaultPermissions)
+{
+    public string? Name { get; init; }
+    public bool IsPrivate { get; init; }
+    public long CreatedMs { get; init; }
+}
 
 /// <summary>
 /// A user's standing in one channel: admin rights + title, and / or a restriction
@@ -32,6 +41,8 @@ public sealed record StoredChannelMember(string RoomId, uint UserId)
     public byte Denied { get; init; }
     public bool Banned { get; init; }
     public long UntilMs { get; init; }
+    /// <summary>May see and enter the channel while it is private.</summary>
+    public bool HasAccess { get; init; }
 }
 
 /// <summary>
@@ -98,6 +109,9 @@ public interface IChatStorage : IDisposable
 
     void DeleteChannelMember(string roomId, uint userId);
 
+    /// <summary>Removes a created channel: its settings, members and chat history.</summary>
+    void DeleteChannel(string roomId);
+
     /// <summary>Stores a server-wide setting (see <see cref="StorageSnapshot.Meta"/>).</summary>
     void SaveMeta(string key, string value);
 
@@ -153,6 +167,7 @@ public sealed class NullChatStorage : IChatStorage
     public void SaveChannel(StoredChannel channel) { }
     public void SaveChannelMember(StoredChannelMember member) { }
     public void DeleteChannelMember(string roomId, uint userId) { }
+    public void DeleteChannel(string roomId) { }
     public void SaveUser(StoredUser user) { }
     public void DeleteUser(uint userId) => _avatars.TryRemove(userId, out _);
     public void SaveUserKey(StoredUserKey key) { }

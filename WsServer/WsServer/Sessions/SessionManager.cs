@@ -133,6 +133,14 @@ public sealed class SessionManager(
             return false;
         }
 
+        // A private channel exists only for those who may see it.
+        if (!permissions.CanSee(session.User, target.Id))
+        {
+            logger.LogInformation("Client {ClientId}: join refused, no access to {RoomId}", clientId, roomId);
+            messenger.Send(clientId, JoinRoomResultEvent.Failed(roomId, ModerationError.NoAccess));
+            return false;
+        }
+
         if (permissions.IsBanned(session.User, target.Id))
         {
             logger.LogInformation("Client {ClientId}: join refused, banned from {RoomId}", clientId, roomId);
@@ -156,7 +164,7 @@ public sealed class SessionManager(
         if (!toSpatial)
             DespawnAvatar(clientId);
 
-        messenger.Send(clientId, JoinRoomResultEvent.Joined(RoomInfo.From(target)));
+        messenger.Send(clientId, JoinRoomResultEvent.Joined(RoomInfo.From(target, permissions.IsPrivate(target.Id))));
 
         if (toSpatial)
         {
@@ -187,9 +195,73 @@ public sealed class SessionManager(
         return true;
     }
 
-    public RoomListEvent BuildRoomList() => RoomListEvent.From(roomManager.GetAllRooms());
+    /// <summary>
+    /// The rooms the client is offered: every room except hidden ones (the game room) and
+    /// private channels it may not see.
+    /// </summary>
+    public RoomListEvent BuildRoomList(uint clientId) => BuildRoomList(Get(clientId)?.User);
 
-    private void BroadcastRoomList() => messenger.BroadcastToNonSpatial(BuildRoomList());
+    private RoomListEvent BuildRoomList(UserAccount? user) => RoomListEvent.From(
+        roomManager.GetAllRooms().Where(r => !r.IsHidden && permissions.CanSee(user, r.Id)),
+        r => permissions.IsPrivate(r.Id));
+
+    /// <summary>
+    /// Pushes the room list to every client outside the game world. Most see the same
+    /// public list (serialized once); a user who may see a private channel gets their own.
+    /// </summary>
+    public void BroadcastRoomList()
+    {
+        var privateRooms = roomManager.GetAllRooms()
+            .Where(r => !r.IsHidden && permissions.IsPrivate(r.Id)).Select(r => r.Id).ToList();
+        bool SeesPrivate(uint id) => privateRooms.Count > 0 && Get(id)?.User is { } user
+            && privateRooms.Any(roomId => permissions.CanSee(user, roomId));
+
+        messenger.BroadcastWhere(BuildRoomList((UserAccount?)null),
+            id => !roomManager.ShouldReceiveSpatialUpdates(id) && !SeesPrivate(id));
+        if (privateRooms.Count == 0)
+            return;
+        foreach (var session in _sessions.Values)
+        {
+            if (!roomManager.ShouldReceiveSpatialUpdates(session.Id) && SeesPrivate(session.Id))
+                messenger.Send(session.Id, BuildRoomList(session.User));
+        }
+    }
+
+    /// <summary>
+    /// What a user may see changed (access to a private channel, the server-admin role,
+    /// a channel deleted): their connections get the room list and every channel's
+    /// permissions again, and any of them sitting in a room it may no longer see goes
+    /// back to the home room.
+    /// </summary>
+    public void RefreshVisibility(UserAccount user)
+    {
+        foreach (var session in user.Sessions.ToList())
+            RefreshVisibility(session);
+    }
+
+    private void RefreshVisibility(ClientSession session)
+    {
+        var room = roomManager.GetClientRoom(session.Id);
+        if (room != null && !permissions.CanSee(session.User, room.Id))
+            JoinRoom(session.Id, DefaultRoomId); // also pushes the room list
+        if (!roomManager.ShouldReceiveSpatialUpdates(session.Id))
+            messenger.Send(session.Id, BuildRoomList(session.User));
+        if (session.User != null)
+            messenger.Send(session.Id, BuildChannelPermissions(session.User));
+    }
+
+    /// <summary>Moves every client in the room that may no longer see it back to the home room.</summary>
+    public void EvictUnauthorized(string roomId)
+    {
+        var room = roomManager.GetRoom(roomId);
+        if (room == null)
+            return;
+        foreach (var clientId in room.GetClientIds().ToList())
+        {
+            if (!permissions.CanSee(Get(clientId)?.User, roomId))
+                JoinRoom(clientId, DefaultRoomId);
+        }
+    }
 
     private void BroadcastRoomUsers(string roomId)
     {
@@ -309,7 +381,7 @@ public sealed class SessionManager(
         // tells everyone else.
         PublishPresence(user, announce: false);
         messenger.Send(session.Id, BuildPresenceSnapshot(user));
-        messenger.Send(session.Id, BuildChannelPermissions());
+        messenger.Send(session.Id, BuildChannelPermissions(user));
         if (push.Keys is { } pushKeys)
             messenger.Send(session.Id, new PushConfigEvent { PublicKey = pushKeys.PublicKey });
         BroadcastPresence(user, exceptClientId: session.Id);
@@ -318,6 +390,9 @@ public sealed class SessionManager(
         var room = roomManager.GetClientRoom(session.Id);
         if (room != null)
             BroadcastRoomUsers(room.Id);
+        // The user may see private channels an anonymous connection does not.
+        if (permissions.CreatedChannelCount > 0 && !roomManager.ShouldReceiveSpatialUpdates(session.Id))
+            messenger.Send(session.Id, BuildRoomList(user));
     }
 
     // The session stops being a connection of its user, who stays in the member list —
@@ -482,6 +557,7 @@ public sealed class SessionManager(
         if (room != null)
             BroadcastRoomUsers(room.Id); // the connection no longer has a user id
         Succeed(session, action);
+        RefreshVisibility(session); // an anonymous connection sees no private channel
         logger.LogInformation("Client {ClientId} logged out of user {UserId}", clientId, user.Id);
     }
 
@@ -683,15 +759,32 @@ public sealed class SessionManager(
     public void BroadcastToIdentified<TEvent>(TEvent evt) where TEvent : IServerEvent
         => messenger.BroadcastWhere(evt, id => _sessions.TryGetValue(id, out var s) && s.User != null);
 
-    // Every channel's permissions, for a connection that just identified.
-    private ChannelPermissionsEvent BuildChannelPermissions() => new()
+    // Every channel's permissions the user may see, for a connection that just identified.
+    private ChannelPermissionsEvent BuildChannelPermissions(UserAccount user) => new()
     {
         Reset = true,
-        Channels = roomManager.GetAllRooms().OrderBy(r => r.Order).Select(r => permissions.Describe(r.Id)).ToList(),
+        Channels = roomManager.GetAllRooms().OrderBy(r => r.Order)
+            .Where(r => permissions.CanSee(user, r.Id))
+            .Select(r => permissions.Describe(r.Id)).ToList(),
     };
 
-    // Where the user is: the room of an active connection if there is one.
+    /// <summary>Sends a channel's permissions to every identified connection that may see it.</summary>
+    public void BroadcastChannelPermissions(string roomId)
+    {
+        var evt = new ChannelPermissionsEvent { Channels = [permissions.Describe(roomId)] };
+        messenger.BroadcastWhere(evt,
+            id => _sessions.TryGetValue(id, out var s) && s.User != null && permissions.CanSee(s.User, roomId));
+    }
+
+    // Where the user is: the room of an active connection if there is one. A private
+    // channel is not told (presence goes to everyone).
     private string? PresenceRoomId(UserAccount user)
+    {
+        var roomId = ActiveRoomId(user);
+        return roomId != null && permissions.IsPrivate(roomId) ? null : roomId;
+    }
+
+    private string? ActiveRoomId(UserAccount user)
     {
         string? fallback = null;
         foreach (var session in user.Sessions)

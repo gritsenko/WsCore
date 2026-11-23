@@ -129,11 +129,18 @@ public class SessionTests
         await h.Request(a, new GetRoomListRequest());
 
         var list = Assert.Single(h.Events<RoomListEvent>(a));
-        Assert.Equal(["lobby", "voice", "game"], list.Rooms.Select(r => r.Id));
-        var game = list.Rooms.Single(r => r.Id == "game");
-        Assert.Contains("Spatial", game.SupportedModes);
-        Assert.True(game.IsPersistent);
+        // The game room is hidden from lists (still joinable by id).
+        Assert.Equal(["lobby", "voice"], list.Rooms.Select(r => r.Id));
+        var voice = list.Rooms.Single(r => r.Id == "voice");
+        Assert.Contains("VoiceChat", voice.SupportedModes);
+        Assert.True(voice.IsPersistent);
+        Assert.False(voice.IsPrivate || voice.IsCreated);
         Assert.Equal(1, list.Rooms.Single(r => r.Id == "lobby").UserCount);
+
+        await h.Request(a, new JoinRoomRequest("game"));
+        var joined = Assert.Single(h.Events<JoinRoomResultEvent>(a));
+        Assert.True(joined.Success);
+        Assert.Contains("Spatial", joined.Room!.SupportedModes);
     }
 
     [Fact]

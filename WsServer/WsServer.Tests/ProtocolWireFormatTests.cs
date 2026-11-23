@@ -33,8 +33,8 @@ public class ProtocolWireFormatTests
     public void JoinRoomResultEvent_Success_MatchesPinnedBytes()
     {
         byte[] expected = [4, 251, 255, 255, 255, 4, 0, 0, 0, 103, 97, 109, 101, 1, 255, 255, 255, 255,
-            5, 251, 255, 255, 255, 4, 0, 0, 0, 103, 97, 109, 101, 254, 255, 255, 255, 1, 0, 0, 0, 71,
-            2, 0, 0, 0, 1, 0, 0, 0, 248, 255, 255, 255, 7, 0, 0, 0, 83, 112, 97, 116, 105, 97, 108, 1];
+            7, 251, 255, 255, 255, 4, 0, 0, 0, 103, 97, 109, 101, 254, 255, 255, 255, 1, 0, 0, 0, 71,
+            2, 0, 0, 0, 1, 0, 0, 0, 248, 255, 255, 255, 7, 0, 0, 0, 83, 112, 97, 116, 105, 97, 108, 1, 0, 0];
         Assert.Equal(expected, MemoryPackSerializer.Serialize(JoinRoomResultEvent.Joined(GameRoom())));
     }
 
@@ -48,9 +48,9 @@ public class ProtocolWireFormatTests
     [Fact]
     public void RoomListEvent_MatchesPinnedBytes()
     {
-        byte[] expected = [1, 1, 0, 0, 0, 5, 251, 255, 255, 255, 4, 0, 0, 0, 103, 97, 109, 101, 254, 255,
+        byte[] expected = [1, 1, 0, 0, 0, 7, 251, 255, 255, 255, 4, 0, 0, 0, 103, 97, 109, 101, 254, 255,
             255, 255, 1, 0, 0, 0, 71, 2, 0, 0, 0, 1, 0, 0, 0, 248, 255, 255, 255, 7, 0, 0, 0, 83, 112, 97,
-            116, 105, 97, 108, 1];
+            116, 105, 97, 108, 1, 0, 0];
         Assert.Equal(expected, MemoryPackSerializer.Serialize(new RoomListEvent([GameRoom()])));
     }
 

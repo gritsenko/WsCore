@@ -4,6 +4,7 @@ using Game.ServerLogic.Connection.Events;
 using Game.ServerLogic.GameState.Events;
 using WsServer.Abstract;
 using WsServer.Chat;
+using WsServer.Moderation;
 using WsServer.Rooms;
 using WsServer.Sessions;
 
@@ -15,6 +16,7 @@ public class GameServer : GameServerBase<GameModel>
     private readonly RoomManager _roomManager;
     private readonly SessionManager _sessions;
     private readonly ChatHistoryService _chatHistory;
+    private readonly ChannelPermissions _channels;
 
     private readonly int _snapshotSendEveryTicks;
     private int _ticksSinceSnapshot;
@@ -31,12 +33,14 @@ public class GameServer : GameServerBase<GameModel>
         RoomManager roomManager,
         SessionManager sessions,
         ChatHistoryService chatHistory,
+        ChannelPermissions channels,
         GameServerOptions options,
         ILogger<GameServer> logger) : base(gameModel, messenger, connectionManager, serverLogicProvider, options, logger)
     {
         _roomManager = roomManager;
         _sessions = sessions;
         _chatHistory = chatHistory;
+        _channels = channels;
         _heartbeatIntervalTicks = (long)(options.HeartbeatIntervalSeconds * Stopwatch.Frequency);
         _lastHeartbeat = Stopwatch.GetTimestamp();
 
@@ -55,8 +59,8 @@ public class GameServer : GameServerBase<GameModel>
     }
 
     /// <summary>
-    /// The rooms this server offers. Clients learn them from RoomListEvent — this is the
-    /// only place they are defined.
+    /// The rooms this server offers: the built-in ones below, then the channels admins
+    /// created (stored with the channel permissions). Clients learn them from RoomListEvent.
     /// </summary>
     private void InitializeDefaultRooms()
     {
@@ -74,13 +78,26 @@ public class GameServer : GameServerBase<GameModel>
             new[] { RoomCompatibility.VoiceChat, RoomCompatibility.TextChat },
             isPersistent: true);
 
-        // Game room - single spatial 3D room (persistent); members get an avatar.
+        // Game room - single spatial 3D room (persistent); members get an avatar. Hidden:
+        // not offered in room lists (the 3D scene is off the lobby for now), still
+        // joinable by id (tests, LoadTest, TestClient).
         _roomManager.CreateRoom(
-            "game",
+            GameRoomId,
             "Game Room",
             new[] { RoomCompatibility.Spatial, RoomCompatibility.TextChat },
-            isPersistent: true);
+            isPersistent: true,
+            isHidden: true);
+
+        // Channels created by admins: plain text-chat rooms.
+        foreach (var channel in _channels.CreatedChannels)
+            CreateChannelRoom(_roomManager, channel.RoomId, channel.Name);
     }
+
+    public const string GameRoomId = "game";
+
+    /// <summary>The room of a channel created by an admin.</summary>
+    public static Room CreateChannelRoom(RoomManager rooms, string roomId, string name)
+        => rooms.CreateRoom(roomId, name, new[] { RoomCompatibility.TextChat }, isPersistent: true, isCreated: true);
 
     private void GameServer_OnTick()
     {

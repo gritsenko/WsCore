@@ -15,7 +15,9 @@ public static class ChannelRights
     public const byte RestrictMembers = 2;
     // Promote / demote channel admins (never with more rights than one's own).
     public const byte AddAdmins = 4;
-    public const byte All = DeleteMessages | RestrictMembers | AddAdmins;
+    // Give / take away access to a private channel.
+    public const byte InviteUsers = 8;
+    public const byte All = DeleteMessages | RestrictMembers | AddAdmins | InviteUsers;
 }
 
 /// <summary>
@@ -39,6 +41,10 @@ public static class ModerationAction
     public const byte DeleteMessage = 5;
     // A chat message was refused (muted, banned, links not allowed).
     public const byte SendMessage = 6;
+    public const byte CreateChannel = 7;
+    public const byte UpdateChannel = 8;
+    public const byte DeleteChannel = 9;
+    public const byte SetAccess = 10;
 }
 
 /// <summary>Machine-readable values of <see cref="ModerationResultEvent.Error"/>.</summary>
@@ -62,6 +68,14 @@ public static class ModerationError
     public const string Banned = "banned";
     public const string LinksForbidden = "links_forbidden";
     public const string TooFast = "too_fast";
+    // A private channel the user was not given access to (also a JoinRoomResultEvent error).
+    public const string NoAccess = "no_access";
+    // A channel name that is empty after cleaning.
+    public const string BadName = "bad_name";
+    // MaxCreatedChannels reached.
+    public const string TooMany = "too_many";
+    // A built-in room: it cannot be renamed, made private or deleted.
+    public const string BuiltIn = "built_in";
 }
 
 /// <summary>A channel admin: their rights and an optional title shown next to their name.</summary>
@@ -105,12 +119,19 @@ public partial class ChannelPermissionsInfo
     // Active restrictions only (expired ones are left out).
     [MemoryPackAllowSerialize]
     public List<ChannelRestrictionInfo> Restrictions = new();
+
+    // Only members with access (plus admins) see and enter a private channel.
+    public bool IsPrivate;
+
+    // The users given access (meaningful while the channel is private).
+    [MemoryPackAllowSerialize]
+    public List<uint> Members = new();
 }
 
 /// <summary>
-/// Channel permissions. <see cref="Reset"/> = true: every channel (sent after the
-/// identify); otherwise only the channels that changed (sent to every identified
-/// connection).
+/// Channel permissions. <see cref="Reset"/> = true: every channel the connection may see
+/// (sent after the identify); otherwise only the channels that changed (sent to every
+/// identified connection that may see them — a private channel only to its members).
 /// </summary>
 [GenerateTypeScript]
 [MemoryPackable]
@@ -136,4 +157,6 @@ public partial class ModerationResultEvent : IServerEvent
     public bool Success;
     // ModerationError code; null on success.
     public string? Error;
+    // The channel the action was about (for CreateChannel: the new channel's id).
+    public string? RoomId;
 }

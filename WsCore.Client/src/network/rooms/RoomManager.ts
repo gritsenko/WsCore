@@ -7,6 +7,10 @@ export interface RoomDescription {
   name: string;
   supportedModes: CommunicationMode[];
   isPersistent: boolean;
+  /** Seen only by admins and the members given access. */
+  isPrivate?: boolean;
+  /** Created by an admin (can be renamed / deleted), not built in. */
+  isCreated?: boolean;
   userCount: number;
 }
 
@@ -162,6 +166,8 @@ export class RoomManager {
       for (const mode of desc.supportedModes) room.supportedModes.add(mode);
     }
     room.userCount = desc.userCount;
+    room.isPrivate = desc.isPrivate ?? false;
+    room.isCreated = desc.isCreated ?? false;
     return room;
   }
 

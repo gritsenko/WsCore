@@ -233,8 +233,10 @@ describe('protocol round-trip against fixed binary samples', () => {
     return r;
   }
   const GAME_ROOM_BYTES = [
-    5, 251, 255, 255, 255, 4, 0, 0, 0, 103, 97, 109, 101, 254, 255, 255, 255, 1, 0, 0, 0, 71, 2, 0,
+    7, 251, 255, 255, 255, 4, 0, 0, 0, 103, 97, 109, 101, 254, 255, 255, 255, 1, 0, 0, 0, 71, 2, 0,
     0, 0, 1, 0, 0, 0, 248, 255, 255, 255, 7, 0, 0, 0, 83, 112, 97, 116, 105, 97, 108, 1,
+    // isPrivate, isCreated
+    0, 0,
   ];
 
   it('HeartbeatEvent is an empty object', () => {

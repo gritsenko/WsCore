@@ -60,6 +60,8 @@ function describeRoom(info: RoomInfo): RoomDescription | null {
     name: info.name || info.id,
     supportedModes: parseServerModes(info.supportedModes),
     isPersistent: info.isPersistent,
+    isPrivate: info.isPrivate,
+    isCreated: info.isCreated,
     userCount: info.userCount,
   };
 }
@@ -267,6 +269,8 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
         defaults: info.defaultPermissions,
         admins,
         restrictions,
+        isPrivate: info.isPrivate,
+        members: new Set(info.members ?? []),
       });
     }
     this.permissions.apply(channels, msg.reset);
@@ -278,6 +282,7 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
       action: msg.action,
       success: msg.success,
       error: msg.success ? null : msg.error || 'failed',
+      roomId: msg.roomId || null,
     });
   }
 
@@ -414,6 +419,26 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
 
   setChannelDefaults(roomId: string, defaults: number): void {
     this.sendSetChannelDefaultsRequest(roomId, defaults);
+  }
+
+  /** Create a channel (server admins); the answer carries its id (`moderation` event). */
+  createChannel(name: string, isPrivate: boolean): void {
+    this.sendCreateChannelRequest(name, isPrivate);
+  }
+
+  /** Rename a created channel and / or make it private / public (server admins). */
+  updateChannel(roomId: string, name: string, isPrivate: boolean): void {
+    this.sendUpdateChannelRequest(roomId, name, isPrivate);
+  }
+
+  /** Delete a created channel with its history (server admins). */
+  deleteChannel(roomId: string): void {
+    this.sendDeleteChannelRequest(roomId);
+  }
+
+  /** Give / take away access to a private channel (needs the InviteUsers right). */
+  setChannelAccess(roomId: string, userId: number, hasAccess: boolean): void {
+    this.sendSetChannelAccessRequest(roomId, userId, hasAccess);
   }
 
   setServerAdmin(userId: number, isAdmin: boolean): void {

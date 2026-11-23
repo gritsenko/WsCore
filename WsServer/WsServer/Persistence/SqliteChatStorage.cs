@@ -45,6 +45,7 @@ public sealed class SqliteChatStorage : IChatStorage
     private sealed record SaveChannelOp(StoredChannel Channel) : Op;
     private sealed record SaveChannelMemberOp(StoredChannelMember Member) : Op;
     private sealed record DeleteChannelMemberOp(string RoomId, uint UserId) : Op;
+    private sealed record DeleteChannelOp(string RoomId) : Op;
     private sealed record SaveMetaOp(string Key, string Value) : Op;
     private sealed record SavePushSubscriptionOp(StoredPushSubscription Subscription) : Op;
     private sealed record DeletePushSubscriptionOp(string Endpoint) : Op;
@@ -73,6 +74,7 @@ public sealed class SqliteChatStorage : IChatStorage
     private SqliteCommand _upsertChannelMember = null!;
     private SqliteCommand _deleteChannelMember = null!;
     private SqliteCommand _deleteChannelMembersOfUser = null!;
+    private SqliteCommand _deleteChannel = null!;
     private SqliteCommand _upsertMeta = null!;
     private SqliteCommand _upsertPushSubscription = null!;
     private SqliteCommand _deletePushSubscription = null!;
@@ -128,7 +130,9 @@ public sealed class SqliteChatStorage : IChatStorage
     //       and channel_members (a user's admin rights / restriction in a channel).
     //   3 — push: push_subscriptions (a browser's Web Push subscription, owned by a user and
     //       the device key it came with).
-    private const int SchemaVersion = 3;
+    //   4 — created channels: channels.name / is_private / created_ms (a channel with a
+    //       name was created by an admin) and channel_members.has_access (private channels).
+    private const int SchemaVersion = 4;
 
     private void MigrateUsers()
     {
@@ -171,6 +175,15 @@ public sealed class SqliteChatStorage : IChatStorage
                     auth     TEXT    NOT NULL
                 ) WITHOUT ROWID;
                 CREATE INDEX IF NOT EXISTS ix_push_subscriptions_user ON push_subscriptions(user_id);
+                """);
+        }
+        if (version < 4)
+        {
+            Execute("""
+                ALTER TABLE channels ADD COLUMN name TEXT;
+                ALTER TABLE channels ADD COLUMN is_private INTEGER NOT NULL DEFAULT 0;
+                ALTER TABLE channels ADD COLUMN created_ms INTEGER NOT NULL DEFAULT 0;
+                ALTER TABLE channel_members ADD COLUMN has_access INTEGER NOT NULL DEFAULT 0;
                 """);
         }
         Execute($"PRAGMA user_version = {SchemaVersion};");
@@ -259,16 +272,23 @@ public sealed class SqliteChatStorage : IChatStorage
         var channels = new List<StoredChannel>();
         using (var cmd = _db.CreateCommand())
         {
-            cmd.CommandText = "SELECT room_id, default_permissions FROM channels;";
+            cmd.CommandText = "SELECT room_id, default_permissions, name, is_private, created_ms FROM channels;";
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
-                channels.Add(new StoredChannel(reader.GetString(0), (byte)reader.GetInt64(1)));
+            {
+                channels.Add(new StoredChannel(reader.GetString(0), (byte)reader.GetInt64(1))
+                {
+                    Name = reader.IsDBNull(2) ? null : reader.GetString(2),
+                    IsPrivate = reader.GetInt64(3) != 0,
+                    CreatedMs = reader.GetInt64(4),
+                });
+            }
         }
 
         var channelMembers = new List<StoredChannelMember>();
         using (var cmd = _db.CreateCommand())
         {
-            cmd.CommandText = "SELECT room_id, user_id, admin_rights, title, denied, banned, until_ms FROM channel_members;";
+            cmd.CommandText = "SELECT room_id, user_id, admin_rights, title, denied, banned, until_ms, has_access FROM channel_members;";
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
@@ -279,6 +299,7 @@ public sealed class SqliteChatStorage : IChatStorage
                     Denied = (byte)reader.GetInt64(4),
                     Banned = reader.GetInt64(5) != 0,
                     UntilMs = reader.GetInt64(6),
+                    HasAccess = reader.GetInt64(7) != 0,
                 });
             }
         }
@@ -418,15 +439,27 @@ public sealed class SqliteChatStorage : IChatStorage
         AddParameters(_deleteMessage, "$id");
 
         _upsertChannel = _db.CreateCommand();
-        _upsertChannel.CommandText = "INSERT OR REPLACE INTO channels(room_id, default_permissions) VALUES($room, $perms);";
-        AddParameters(_upsertChannel, "$room", "$perms");
+        _upsertChannel.CommandText = """
+            INSERT OR REPLACE INTO channels(room_id, default_permissions, name, is_private, created_ms)
+            VALUES($room, $perms, $name, $private, $created);
+            """;
+        AddParameters(_upsertChannel, "$room", "$perms", "$name", "$private", "$created");
+
+        // A deleted channel takes its members and its history with it.
+        _deleteChannel = _db.CreateCommand();
+        _deleteChannel.CommandText = """
+            DELETE FROM channels WHERE room_id = $room;
+            DELETE FROM channel_members WHERE room_id = $room;
+            DELETE FROM messages WHERE room_id = $room;
+            """;
+        AddParameters(_deleteChannel, "$room");
 
         _upsertChannelMember = _db.CreateCommand();
         _upsertChannelMember.CommandText = """
-            INSERT OR REPLACE INTO channel_members(room_id, user_id, admin_rights, title, denied, banned, until_ms)
-            VALUES($room, $user, $rights, $title, $denied, $banned, $until);
+            INSERT OR REPLACE INTO channel_members(room_id, user_id, admin_rights, title, denied, banned, until_ms, has_access)
+            VALUES($room, $user, $rights, $title, $denied, $banned, $until, $access);
             """;
-        AddParameters(_upsertChannelMember, "$room", "$user", "$rights", "$title", "$denied", "$banned", "$until");
+        AddParameters(_upsertChannelMember, "$room", "$user", "$rights", "$title", "$denied", "$banned", "$until", "$access");
 
         _deleteChannelMember = _db.CreateCommand();
         _deleteChannelMember.CommandText = "DELETE FROM channel_members WHERE room_id = $room AND user_id = $user;";
@@ -460,7 +493,7 @@ public sealed class SqliteChatStorage : IChatStorage
             _insertMessage, _upsertUser, _deleteUser, _selectBefore, _deleteKeysOfUser,
             _upsertUserKey, _deleteUserKey, _upsertAvatar, _deleteAvatar, _selectAvatar,
             _deleteMessage, _upsertChannel, _upsertChannelMember, _deleteChannelMember,
-            _deleteChannelMembersOfUser, _upsertMeta, _upsertPushSubscription, _deletePushSubscription,
+            _deleteChannelMembersOfUser, _deleteChannel, _upsertMeta, _upsertPushSubscription, _deletePushSubscription,
             _deletePushSubscriptionsOfUser,
         ];
     }
@@ -479,6 +512,7 @@ public sealed class SqliteChatStorage : IChatStorage
     public void SaveChannel(StoredChannel channel) => EnqueueWrite(new SaveChannelOp(channel));
     public void SaveChannelMember(StoredChannelMember member) => EnqueueWrite(new SaveChannelMemberOp(member));
     public void DeleteChannelMember(string roomId, uint userId) => EnqueueWrite(new DeleteChannelMemberOp(roomId, userId));
+    public void DeleteChannel(string roomId) => EnqueueWrite(new DeleteChannelOp(roomId));
     public void DeleteUser(uint userId) => EnqueueWrite(new DeleteUserOp(userId));
     public void SaveUserKey(StoredUserKey key) => EnqueueWrite(new SaveUserKeyOp(key));
     public void DeleteUserKey(string keyHash) => EnqueueWrite(new DeleteUserKeyOp(keyHash));
@@ -593,6 +627,9 @@ public sealed class SqliteChatStorage : IChatStorage
                     case SaveChannelOp(var c):
                         _upsertChannel.Parameters[0].Value = c.RoomId;
                         _upsertChannel.Parameters[1].Value = (long)c.DefaultPermissions;
+                        _upsertChannel.Parameters[2].Value = (object?)c.Name ?? DBNull.Value;
+                        _upsertChannel.Parameters[3].Value = c.IsPrivate ? 1L : 0L;
+                        _upsertChannel.Parameters[4].Value = c.CreatedMs;
                         _upsertChannel.ExecuteNonQuery();
                         break;
                     case SaveChannelMemberOp(var cm):
@@ -603,7 +640,12 @@ public sealed class SqliteChatStorage : IChatStorage
                         _upsertChannelMember.Parameters[4].Value = (long)cm.Denied;
                         _upsertChannelMember.Parameters[5].Value = cm.Banned ? 1L : 0L;
                         _upsertChannelMember.Parameters[6].Value = cm.UntilMs;
+                        _upsertChannelMember.Parameters[7].Value = cm.HasAccess ? 1L : 0L;
                         _upsertChannelMember.ExecuteNonQuery();
+                        break;
+                    case DeleteChannelOp(var channelId):
+                        _deleteChannel.Parameters[0].Value = channelId;
+                        _deleteChannel.ExecuteNonQuery();
                         break;
                     case DeleteChannelMemberOp(var roomId, var userId):
                         _deleteChannelMember.Parameters[0].Value = roomId;

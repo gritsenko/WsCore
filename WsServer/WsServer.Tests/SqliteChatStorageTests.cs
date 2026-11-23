@@ -279,6 +279,68 @@ public class SqliteChatStorageTests
     }
 
     [Fact]
+    public async Task CreatedChannels_AndAccess_AreStored_AndADeletedChannelTakesItsHistory()
+    {
+        using var db = new TempDatabase();
+        using (var storage = Open(db.Path))
+        {
+            storage.Load(10);
+            storage.SaveChannel(new StoredChannel("lobby", 1)); // a built-in room: no name
+            storage.SaveChannel(new StoredChannel("c1", 3) { Name = "Штаб", IsPrivate = true, CreatedMs = 50 });
+            storage.SaveChannel(new StoredChannel("c2", 3) { Name = "Мусор", CreatedMs = 60 });
+            storage.SaveChannelMember(new StoredChannelMember("c1", 4) { HasAccess = true });
+            storage.SaveChannelMember(new StoredChannelMember("c2", 4) { HasAccess = true });
+            storage.Append(Message(1, "c1"));
+            storage.Append(Message(2, "c2"));
+            storage.DeleteChannel("c2");
+            await storage.FlushAsync();
+        }
+
+        using var reopened = Open(db.Path);
+        var snapshot = reopened.Load(10);
+        Assert.Equal(
+            [
+                new StoredChannel("c1", 3) { Name = "Штаб", IsPrivate = true, CreatedMs = 50 },
+                new StoredChannel("lobby", 1),
+            ],
+            snapshot.Channels.OrderBy(c => c.RoomId));
+        Assert.Equal([new StoredChannelMember("c1", 4) { HasAccess = true }], snapshot.ChannelMembers);
+        Assert.Equal(["c1"], snapshot.Rooms.Select(r => r.RoomId));
+    }
+
+    [Fact]
+    public void APushDatabase_IsMigratedToCreatedChannels_KeepingItsRoles()
+    {
+        using var db = new TempDatabase();
+        using (var storage = Open(db.Path))
+        {
+            storage.Load(10);
+            storage.SaveChannel(new StoredChannel("voice", 1));
+            storage.SaveChannelMember(new StoredChannelMember("voice", 3) { AdminRights = 7, Title = "boss" });
+            storage.FlushAsync().Wait();
+        }
+        // Back to schema v3 exactly as the push release had it.
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db.Path};Pooling=False"))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                ALTER TABLE channels DROP COLUMN name;
+                ALTER TABLE channels DROP COLUMN is_private;
+                ALTER TABLE channels DROP COLUMN created_ms;
+                ALTER TABLE channel_members DROP COLUMN has_access;
+                PRAGMA user_version = 3;
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        using var migrated = Open(db.Path);
+        var snapshot = migrated.Load(10);
+        Assert.Equal([new StoredChannel("voice", 1)], snapshot.Channels);
+        Assert.Equal([new StoredChannelMember("voice", 3) { AdminRights = 7, Title = "boss" }], snapshot.ChannelMembers);
+    }
+
+    [Fact]
     public void Factory_WithoutAPath_OrWithAnUnusablePath_RunsWithoutPersistence()
     {
         using var none = ChatStorageFactory.Create(new GameServerOptions(), NullLogger.Instance);

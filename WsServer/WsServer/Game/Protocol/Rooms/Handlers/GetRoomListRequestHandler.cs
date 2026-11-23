@@ -9,5 +9,5 @@ namespace Game.ServerLogic.Rooms.Handlers;
 public class GetRoomListRequestHandler(SessionManager sessions, IGameMessenger messenger) : RequestHandlerBase<GetRoomListRequest>
 {
     protected override void Handle(uint clientId, GetRoomListRequest request)
-        => messenger.Send(clientId, sessions.BuildRoomList());
+        => messenger.Send(clientId, sessions.BuildRoomList(clientId));
 }

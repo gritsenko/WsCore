@@ -14,14 +14,27 @@ public class RoomManager : IDisposable
     /// <summary>
     /// Create a new room
     /// </summary>
-    public Room CreateRoom(string roomId, string roomName, IEnumerable<RoomCompatibility> supportedModes, bool isPersistent = false)
+    public Room CreateRoom(string roomId, string roomName, IEnumerable<RoomCompatibility> supportedModes,
+        bool isPersistent = false, bool isHidden = false, bool isCreated = false)
     {
         var room = new Room(roomId, roomName, supportedModes, isPersistent)
         {
             Order = Interlocked.Increment(ref _nextRoomOrder),
+            IsHidden = isHidden,
+            IsCreated = isCreated,
         };
         _rooms.TryAdd(roomId, room);
         return room;
+    }
+
+    /// <summary>Removes a room; the caller moves its members out first.</summary>
+    public bool RemoveRoom(string roomId)
+    {
+        if (!_rooms.TryRemove(roomId, out var room))
+            return false;
+        foreach (var clientId in room.GetClientIds())
+            _clientRoomMap.TryRemove(clientId, out _);
+        return true;
     }
     
     /// <summary>

@@ -60,3 +60,59 @@ public partial class SetServerAdminRequest : IClientRequest
     public uint UserId;
     public bool IsAdmin;
 }
+
+/// <summary>
+/// Creates a channel (a text-chat room). Server admins only. Answered with a
+/// <c>ModerationResultEvent</c> carrying the new channel's id; the room appears in the
+/// room lists of everyone who may see it.
+/// </summary>
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class CreateChannelRequest : IClientRequest
+{
+    public static byte TypeId => 124;
+
+    public string Name = string.Empty;
+    // Private: seen and entered only by admins and the members given access.
+    public bool IsPrivate;
+}
+
+/// <summary>Renames a created channel and / or makes it private / public. Server admins only.</summary>
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class UpdateChannelRequest : IClientRequest
+{
+    public static byte TypeId => 125;
+
+    public string RoomId = string.Empty;
+    public string Name = string.Empty;
+    public bool IsPrivate;
+}
+
+/// <summary>
+/// Deletes a created channel with its history; whoever is inside goes back to the home
+/// room. Server admins only.
+/// </summary>
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class DeleteChannelRequest : IClientRequest
+{
+    public static byte TypeId => 126;
+
+    public string RoomId = string.Empty;
+}
+
+/// <summary>
+/// Gives (HasAccess = true) or takes away access to a private channel. Needs the
+/// InviteUsers right; whoever loses access while inside goes back to the home room.
+/// </summary>
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class SetChannelAccessRequest : IClientRequest
+{
+    public static byte TypeId => 127;
+
+    public string RoomId = string.Empty;
+    public uint UserId;
+    public bool HasAccess;
+}

@@ -13,6 +13,10 @@ export class Room {
   public hostClientId?: number;
   public userCount: number = 0;
   public isPersistent: boolean = false; // Default rooms should not be deleted
+  /** Seen only by admins and the members given access. */
+  public isPrivate: boolean = false;
+  /** Created by an admin (can be renamed / deleted), not built in. */
+  public isCreated: boolean = false;
 
   constructor(
     id: string,

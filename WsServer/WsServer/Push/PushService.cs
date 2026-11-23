@@ -256,7 +256,7 @@ public sealed class PushService : IDisposable
 
     /// <summary>
     /// A chat message was posted: push it to every subscribed user who is not looking
-    /// (offline or away), may see the room (not banned) and did not write it.
+    /// (offline or away), may see the room (has access to a private one, is not banned) and did not write it.
     /// </summary>
     public void NotifyChat(string roomId, string roomName, uint messageId, uint authorUserId, string authorName,
         string text, long sentAtMs)
@@ -287,7 +287,8 @@ public sealed class PushService : IDisposable
                     Forget(s);
                 continue;
             }
-            if (user.Status == PresenceStatus.Online || _permissions.IsBanned(user, roomId))
+            if (user.Status == PresenceStatus.Online || !_permissions.CanSee(user, roomId)
+                || _permissions.IsBanned(user, roomId))
                 continue;
 
             var quietKey = (userId, roomId);

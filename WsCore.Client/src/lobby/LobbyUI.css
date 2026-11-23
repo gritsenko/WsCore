@@ -131,6 +131,33 @@
   letter-spacing: 0.18em;
 }
 
+.lobby-rooms-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.lobby-rooms-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  margin: -6px -6px -6px 0;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.lobby-rooms-add:hover,
+.lobby-rooms-add:focus-visible {
+  background: var(--surface-hover);
+  color: var(--accent);
+  outline: none;
+}
+
 .lobby-users-title-count {
   margin-left: 12px;
 }
@@ -862,6 +889,16 @@
 
 .lobby-dialog-button-quiet:hover {
   color: var(--text);
+}
+
+/* A destructive action armed for its second click ("Точно удалить?"). */
+.lobby-dialog-button.lobby-dialog-button-danger,
+.lobby-dialog-button.lobby-dialog-button-danger:hover {
+  color: #e58a8a;
+}
+
+.lobby-create-channel {
+  width: min(420px, 100%);
 }
 
 .lobby-dialog-button:focus-visible,
