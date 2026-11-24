@@ -11,6 +11,8 @@ import {
 } from '../network/ClientEvents';
 import type ChatAlerts from './ChatAlerts';
 import ProfileDialog, { ProfileSection, ProfileView } from '../lobby/ProfileDialog';
+import VoiceSettingsDialog, { VoiceSettingsView } from '../lobby/VoiceSettingsDialog';
+import type { VoiceDevices } from '../voice/VoiceChat';
 import ChannelDialog, {
   ChannelDialogView,
   CreateChannelDialog,
@@ -206,6 +208,10 @@ export default class LobbyState {
   private ui!: LobbyUI;
   private unsubs: Unsubscribe[] = [];
   private profile: ProfileDialog | null = null;
+  private voiceSettings: VoiceSettingsDialog | null = null;
+  /** The devices the voice settings list (null = being listed). */
+  private voiceDevices: VoiceDevices | null = null;
+  private voiceSettingsInVoice = false;
   private channelDialog: ChannelDialog | null = null;
   private createChannelDialog: CreateChannelDialog | null = null;
 
@@ -347,7 +353,11 @@ export default class LobbyState {
     }
     if (this.alerts)
       this.unsubs.push(this.alerts.onStatusChange(() => this.profile?.update(this.profileView())));
-    if (this.voice) this.unsubs.push(this.voice.on('change', () => this.renderVoice()));
+    if (this.voice)
+      this.unsubs.push(
+        this.voice.on('change', () => this.renderVoice()),
+        this.voice.on('devices', () => this.refreshVoiceDevices())
+      );
 
     // Rooms may already be known (coming back from the game).
     this.renderRooms();
@@ -394,6 +404,7 @@ export default class LobbyState {
     this.stopGame();
     this.closeEditor();
     this.closeProfile();
+    this.closeVoiceSettings();
     this.closeChannelDialog();
     this.closeCreateChannel();
     this.ui.destroy();
@@ -616,6 +627,76 @@ export default class LobbyState {
       roomId
     );
     this.ui.setVoiceSpeaking(voice.speaking);
+    // Only when the hint changes: `change` also fires for every speaking blink, and a
+    // rebuild would close an open device list.
+    const inVoice = voice.status !== 'off';
+    if (this.voiceSettings && inVoice !== this.voiceSettingsInVoice)
+      this.voiceSettings.update(this.voiceSettingsView());
+    this.voiceSettingsInVoice = inVoice;
+  }
+
+  private voiceSettingsView(): VoiceSettingsView {
+    const voice = this.voice;
+    return {
+      devices: this.voiceDevices,
+      inputId: voice?.inputDeviceId ?? '',
+      outputId: voice?.outputDeviceId ?? '',
+      inVoice: (voice?.status ?? 'off') !== 'off',
+    };
+  }
+
+  private openVoiceSettings(): void {
+    const voice = this.voice;
+    if (!voice || this.voiceSettings) return;
+    this.voiceDevices = null;
+    const dialog = new VoiceSettingsDialog(this.voiceSettingsView(), {
+      onInput: id => {
+        dialog.showStatus('input', '');
+        void voice.setInputDevice(id).then(error => {
+          if (this.voiceSettings !== dialog) return;
+          dialog.update(this.voiceSettingsView());
+          if (error) dialog.showStatus('input', describeVoiceError(error), true);
+          else if (voice.status !== 'off') dialog.showStatus('input', 'Микрофон переключён');
+        });
+      },
+      onOutput: id => {
+        dialog.showStatus('output', '');
+        void voice.setOutputDevice(id).then(ok => {
+          if (this.voiceSettings !== dialog) return;
+          dialog.update(this.voiceSettingsView());
+          if (!ok) dialog.showStatus('output', 'Не удалось переключить на это устройство', true);
+        });
+      },
+      onAllow: () =>
+        void voice.requestDeviceAccess().then(error => {
+          if (error && this.voiceSettings === dialog)
+            dialog.showStatus('input', describeVoiceError(error), true);
+          this.refreshVoiceDevices();
+        }),
+      onTestSound: () =>
+        void voice.playTestSound().then(ok => {
+          if (!ok && this.voiceSettings === dialog)
+            dialog.showStatus('output', 'Не удалось воспроизвести звук', true);
+        }),
+      onClose: () => this.closeVoiceSettings(),
+    });
+    this.voiceSettings = dialog;
+    this.refreshVoiceDevices();
+  }
+
+  private refreshVoiceDevices(): void {
+    const voice = this.voice;
+    if (!voice || !this.voiceSettings) return;
+    void voice.listDevices().then(devices => {
+      if (!this.voiceSettings) return;
+      this.voiceDevices = devices;
+      this.voiceSettings.update(this.voiceSettingsView());
+    });
+  }
+
+  private closeVoiceSettings(): void {
+    this.voiceSettings?.destroy();
+    this.voiceSettings = null;
   }
 
   private joinVoice(roomId: string): void {
@@ -637,6 +718,9 @@ export default class LobbyState {
         break;
       case 'deafen':
         voice.toggleDeafen();
+        break;
+      case 'settings':
+        this.openVoiceSettings();
         break;
       case 'leave':
         voice.leave();
@@ -745,6 +829,7 @@ export default class LobbyState {
       notifications: this.alerts?.status ?? 'unsupported',
       apiTokens: me?.isAdmin ? this.apiTokens : null,
       leaderboardHidden: this.client.leaderboardHidden,
+      voice: this.voice !== null,
       newApiToken: this.newApiToken,
       agentMcpUrl: this.client.serverPathUrl('/agent/mcp') ?? '/agent/mcp',
     };
@@ -910,6 +995,7 @@ export default class LobbyState {
         }),
       onCreateApiToken: name => this.client.createApiToken(name),
       onRevokeApiToken: id => this.client.revokeApiToken(id),
+      onVoiceSettings: () => this.openVoiceSettings(),
       onClose: () => this.closeProfile(),
     });
   }

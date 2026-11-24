@@ -22,7 +22,41 @@ export interface VoiceDeps {
   createAudio(): HTMLAudioElement;
   /** For the "speaking" indicator; null = no indicator. */
   createAudioContext(): AudioContext | null;
+  /** The machine's audio devices; absent = no device choice. */
+  enumerateDevices?: () => Promise<MediaDeviceInfo[]>;
+  /** Subscribes to devices being plugged in / out; returns the unsubscribe. */
+  onDeviceChange?: (listener: () => void) => () => void;
+  /** `<audio>` can be sent to a chosen output (`setSinkId`; not in Safari). */
+  canSelectOutput?: boolean;
+  /** Where the chosen devices are remembered. */
+  storage?: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> | null;
 }
+
+/** A microphone or an output, as offered in the settings. */
+export interface VoiceDevice {
+  /** `deviceId`; '' = the system default. */
+  id: string;
+  label: string;
+}
+
+export interface VoiceDevices {
+  inputs: VoiceDevice[];
+  outputs: VoiceDevice[];
+  /** Outputs can be chosen in this browser. */
+  outputSelectable: boolean;
+  /**
+   * The browser named the devices. Before the microphone was allowed once it hides
+   * them (no labels, often a single anonymous entry) — `requestDeviceAccess()` asks.
+   */
+  labelsKnown: boolean;
+}
+
+const INPUT_KEY = 'wscore.voiceInput';
+const OUTPUT_KEY = 'wscore.voiceOutput';
+/** Chrome's pseudo-devices, which only repeat a real one ("По умолчанию" covers them). */
+const PSEUDO_DEVICES = new Set(['default', 'communications']);
+
+type SinkAudio = HTMLAudioElement & { setSinkId?: (id: string) => Promise<void> };
 
 export function browserVoiceDeps(): VoiceDeps {
   const media = typeof navigator !== 'undefined' ? navigator.mediaDevices : undefined;
@@ -37,6 +71,20 @@ export function browserVoiceDeps(): VoiceDeps {
       document.body.appendChild(audio);
       return audio;
     },
+    enumerateDevices: media?.enumerateDevices ? () => media.enumerateDevices() : undefined,
+    onDeviceChange: listener => {
+      media?.addEventListener?.('devicechange', listener);
+      return () => media?.removeEventListener?.('devicechange', listener);
+    },
+    canSelectOutput:
+      typeof HTMLMediaElement !== 'undefined' && 'setSinkId' in HTMLMediaElement.prototype,
+    storage: (() => {
+      try {
+        return window.localStorage;
+      } catch {
+        return null;
+      }
+    })(),
     createAudioContext: () => {
       const Ctor =
         window.AudioContext ??
@@ -51,8 +99,10 @@ export function browserVoiceDeps(): VoiceDeps {
 }
 
 type VoiceEvents = {
-  /** Status, error, mute / deafen or who is speaking changed. */
+  /** Status, error, mute / deafen, who is speaking or the chosen devices changed. */
   change: () => void;
+  /** A device was plugged in / out (the settings re-list them). */
+  devices: () => void;
 };
 
 interface Peer {
@@ -100,6 +150,10 @@ export default class VoiceChat<T extends IPlayer = IPlayer> {
   error: VoiceErrorCode | null = null;
   muted = false;
   deafened = false;
+  /** The chosen microphone ('' = the system default). */
+  inputDeviceId: string;
+  /** The chosen output ('' = the system default). */
+  outputDeviceId: string;
   /** Client ids speaking right now (ours included). */
   readonly speaking = new Set<number>();
 
@@ -119,13 +173,18 @@ export default class VoiceChat<T extends IPlayer = IPlayer> {
   private meterTimer: ReturnType<typeof setInterval> | null = null;
   /** Bumped by leave(): a microphone request that resolves afterwards is stale. */
   private joinSeq = 0;
+  /** Bumped by every microphone switch: only the latest one is applied. */
+  private inputSeq = 0;
 
   constructor(
     private readonly client: WsClient<T>,
     private readonly deps: VoiceDeps = browserVoiceDeps()
   ) {
     this.sessionReady = client.myUserId !== 0 && client.clientId >= 0;
+    this.inputDeviceId = this.load(INPUT_KEY);
+    this.outputDeviceId = deps.canSelectOutput ? this.load(OUTPUT_KEY) : '';
     this.unsubs = [
+      deps.onDeviceChange?.(() => this.emitter.emit('devices')) ?? (() => {}),
       client.on('sessionInit', () => this.onSessionInit()),
       client.on('identified', () => this.onIdentified()),
       client.on('voiceJoined', (roomId, peers, ice) => this.onJoined(roomId, peers, ice)),
@@ -210,6 +269,172 @@ export default class VoiceChat<T extends IPlayer = IPlayer> {
     for (const peer of this.peers.values()) if (peer.audio) peer.audio.muted = deafened;
     this.client.setVoiceState(this.muted, this.deafened);
     this.changed();
+  }
+
+  // ==================== devices ====================
+
+  /** The microphones and outputs to choose from. */
+  async listDevices(): Promise<VoiceDevices> {
+    const outputSelectable = !!this.deps.canSelectOutput;
+    let all: MediaDeviceInfo[] = [];
+    try {
+      all = (await this.deps.enumerateDevices?.()) ?? [];
+    } catch {
+      all = [];
+    }
+    const pick = (kind: MediaDeviceKind, fallback: string): VoiceDevice[] => {
+      const list = all.filter(
+        d => d.kind === kind && d.deviceId && !PSEUDO_DEVICES.has(d.deviceId)
+      );
+      return list.map((d, i) => ({ id: d.deviceId, label: d.label || `${fallback} ${i + 1}` }));
+    };
+    const audio = all.filter(d => d.kind === 'audioinput' || d.kind === 'audiooutput');
+    return {
+      inputs: pick('audioinput', 'Микрофон'),
+      outputs: outputSelectable ? pick('audiooutput', 'Динамики') : [],
+      outputSelectable,
+      labelsKnown: audio.some(d => d.label),
+    };
+  }
+
+  /**
+   * Asks for the microphone once, only so the browser names the devices; released at
+   * once. Call from a click. Returns a `VoiceErrorCode` when refused.
+   */
+  async requestDeviceAccess(): Promise<VoiceErrorCode | null> {
+    if (!this.deps.getUserMedia) return 'insecure';
+    if (this.local) return null; // already open: the devices are named
+    try {
+      const stream = await this.deps.getUserMedia({ audio: true, video: false });
+      for (const track of stream.getTracks()) track.stop();
+      this.emitter.emit('devices');
+      return null;
+    } catch (e) {
+      return microphoneError(e);
+    }
+  }
+
+  /**
+   * Talk through `deviceId` ('' = the system default). Remembered for next time; while
+   * in voice the microphone is switched without hanging up (the peers get the new
+   * track). Returns a `VoiceErrorCode` when the device could not be opened — the old
+   * microphone then stays on.
+   */
+  async setInputDevice(deviceId: string): Promise<VoiceErrorCode | null> {
+    const seq = ++this.inputSeq;
+    const previous = this.inputDeviceId;
+    this.inputDeviceId = deviceId;
+    this.save(INPUT_KEY, deviceId);
+    this.changed();
+    if (!this.local || !this.deps.getUserMedia) return null; // used on the next join
+
+    let stream: MediaStream;
+    try {
+      stream = await this.deps.getUserMedia(this.microphoneConstraints(true));
+    } catch (e) {
+      if (seq === this.inputSeq) {
+        this.inputDeviceId = previous;
+        this.save(INPUT_KEY, previous);
+        this.changed();
+      }
+      return microphoneError(e);
+    }
+    const track = stream.getAudioTracks()[0];
+    // Superseded by another switch, or voice stopped meanwhile.
+    if (seq !== this.inputSeq || !this.local || !track) {
+      for (const t of stream.getTracks()) t.stop();
+      return track ? null : 'mic_missing';
+    }
+    const old = this.local;
+    this.local = stream;
+    this.watchTrack(track);
+    this.applyLocalTrack();
+    for (const peer of this.peers.values()) {
+      const sender = peer.pc
+        .getSenders?.()
+        .find(s => s.track?.kind === 'audio' || s.track === null);
+      if (sender) void sender.replaceTrack(track).catch(e => this.peerError(peer, e));
+      else peer.pc.addTrack(track, stream);
+    }
+    for (const t of old.getTracks()) {
+      t.onended = null;
+      t.stop();
+    }
+    if (this.status === 'connected') this.watchLocalLevel();
+    return null;
+  }
+
+  /**
+   * Play the others through `deviceId` ('' = the system default); remembered. False
+   * when the browser refused it (the device is gone) — the sound stays where it was.
+   */
+  async setOutputDevice(deviceId: string): Promise<boolean> {
+    if (!this.deps.canSelectOutput) return false;
+    const previous = this.outputDeviceId;
+    this.outputDeviceId = deviceId;
+    this.changed();
+    const results = await Promise.all(
+      [...this.peers.values()].map(p => (p.audio ? this.applySink(p.audio) : Promise.resolve(true)))
+    );
+    if (results.every(Boolean)) {
+      this.save(OUTPUT_KEY, deviceId);
+      return true;
+    }
+    this.outputDeviceId = previous;
+    for (const p of this.peers.values()) if (p.audio) void this.applySink(p.audio);
+    this.changed();
+    return false;
+  }
+
+  /** Sends an `<audio>` element to the chosen output (also used by the settings' test sound). */
+  async applySink(audio: HTMLAudioElement): Promise<boolean> {
+    const sink = audio as SinkAudio;
+    if (!this.deps.canSelectOutput || !sink.setSinkId) return true;
+    if ((sink as { sinkId?: string }).sinkId === this.outputDeviceId) return true;
+    try {
+      await sink.setSinkId(this.outputDeviceId);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** A short chime through the chosen output, so the user hears where the sound goes. */
+  async playTestSound(): Promise<boolean> {
+    const audio = this.deps.createAudio();
+    const url =
+      typeof URL !== 'undefined' && URL.createObjectURL ? URL.createObjectURL(chime()) : '';
+    const done = () => {
+      audio.remove();
+      if (url) URL.revokeObjectURL(url);
+    };
+    try {
+      if (!(await this.applySink(audio))) throw new Error('sink');
+      audio.src = url;
+      audio.onended = done;
+      await audio.play();
+      return true;
+    } catch {
+      done();
+      return false;
+    }
+  }
+
+  private load(key: string): string {
+    try {
+      return this.deps.storage?.getItem(key) ?? '';
+    } catch {
+      return '';
+    }
+  }
+
+  private save(key: string, value: string): void {
+    try {
+      if (value) this.deps.storage?.setItem(key, value);
+      else this.deps.storage?.removeItem(key);
+    } catch {
+      // private mode / quota: the choice just is not remembered
+    }
   }
 
   /** Final teardown (the app stops). */
@@ -305,29 +530,40 @@ export default class VoiceChat<T extends IPlayer = IPlayer> {
   private async openMicrophone(): Promise<VoiceErrorCode | null> {
     if (!this.deps.getUserMedia) return 'insecure';
     try {
-      this.local = await this.deps.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-        video: false,
-      });
+      // The chosen device if it is still there, else whatever the system offers.
+      this.local = await this.deps.getUserMedia(this.microphoneConstraints(false));
     } catch (e) {
-      const name = (e as { name?: string } | null)?.name;
-      if (name === 'NotAllowedError' || name === 'SecurityError') return 'mic_denied';
-      if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'mic_missing';
-      return 'mic_unavailable';
+      return microphoneError(e);
     }
     const track = this.local.getAudioTracks()[0];
     if (!track) {
       this.releaseMicrophone();
       return 'mic_missing';
     }
-    // Unplugged / taken away by the system.
+    this.watchTrack(track);
+    this.applyLocalTrack();
+    return null;
+  }
+
+  /** `exact`: switching on purpose must fail rather than silently pick another device. */
+  private microphoneConstraints(exact: boolean): MediaStreamConstraints {
+    const audio: MediaTrackConstraints = {
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl: true,
+    };
+    if (this.inputDeviceId)
+      audio.deviceId = exact ? { exact: this.inputDeviceId } : { ideal: this.inputDeviceId };
+    return { audio, video: false };
+  }
+
+  /** Unplugged / taken away by the system: voice stops. */
+  private watchTrack(track: MediaStreamTrack): void {
     track.onended = () => {
       if (this.local?.getAudioTracks()[0] !== track) return;
       if (this.client.voiceRoomId) this.client.leaveVoice();
       this.stop('mic_lost');
     };
-    this.applyLocalTrack();
-    return null;
   }
 
   private releaseMicrophone(): void {
@@ -448,7 +684,10 @@ export default class VoiceChat<T extends IPlayer = IPlayer> {
 
   private attachRemote(peer: Peer, stream: MediaStream): void {
     if (peer.closed) return;
-    if (!peer.audio) peer.audio = this.deps.createAudio();
+    if (!peer.audio) {
+      peer.audio = this.deps.createAudio();
+      if (this.outputDeviceId) void this.applySink(peer.audio);
+    }
     peer.audio.muted = this.deafened;
     if (peer.audio.srcObject !== stream) {
       peer.audio.srcObject = stream;
@@ -544,4 +783,51 @@ export default class VoiceChat<T extends IPlayer = IPlayer> {
   private changed(): void {
     this.emitter.emit('change');
   }
+}
+
+function microphoneError(e: unknown): VoiceErrorCode {
+  const name = (e as { name?: string } | null)?.name;
+  if (name === 'NotAllowedError' || name === 'SecurityError') return 'mic_denied';
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') return 'mic_missing';
+  return 'mic_unavailable';
+}
+
+/** Two soft notes (~0.6 s) as a 16-bit mono WAV. */
+function chime(): Blob {
+  const rate = 22050;
+  const notes = [
+    [660, 0, 0.3],
+    [880, 0.25, 0.35],
+  ];
+  const length = Math.floor(rate * 0.6);
+  const data = new Int16Array(length);
+  for (const [freq, start, duration] of notes) {
+    const from = Math.floor(start * rate);
+    const count = Math.floor(duration * rate);
+    for (let i = 0; i < count && from + i < length; i++) {
+      const t = i / rate;
+      const envelope = Math.min(1, t * 40) * Math.exp(-t * 8);
+      data[from + i] += Math.round(Math.sin(2 * Math.PI * freq * t) * envelope * 9000);
+    }
+  }
+  const buffer = new ArrayBuffer(44 + data.byteLength);
+  const view = new DataView(buffer);
+  const text = (at: number, s: string) => {
+    for (let i = 0; i < s.length; i++) view.setUint8(at + i, s.charCodeAt(i));
+  };
+  text(0, 'RIFF');
+  view.setUint32(4, 36 + data.byteLength, true);
+  text(8, 'WAVE');
+  text(12, 'fmt ');
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); // PCM
+  view.setUint16(22, 1, true); // mono
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  text(36, 'data');
+  view.setUint32(40, data.byteLength, true);
+  new Int16Array(buffer, 44).set(data);
+  return new Blob([buffer], { type: 'audio/wav' });
 }

@@ -37,6 +37,14 @@ class FakePeerConnection {
     this.tracks.push(track);
     queueMicrotask(() => this.onnegotiationneeded?.());
   }
+  getSenders() {
+    return this.tracks.map((track, i) => ({
+      track: { ...(track as object), kind: 'audio' },
+      replaceTrack: async (next: unknown) => {
+        this.tracks[i] = next;
+      },
+    }));
+  }
   async createOffer() {
     return { type: 'offer', sdp: `offer-${this.restarts}` };
   }
@@ -349,5 +357,147 @@ describe('VoiceChat', () => {
     expect(voice.status).toBe('off');
     expect(voice.error).toBe('full');
     expect(mic.track.stopped).toBe(true);
+  });
+
+  describe('devices', () => {
+    const device = (kind: MediaDeviceKind, deviceId: string, label: string) =>
+      ({ kind, deviceId, label, groupId: '' }) as MediaDeviceInfo;
+
+    function storage(initial: Record<string, string> = {}) {
+      const data = new Map(Object.entries(initial));
+      return {
+        data,
+        getItem: (k: string) => data.get(k) ?? null,
+        setItem: (k: string, v: string) => void data.set(k, v),
+        removeItem: (k: string) => void data.delete(k),
+      };
+    }
+
+    it('lists microphones and outputs without the pseudo-devices', async () => {
+      const voice = new VoiceChat(client, {
+        ...deps,
+        canSelectOutput: true,
+        enumerateDevices: async () => [
+          device('audioinput', 'default', 'По умолчанию — USB'),
+          device('audioinput', 'usb', 'USB'),
+          device('audioinput', 'cam', ''),
+          device('audiooutput', 'communications', 'Связь'),
+          device('audiooutput', 'hdmi', 'HDMI'),
+          device('videoinput', 'camera', 'Камера'),
+        ],
+      });
+      expect(await voice.listDevices()).toEqual({
+        inputs: [
+          { id: 'usb', label: 'USB' },
+          { id: 'cam', label: 'Микрофон 2' },
+        ],
+        outputs: [{ id: 'hdmi', label: 'HDMI' }],
+        outputSelectable: true,
+        labelsKnown: true,
+      });
+    });
+
+    it('opens the remembered microphone, falling back to any if it is gone', async () => {
+      connect();
+      const voice = new VoiceChat(client, {
+        ...deps,
+        storage: storage({ 'wscore.voiceInput': 'usb' }),
+      });
+      expect(voice.inputDeviceId).toBe('usb');
+      await voice.join('voice');
+      const audio = getUserMedia.mock.calls[0][0].audio as MediaTrackConstraints;
+      expect(audio.deviceId).toEqual({ ideal: 'usb' });
+    });
+
+    it('switches the microphone in a call without hanging up, and remembers it', async () => {
+      connect();
+      const store = storage();
+      const voice = new VoiceChat(client, { ...deps, storage: store });
+      await voice.join('voice');
+      joined('voice', [5]);
+      voice.setMuted(true);
+      const pc = FakePeerConnection.all[0];
+      const old = mic.track;
+
+      const next = fakeMicrophone();
+      getUserMedia.mockResolvedValueOnce(next.stream);
+      expect(await voice.setInputDevice('usb')).toBeNull();
+
+      const audio = last(getUserMedia.mock.calls)![0].audio as MediaTrackConstraints;
+      expect(audio.deviceId).toEqual({ exact: 'usb' });
+      expect(pc.tracks).toEqual([next.track]); // replaced, not a second track
+      expect(pc.closed).toBe(false);
+      expect(old.stopped).toBe(true);
+      expect(next.track.enabled).toBe(false); // still muted
+      expect(store.data.get('wscore.voiceInput')).toBe('usb');
+      expect(voice.status).toBe('connected');
+
+      // Unplugging the new one still ends voice; the old one no longer can.
+      old.onended?.();
+      expect(voice.status).toBe('connected');
+      next.track.onended?.();
+      expect(voice.status).toBe('off');
+    });
+
+    it('keeps the old microphone when the new one cannot be opened', async () => {
+      connect();
+      const voice = new VoiceChat(client, deps);
+      await voice.join('voice');
+      getUserMedia.mockRejectedValueOnce(
+        Object.assign(new Error('gone'), { name: 'OverconstrainedError' })
+      );
+      expect(await voice.setInputDevice('usb')).toBe('mic_missing');
+      expect(voice.inputDeviceId).toBe('');
+      expect(mic.track.stopped).toBe(false);
+    });
+
+    it('outside voice a choice is only remembered', async () => {
+      const voice = new VoiceChat(client, deps);
+      expect(await voice.setInputDevice('usb')).toBeNull();
+      expect(getUserMedia).not.toHaveBeenCalled();
+      expect(voice.inputDeviceId).toBe('usb');
+    });
+
+    it('sends the others to the chosen output', async () => {
+      connect();
+      const sinks: string[] = [];
+      const store = storage();
+      const voice = new VoiceChat(client, {
+        ...deps,
+        canSelectOutput: true,
+        storage: store,
+        createAudio: () =>
+          ({
+            muted: false,
+            srcObject: null,
+            sinkId: '',
+            play: async () => {},
+            remove() {},
+            async setSinkId(this: { sinkId: string }, id: string) {
+              if (id === 'gone') throw new Error('NotFoundError');
+              this.sinkId = id;
+              sinks.push(id);
+            },
+          }) as unknown as HTMLAudioElement,
+      });
+      await voice.setOutputDevice('hdmi');
+      await voice.join('voice');
+      joined('voice', []);
+      signal(7, VoiceSignalKind.Offer, 'offer-7');
+      await flush();
+      FakePeerConnection.all[0].ontrack?.({ streams: [{ id: 's' }], track: {} });
+      await flush();
+      expect(sinks).toEqual(['hdmi']); // a newcomer plays on the chosen output
+
+      expect(await voice.setOutputDevice('gone')).toBe(false);
+      expect(voice.outputDeviceId).toBe('hdmi');
+      expect(store.data.get('wscore.voiceOutput')).toBe('hdmi');
+    });
+
+    it('without setSinkId there is no output choice', async () => {
+      const voice = new VoiceChat(client, { ...deps, canSelectOutput: false });
+      expect(await voice.setOutputDevice('hdmi')).toBe(false);
+      expect((await voice.listDevices()).outputSelectable).toBe(false);
+    });
   });
 });

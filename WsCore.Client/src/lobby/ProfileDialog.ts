@@ -26,6 +26,8 @@ export interface ProfileView {
   agentMcpUrl: string;
   /** Hidden from others on the games' leaderboards. */
   leaderboardHidden: boolean;
+  /** Voice is available: offer its settings (microphone, speakers). */
+  voice: boolean;
 }
 
 export interface ProfileHandlers {
@@ -41,6 +43,8 @@ export interface ProfileHandlers {
   onCreateApiToken(name: string): void;
   onLeaderboardHidden(hidden: boolean): void;
   onRevokeApiToken(id: string): void;
+  /** Open the voice settings (microphone, speakers). */
+  onVoiceSettings(): void;
   onClose(): void;
 }
 
@@ -86,6 +90,7 @@ export default class ProfileDialog {
   private readonly tokensSection: HTMLDivElement;
   private readonly leaderboardsSection: HTMLDivElement;
   private readonly leaderboardHidden: HTMLInputElement;
+  private readonly voiceSection: HTMLDivElement;
   /** What the tokens section was last built for. */
   private tokensKey = '';
   /** The status the notifications section was last built for. */
@@ -194,6 +199,25 @@ export default class ProfileDialog {
     // ---- notifications ----
     this.notificationsSection = el('div', 'lobby-dialog-account lobby-dialog-notifications');
     dialog.appendChild(this.notificationsSection);
+
+    // ---- voice ----
+    this.voiceSection = el('div', 'lobby-dialog-account');
+    const voiceButton = el('button', 'lobby-dialog-button', 'Микрофон и динамики');
+    voiceButton.type = 'button';
+    voiceButton.id = 'lobby-profile-voice';
+    voiceButton.onclick = () => handlers.onVoiceSettings();
+    const voiceRow = el('div', 'lobby-dialog-buttons');
+    voiceRow.appendChild(voiceButton);
+    this.voiceSection.append(
+      el('div', 'lobby-dialog-section-title', 'Голос'),
+      el(
+        'div',
+        'lobby-dialog-hint',
+        'Какой микрофон и какие динамики использовать в голосовых каналах.'
+      ),
+      voiceRow
+    );
+    dialog.appendChild(this.voiceSection);
 
     // ---- leaderboards ----
     this.leaderboardsSection = el('div', 'lobby-dialog-account');
@@ -398,6 +422,7 @@ export default class ProfileDialog {
     this.renderNotifications();
     this.renderTokens();
     this.leaderboardsSection.hidden = !view.identified;
+    this.voiceSection.hidden = !view.voice;
     this.leaderboardHidden.checked = view.leaderboardHidden;
 
     const accountKey = `${view.identified}|${view.login ?? ''}`;

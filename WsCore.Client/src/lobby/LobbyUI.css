@@ -768,7 +768,7 @@
 
 .lobby-voice-controls {
   display: flex;
-  gap: 4px;
+  gap: 2px;
   flex-shrink: 0;
 }
 
@@ -776,7 +776,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
+  width: 30px;
   height: 34px;
   padding: 0;
   border: none;

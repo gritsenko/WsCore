@@ -220,7 +220,7 @@ export interface LobbyVoiceView {
   error: string | null;
 }
 
-export type VoiceControl = 'mute' | 'deafen' | 'leave' | 'dismiss';
+export type VoiceControl = 'mute' | 'deafen' | 'settings' | 'leave' | 'dismiss';
 
 /**
  * Lobby UI: sidebar (brand, rooms, member list, current user) + room chat.
@@ -825,18 +825,20 @@ export default class LobbyUI {
     }
 
     const text = el('div', 'lobby-voice-panel-text');
-    text.appendChild(
-      el(
-        'div',
-        'lobby-voice-panel-title',
-        v.status === 'connected' ? 'Голос подключён' : 'Подключение…'
-      )
+    // Short: four buttons share the row (the channel is the line below).
+    const title = el(
+      'div',
+      'lobby-voice-panel-title',
+      v.status === 'connected' ? 'В голосе' : 'Подключение…'
     );
+    title.title = v.status === 'connected' ? 'Голос подключён' : 'Подключение к голосу…';
+    text.appendChild(title);
     text.appendChild(el('div', 'lobby-voice-panel-detail', v.roomName ?? ''));
     panel.appendChild(text);
 
     const controls = el('div', 'lobby-voice-controls');
-    controls.append(...this.voiceControls());
+    const [mute, deafen, leave, settings] = this.voiceControls();
+    controls.append(mute, deafen, settings, leave);
     panel.appendChild(controls);
     if (this.headerVoice) {
       const compact = this.voiceControls();
@@ -862,7 +864,9 @@ export default class LobbyUI {
     deafen.setAttribute('aria-pressed', String(v.deafened));
     const leave = this.voiceButton('Отключиться', ICONS.hangUp, 'leave');
     leave.classList.add('lobby-voice-leave');
-    return [mute, deafen, leave];
+    const settings = this.voiceButton('Настройки голоса', ICONS.settings, 'settings');
+    settings.classList.add('lobby-voice-settings-btn');
+    return [mute, deafen, leave, settings];
   }
 
   private voiceButton(label: string, icon: string, control: VoiceControl): HTMLButtonElement {
