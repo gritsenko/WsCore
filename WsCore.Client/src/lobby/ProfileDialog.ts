@@ -22,6 +22,8 @@ export interface ProfileView {
   apiTokens: ApiToken[] | null;
   /** The token just created — shown once, until the dialog closes. */
   newApiToken: string;
+  /** The MCP endpoint an agent connects to (for the ready-made command). */
+  agentMcpUrl: string;
   /** Hidden from others on the games' leaderboards. */
   leaderboardHidden: boolean;
 }
@@ -291,6 +293,14 @@ export default class ProfileDialog {
     this.notificationsSection.appendChild(row);
   }
 
+  private commandBox(text: string): HTMLInputElement {
+    const box = el('input', 'lobby-dialog-input lobby-dialog-token');
+    box.readOnly = true;
+    box.value = text;
+    box.onfocus = () => box.select();
+    return box;
+  }
+
   private renderTokens(): void {
     const { apiTokens, newApiToken } = this.view;
     const key = JSON.stringify([apiTokens, newApiToken]);
@@ -307,7 +317,7 @@ export default class ProfileDialog {
       el(
         'div',
         'lobby-dialog-hint',
-        'Токен, которым агент или скрипт публикует игры в раздел «Игры» (API /api/games). ' +
+        'Токен, которым агент (MCP) или скрипт (REST /api/games) публикует игры в раздел «Игры». ' +
           'Действует от вашего имени; показывается один раз.'
       )
     );
@@ -332,7 +342,13 @@ export default class ProfileDialog {
           'Новый токен — сохраните его сейчас, потом его не показать:'
         ),
         box,
-        row
+        row,
+        // Into a terminal, not into the agent's chat: there the token would end up in its transcript.
+        el('div', 'lobby-dialog-hint', 'Подключить агента (вставьте в терминал, не в чат агента):'),
+        this.commandBox(
+          `claude mcp add --transport http --scope user tox ${this.view.agentMcpUrl} ` +
+            `--header "Authorization: Bearer ${newApiToken}"`
+        )
       );
     }
 

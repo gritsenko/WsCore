@@ -113,6 +113,9 @@ public sealed class GamesHttpTests : IAsyncLifetime
     {
         var request = Api(HttpMethod.Put, $"/api/games/{game}/build?{query}", token ?? _adminToken);
         request.Content = new ByteArrayContent(bytes);
+        // A refused upload is answered before its body is read; the server then closes the
+        // connection — don't let the next request reuse it.
+        request.Headers.ConnectionClose = true;
         return await Send(request);
     }
 

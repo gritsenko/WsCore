@@ -742,6 +742,7 @@ export default class LobbyState {
       apiTokens: me?.isAdmin ? this.apiTokens : null,
       leaderboardHidden: this.client.leaderboardHidden,
       newApiToken: this.newApiToken,
+      agentMcpUrl: this.client.serverPathUrl('/agent/mcp') ?? '/agent/mcp',
     };
   }
 

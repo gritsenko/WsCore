@@ -330,6 +330,24 @@ public sealed class GameCatalog
         return (view, release);
     }
 
+    /// <summary>Renames a release and / or rewrites its notes (only what is given); the rest is the record.</summary>
+    public (GameView Game, StoredGameRelease Release) UpdateRelease(UserAccount by, string idOrSlug, uint no,
+        string? version, string? notes)
+    {
+        var view = Editable(by, idOrSlug);
+        var release = view.Releases.FirstOrDefault(r => r.No == no)
+            ?? throw new GameRequestException(404, "no_release", "No such release");
+        var updated = release with
+        {
+            Version = version == null ? release.Version : Clean(version, 32) is { Length: > 0 } v ? v : "v" + no,
+            Notes = notes == null ? release.Notes : CleanText(notes, _options.MaxReleaseNotesLength),
+        };
+        _storage.SaveGameRelease(updated);
+        view = Save(view with { Releases = view.Releases.Replace(release, updated) });
+        BroadcastCatalog();
+        return (view, updated);
+    }
+
     /// <summary>
     /// Release directories of the game that are no longer kept (all but the newest
     /// <see cref="GameServerOptions.GameKeepReleases"/>) — for the caller to delete off the

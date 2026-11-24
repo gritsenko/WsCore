@@ -86,6 +86,17 @@ public static class GameServerHostingExtensions
         services.AddSingleton<GameAnalytics>();
         services.AddSingleton<Leaderboards>();
         services.AddSingleton<LeaderboardRequests>();
+
+        // The agent's MCP tools (/agent/mcp): stateless Streamable HTTP, a personal token.
+        services.AddSingleton<UploadSessions>();
+        services.AddHttpContextAccessor();
+        services.AddMcpServer()
+            .WithHttpTransport(o => o.Stateless = true)
+            // Cyrillic as itself, not \uXXXX (half the tokens for an agent reading Russian titles).
+            .WithTools<AgentTools>(new System.Text.Json.JsonSerializerOptions(ModelContextProtocol.McpJsonUtilities.DefaultOptions)
+            {
+                Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
+            });
         services.AddSingleton<GameServer>();
         services.AddSingleton<IGameServer>(sp => sp.GetRequiredService<GameServer>());
         services.AddHostedService(sp => sp.GetRequiredService<GameServer>());
@@ -110,12 +121,14 @@ public static class GameServerHostingExtensions
         var options = app.Services.GetRequiredService<GameServerOptions>();
         app.UseWebSockets(CreateWebSocketOptions(options));
         app.UseCors();
+        app.UseAgentAuth(); // /agent/mcp needs a personal token
         app.Map(wsPath, WebSocketHandler.HandleWebSocket);
         app.MapGameHealth();
         // Dashboard JSON: connections, game-world players, room occupancy, process stats.
         app.MapGet("/info", (ServerInfoProvider provider) => provider.GetInfo());
         app.MapAvatars();
         app.MapGamesApi(); // /api/games… (the games origin itself: UseGamesOrigin, first in the pipeline)
+        app.MapAgent();    // /agent/mcp (the MCP tools) + /agent/upload/… (their uploads)
         return app;
     }
 

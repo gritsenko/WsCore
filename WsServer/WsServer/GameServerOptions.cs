@@ -265,6 +265,12 @@ public class GameServerOptions
     /// <summary>A player's scores to one board are taken at most this often (others: too_fast).</summary>
     public double LeaderboardWriteCooldownSeconds { get; set; } = 0.5;
 
+    /// <summary>
+    /// Chunk size of the agent's uploads (push_build / push_media), in MB. 0 = the whole file in
+    /// one PUT; set it to what the proxy in front of the server lets through.
+    /// </summary>
+    public int AgentUploadChunkMb { get; set; } = 0;
+
     /// <summary>API tokens one user may hold (the agent / scripts publishing games).</summary>
     public int ApiTokensPerUser { get; set; } = 10;
 

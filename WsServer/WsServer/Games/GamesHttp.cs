@@ -194,6 +194,51 @@ public static class GamesHttp
         return endpoints;
     }
 
+    /// <summary>
+    /// The agent's endpoints: <c>/agent/mcp</c> (MCP over Streamable HTTP; a personal token
+    /// required — a request without one gets 401 with <c>WWW-Authenticate: Bearer</c>) and
+    /// <c>PUT /agent/upload/{session}/{index}?t={ticket}</c> (the chunks the tools' commands send;
+    /// the ticket is the authority, not a token).
+    /// </summary>
+    public static IEndpointRouteBuilder MapAgent(this IEndpointRouteBuilder endpoints)
+    {
+        endpoints.MapMcp("/agent/mcp");
+
+        endpoints.MapPut("/agent/upload/{sessionId}/{index:int}", async (string sessionId, int index, string? t, HttpContext http) =>
+        {
+            var options = http.RequestServices.GetRequiredService<GameServerOptions>();
+            if (http.Features.Get<IHttpMaxRequestBodySizeFeature>() is { IsReadOnly: false } limit)
+                limit.MaxRequestBodySize = (long)Math.Max(options.GameMaxBuildMb, options.GameMaxMediaMb) * 1024 * 1024;
+            var (status, error) = await http.RequestServices.GetRequiredService<UploadSessions>()
+                .SaveChunkAsync(sessionId, index, t ?? string.Empty, http.Request.Body, http.RequestAborted);
+            return status == 200 ? Results.Json(new { ok = true, index }) : Error(status, "bad_chunk", error);
+        });
+        return endpoints;
+    }
+
+    /// <summary>
+    /// Refuses <c>/agent/mcp</c> without a valid personal token — before the MCP transport
+    /// reads anything (401 with <c>WWW-Authenticate: Bearer</c>, so a client knows to send one).
+    /// </summary>
+    public static IApplicationBuilder UseAgentAuth(this IApplicationBuilder app)
+        => app.UseWhen(ctx => ctx.Request.Path.StartsWithSegments("/agent/mcp"), branch => branch.Use(async (ctx, next) =>
+        {
+            var header = ctx.Request.Headers.Authorization.ToString();
+            var token = header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase) ? header[7..].Trim() : null;
+            if (ctx.RequestServices.GetRequiredService<ApiTokens>().Authenticate(token) == null)
+            {
+                ctx.Response.StatusCode = StatusCodes.Status401Unauthorized;
+                ctx.Response.Headers.WWWAuthenticate = "Bearer realm=\"tox\"";
+                await ctx.Response.WriteAsJsonAsync(new
+                {
+                    error = "unauthorized",
+                    message = "A personal token is required: Authorization: Bearer tox_… (profile → «Доступ для агента»)",
+                });
+                return;
+            }
+            await next(ctx);
+        }));
+
     /// <summary>Maps the <c>/api/…</c> endpoints of the games portal.</summary>
     public static IEndpointRouteBuilder MapGamesApi(this IEndpointRouteBuilder endpoints)
     {
@@ -302,7 +347,7 @@ public static class GamesHttp
 
     public sealed record MediaDto(string Id, string Kind, string Url, int Width, int Height);
 
-    private static void DeleteFiles(GameCatalog catalog, IEnumerable<StoredGameMedia> media)
+    public static void DeleteFiles(GameCatalog catalog, IEnumerable<StoredGameMedia> media)
     {
         foreach (var m in media)
             TryDelete(catalog.MediaFile(m));
@@ -313,13 +358,9 @@ public static class GamesHttp
     {
         var services = http.RequestServices;
         var options = services.GetRequiredService<GameServerOptions>();
-        var server = services.GetRequiredService<GameServer>();
-        var catalog = services.GetRequiredService<GameCatalog>();
-        var users = services.GetRequiredService<UserDirectory>();
         if (await Authenticate(http) is not { } userId)
             return Error(401, "unauthorized", "An API token is required (Authorization: Bearer tox_…)");
 
-        var kind = http.Request.Query["kind"].ToString();
         long maxBytes = (long)options.GameMaxMediaMb * 1024 * 1024;
         if (http.Request.ContentLength > maxBytes)
             return Error(413, "too_large", $"A picture may be at most {options.GameMaxMediaMb} MB");
@@ -332,20 +373,39 @@ public static class GamesHttp
                 return Error(413, "too_large", $"A picture may be at most {options.GameMaxMediaMb} MB");
             body.Write(buffer, 0, read);
         }
-        var bytes = body.ToArray();
-        if (ImageInfo.Read(bytes) is not { } image)
-            return Error(400, "bad_image", "A picture must be a PNG, JPEG, WebP or GIF");
-        var (contentType, width, height) = image;
+        try
+        {
+            var result = await AddPictureAsync(services, userId, idOrSlug, http.Request.Query["kind"].ToString(), body.ToArray());
+            return Results.Json(result, statusCode: StatusCodes.Status201Created);
+        }
+        catch (GameRequestException e)
+        {
+            return Error(e.Status, e.Code, e.Message);
+        }
+    }
 
-        // The file goes in first (named by a fresh id), then the catalog takes it.
-        var media = new StoredGameMedia(GameCatalog.NewMediaId(), string.Empty, kind, contentType,
+    public sealed record PictureAdded(GameDto Game, MediaDto Media, IReadOnlyList<string> Warnings);
+
+    /// <summary>
+    /// Attaches a picture (cover / header / screenshot) as <paramref name="userId"/> — the one
+    /// path of the REST upload and the agent's <c>attach_media</c>. The file goes in first,
+    /// named by a fresh id; the catalog then takes it; replaced pictures' files are deleted.
+    /// </summary>
+    public static async Task<PictureAdded> AddPictureAsync(IServiceProvider services, uint userId, string idOrSlug,
+        string kind, byte[] bytes)
+    {
+        var server = services.GetRequiredService<GameServer>();
+        var catalog = services.GetRequiredService<GameCatalog>();
+        var users = services.GetRequiredService<UserDirectory>();
+        if (ImageInfo.Read(bytes) is not { } image)
+            throw new GameRequestException(400, "bad_image", "A picture must be a PNG, JPEG, WebP or GIF");
+        var (contentType, width, height) = image;
+        var game = catalog.Find(idOrSlug) ?? throw new GameRequestException(404, "not_found", "No such game");
+        var media = new StoredGameMedia(GameCatalog.NewMediaId(), game.Id, kind, contentType,
             DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) { Width = width, Height = height, Bytes = bytes.Length };
-        var game = catalog.Find(idOrSlug);
-        if (game == null)
-            return Error(404, "not_found", "No such game");
-        var file = catalog.MediaFile(media with { GameId = game.Id });
+        var file = catalog.MediaFile(media);
         Directory.CreateDirectory(Path.GetDirectoryName(file)!);
-        await File.WriteAllBytesAsync(file, bytes, http.RequestAborted);
+        await File.WriteAllBytesAsync(file, bytes);
         try
         {
             var (view, replaced) = await server.RunOnTickAsync(() =>
@@ -356,19 +416,16 @@ public static class GamesHttp
             });
             DeleteFiles(catalog, replaced);
             var added = view.Media.First(m => m.Id == media.Id);
-            return Results.Json(new
-            {
-                game = ToDto(catalog, view),
-                media = new MediaDto(added.Id, added.Kind, catalog.PublicUrl(GameCatalog.MediaPath(added)), width, height),
-                warnings = contentType is "image/png" or "image/jpeg" || kind != GameCatalog.CoverKind
-                    ? Array.Empty<string>()
-                    : ["Link previews show a JPEG or PNG cover most reliably"],
-            }, statusCode: StatusCodes.Status201Created);
+            return new PictureAdded(ToDto(catalog, view),
+                new MediaDto(added.Id, added.Kind, catalog.PublicUrl(GameCatalog.MediaPath(added)), width, height),
+                contentType is "image/png" or "image/jpeg" || kind != GameCatalog.CoverKind
+                    ? []
+                    : ["Link previews show a JPEG or PNG cover most reliably"]);
         }
-        catch (GameRequestException e)
+        catch
         {
             TryDelete(file);
-            return Error(e.Status, e.Code, e.Message);
+            throw;
         }
     }
 
@@ -460,18 +517,12 @@ public static class GamesHttp
     /// <summary>
     /// PUT /api/games/{idOrSlug}/build?filename=game.zip&amp;version=0.2&amp;notes=… with the
     /// file as the body (<c>curl -T game.zip</c>): a new release, which becomes the current
-    /// build. The body is streamed to disk, unpacked off the tick thread into the release's
-    /// directory and only then committed.
+    /// build. The body is streamed to disk, then <see cref="PublishBuildAsync"/>.
     /// </summary>
     private static async Task<IResult> UploadBuild(string idOrSlug, HttpContext http)
     {
         var services = http.RequestServices;
         var options = services.GetRequiredService<GameServerOptions>();
-        var server = services.GetRequiredService<GameServer>();
-        var catalog = services.GetRequiredService<GameCatalog>();
-        var users = services.GetRequiredService<UserDirectory>();
-        var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("WsServer.Games.Upload");
-
         if (await Authenticate(http) is not { } userId)
             return Error(401, "unauthorized", "An API token is required (Authorization: Bearer tox_…)");
 
@@ -485,26 +536,7 @@ public static class GamesHttp
         if (http.Request.ContentLength > maxBytes)
             return Error(413, "too_large", $"A build may be at most {options.GameMaxBuildMb} MB");
 
-        UserAccount? user = null;
-        (uint No, string Directory) reserved;
-        try
-        {
-            reserved = await server.RunOnTickAsync(() =>
-            {
-                user = users.FindById(userId)
-                    ?? throw new GameRequestException(401, "unauthorized", "The token's user no longer exists");
-                return catalog.ReserveRelease(user, idOrSlug);
-            });
-        }
-        catch (GameRequestException e)
-        {
-            return Error(e.Status, e.Code, e.Message);
-        }
-
-        var uploads = Path.Combine(Path.GetFullPath(options.GamesDataPath), ".uploads");
-        Directory.CreateDirectory(uploads);
-        var upload = Path.Combine(uploads, Guid.NewGuid().ToString("N") + Path.GetExtension(fileName).ToLowerInvariant());
-        var staging = reserved.Directory + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
+        var upload = NewUploadFile(options, Path.GetExtension(fileName));
         try
         {
             long received = 0;
@@ -523,28 +555,9 @@ public static class GamesHttp
             if (received == 0)
                 return Error(400, "empty", "The body is empty — send the file (curl -T game.zip …)");
 
-            var build = await Task.Run(() => GameBuild.Unpack(upload, fileName, staging,
-                (long)options.GameMaxUnpackedMb * 1024 * 1024, options.GameMaxFiles));
-            Directory.Move(staging, reserved.Directory);
-
-            var version = http.Request.Query["version"].ToString();
-            var notes = http.Request.Query["notes"].ToString();
-            var (game, release) = await server.RunOnTickAsync(() =>
-                catalog.CommitRelease(user!, idOrSlug, reserved.No, build, version, notes));
-
-            var stale = await server.RunOnTickAsync(() => catalog.StaleReleaseDirectories(game.Id));
-            foreach (var dir in stale.Where(Directory.Exists))
-            {
-                try { Directory.Delete(dir, recursive: true); }
-                catch (IOException e) { logger.LogWarning(e, "Could not delete old release {Dir}", dir); }
-            }
-
-            return Results.Json(new
-            {
-                game = ToDto(catalog, game),
-                release = ToReleaseDto(catalog, game, release),
-                warnings = build.Warnings,
-            }, statusCode: StatusCodes.Status201Created);
+            var result = await PublishBuildAsync(services, userId, idOrSlug, upload, fileName,
+                http.Request.Query["version"].ToString(), http.Request.Query["notes"].ToString());
+            return Results.Json(result, statusCode: StatusCodes.Status201Created);
         }
         catch (BuildRejectedException e)
         {
@@ -561,12 +574,71 @@ public static class GamesHttp
         finally
         {
             TryDelete(upload);
+        }
+    }
+
+    /// <summary>A fresh file in the upload area (deleted by whoever made it).</summary>
+    public static string NewUploadFile(GameServerOptions options, string extension)
+    {
+        var uploads = Path.Combine(Path.GetFullPath(options.GamesDataPath), ".uploads");
+        Directory.CreateDirectory(uploads);
+        return Path.Combine(uploads, Guid.NewGuid().ToString("N") + extension.ToLowerInvariant());
+    }
+
+    /// <summary>
+    /// Publishes an uploaded build (a file in the upload area) as the game's next release, as
+    /// <paramref name="userId"/> — the one path of the REST upload and the agent's
+    /// <c>complete_build</c>: a release number is reserved (never reused), the build is
+    /// unpacked off the tick thread into <c>r{no}.tmp-…</c>, renamed, committed, and old
+    /// releases beyond <c>GameKeepReleases</c> are deleted from disk. Throws
+    /// <see cref="GameRequestException"/> / <see cref="BuildRejectedException"/>.
+    /// </summary>
+    public static async Task<BuildPublished> PublishBuildAsync(IServiceProvider services, uint userId, string idOrSlug,
+        string upload, string fileName, string? version, string? notes)
+    {
+        var options = services.GetRequiredService<GameServerOptions>();
+        var server = services.GetRequiredService<GameServer>();
+        var catalog = services.GetRequiredService<GameCatalog>();
+        var users = services.GetRequiredService<UserDirectory>();
+        var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("WsServer.Games.Upload");
+        if (!GameBuild.IsAcceptedFileName(fileName))
+            throw new BuildRejectedException("A web build must be a .zip archive or a single .html file");
+
+        UserAccount? user = null;
+        var reserved = await server.RunOnTickAsync(() =>
+        {
+            user = users.FindById(userId)
+                ?? throw new GameRequestException(401, "unauthorized", "The token's user no longer exists");
+            return catalog.ReserveRelease(user, idOrSlug);
+        });
+
+        var staging = reserved.Directory + ".tmp-" + Guid.NewGuid().ToString("N")[..8];
+        try
+        {
+            var build = await Task.Run(() => GameBuild.Unpack(upload, fileName, staging,
+                (long)options.GameMaxUnpackedMb * 1024 * 1024, options.GameMaxFiles));
+            Directory.Move(staging, reserved.Directory);
+            var (game, release) = await server.RunOnTickAsync(() =>
+                catalog.CommitRelease(user!, idOrSlug, reserved.No, build, version, notes));
+
+            var stale = await server.RunOnTickAsync(() => catalog.StaleReleaseDirectories(game.Id));
+            foreach (var dir in stale.Where(Directory.Exists))
+            {
+                try { Directory.Delete(dir, recursive: true); }
+                catch (IOException e) { logger.LogWarning(e, "Could not delete old release {Dir}", dir); }
+            }
+            return new BuildPublished(ToDto(catalog, game), ToReleaseDto(catalog, game, release), build.Warnings);
+        }
+        finally
+        {
             if (Directory.Exists(staging))
             {
                 try { Directory.Delete(staging, recursive: true); } catch (IOException) { }
             }
         }
     }
+
+    public sealed record BuildPublished(GameDto Game, ReleaseDto Release, IReadOnlyList<string> Warnings);
 
     public sealed record StatsTotals(long Views, long Launches, long Plays, long ActiveMs);
 
@@ -640,12 +712,12 @@ public static class GamesHttp
             sorted.Count(x => x >= 60_000), sorted.Count(x => x >= 180_000), sorted.Count(x => x >= 600_000));
     }
 
-    private static void TryDelete(string file)
+    public static void TryDelete(string file)
     {
         try { File.Delete(file); } catch (IOException) { }
     }
 
-    private static GameDto ToDto(GameCatalog catalog, GameView view)
+    public static GameDto ToDto(GameCatalog catalog, GameView view)
     {
         var g = view.Game;
         return new GameDto(g.Id, g.Slug, g.Title, g.Tagline, g.Description, g.Tags,
@@ -661,7 +733,7 @@ public static class GamesHttp
     private static MediaDto Media(GameCatalog catalog, StoredGameMedia m)
         => new(m.Id, m.Kind, catalog.PublicUrl(GameCatalog.MediaPath(m)), m.Width, m.Height);
 
-    private static ReleaseDto ToReleaseDto(GameCatalog catalog, GameView view, StoredGameRelease r)
+    public static ReleaseDto ToReleaseDto(GameCatalog catalog, GameView view, StoredGameRelease r)
         => new(r.No, r.Version, r.Notes, r.AuthorUserId, Iso(r.CreatedMs), r.EntryPath, r.Files, r.Bytes,
             Directory.Exists(catalog.ReleaseDirectory(view.Id, r.No)) ? catalog.PlayUrl(view.Id, r) : null);
 
