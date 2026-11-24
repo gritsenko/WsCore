@@ -35,6 +35,9 @@ public sealed class UserAccount(uint id, string name, long lastSeenMs)
     /// <summary>A server admin: every right in every channel (see ChannelPermissions).</summary>
     public bool IsAdmin { get; set; }
 
+    /// <summary>Hidden from others on every leaderboard (they still see their own rows).</summary>
+    public bool LeaderboardHidden { get; set; }
+
     /// <summary>Live connections of this user (empty = offline).</summary>
     public List<ClientSession> Sessions { get; } = new();
 
@@ -106,6 +109,7 @@ public sealed class UserDirectory
                 PublishedLogin = u.Login,
                 IsAdmin = u.IsAdmin,
                 PublishedIsAdmin = u.IsAdmin,
+                LeaderboardHidden = u.LeaderboardHidden,
             };
             _byId[user.Id] = user;
             if (user.Login != null)
@@ -237,6 +241,7 @@ public sealed class UserDirectory
             About = user.About,
             AvatarVersion = user.AvatarVersion,
             IsAdmin = user.IsAdmin,
+            LeaderboardHidden = user.LeaderboardHidden,
         });
 
     public void SaveAvatar(UserAccount user, StoredAvatar? avatar) => _storage.SaveAvatar(user.Id, avatar);

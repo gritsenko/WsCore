@@ -84,6 +84,8 @@ public static class GameServerHostingExtensions
         services.AddSingleton<ApiTokens>();
         services.AddSingleton<GameCatalog>();
         services.AddSingleton<GameAnalytics>();
+        services.AddSingleton<Leaderboards>();
+        services.AddSingleton<LeaderboardRequests>();
         services.AddSingleton<GameServer>();
         services.AddSingleton<IGameServer>(sp => sp.GetRequiredService<GameServer>());
         services.AddHostedService(sp => sp.GetRequiredService<GameServer>());

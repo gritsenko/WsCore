@@ -158,9 +158,10 @@ describe('protocol round-trip against fixed binary samples', () => {
     snapshot.yourUserId = 3;
     snapshot.users = [user];
     snapshot.yourLogin = 'al';
+    snapshot.yourLeaderboardHidden = true;
     const snapshotBytes = Array.from(PresenceSnapshotEvent.serialize(snapshot));
     expect(snapshotBytes).toEqual([
-      3,
+      4,
       3,
       0,
       0,
@@ -171,6 +172,7 @@ describe('protocol round-trip against fixed binary samples', () => {
       0,
       ...userBytes,
       ...[253, 255, 255, 255, 2, 0, 0, 0, 97, 108],
+      1,
     ]);
     const decodedSnapshot = PresenceSnapshotEvent.deserialize(
       new Uint8Array(snapshotBytes).buffer

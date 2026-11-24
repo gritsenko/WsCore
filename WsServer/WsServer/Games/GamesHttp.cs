@@ -218,10 +218,49 @@ public static class GamesHttp
 
         endpoints.MapPut("/api/games/{idOrSlug}/build", UploadBuild);
 
+        // Leaderboards: every board with its top rows (public games: anyone); settings,
+        // reset and delete for the game's owner and server admins.
+        endpoints.MapGet("/api/games/{idOrSlug}/leaderboards", (string idOrSlug, int? top, HttpContext http) =>
+            Run(http, optionalAuth: true, (catalog, user) =>
+            {
+                var game = catalog.Find(idOrSlug);
+                if (game == null || !GameCatalog.CanSee(user, game))
+                    throw new GameRequestException(404, "not_found", "No such game");
+                return http.RequestServices.GetRequiredService<Leaderboards>().Panel(game, user, top ?? 10);
+            }));
+        endpoints.MapMethods("/api/games/{idOrSlug}/leaderboards/{name}", ["PATCH"],
+            (string idOrSlug, string name, BoardBody body, HttpContext http) =>
+                Run(http, optionalAuth: false, (catalog, user) =>
+                    http.RequestServices.GetRequiredService<Leaderboards>().Configure(BoardOwner(catalog, user, idOrSlug),
+                        name, body.Title, body.InvertSortOrder, body.ScoreType, body.DecimalOffset)));
+        endpoints.MapPost("/api/games/{idOrSlug}/leaderboards/{name}/reset", (string idOrSlug, string name, HttpContext http) =>
+            Run(http, optionalAuth: false, (catalog, user) => new
+            {
+                removed = http.RequestServices.GetRequiredService<Leaderboards>().Reset(BoardOwner(catalog, user, idOrSlug), name),
+            }));
+        endpoints.MapDelete("/api/games/{idOrSlug}/leaderboards/{name}", (string idOrSlug, string name, HttpContext http) =>
+            Run(http, optionalAuth: false, (catalog, user) =>
+            {
+                http.RequestServices.GetRequiredService<Leaderboards>().Delete(BoardOwner(catalog, user, idOrSlug), name);
+                return new { deleted = true };
+            }));
+
         // Analytics: a game's to its owner and server admins; the whole portal's to server admins.
         endpoints.MapGet("/api/games/stats", (Func<HttpContext, Task<IResult>>)(http => Stats(http, null)));
         endpoints.MapGet("/api/games/{idOrSlug}/stats", (string idOrSlug, HttpContext http) => Stats(http, idOrSlug));
         return endpoints;
+    }
+
+    public sealed record BoardBody(string? Title, bool? InvertSortOrder, string? ScoreType, int? DecimalOffset);
+
+    private static GameView BoardOwner(GameCatalog catalog, UserAccount? user, string idOrSlug)
+    {
+        var game = catalog.Find(idOrSlug);
+        if (game == null || !GameCatalog.CanSee(user, game))
+            throw new GameRequestException(404, "not_found", "No such game");
+        if (user == null || !(user.IsAdmin || user.Id == game.Game.OwnerUserId))
+            throw new GameRequestException(403, "forbidden", "Boards are set up by the game's owner and server admins");
+        return game;
     }
 
     private static GameFields Fields(GameBody body)

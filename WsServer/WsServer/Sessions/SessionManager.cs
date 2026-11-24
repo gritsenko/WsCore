@@ -845,7 +845,10 @@ public sealed class SessionManager(
     // remembers far more users than a member list should show).
     private PresenceSnapshotEvent BuildPresenceSnapshot(UserAccount self)
     {
-        var snapshot = new PresenceSnapshotEvent { YourUserId = self.Id, YourLogin = self.Login };
+        var snapshot = new PresenceSnapshotEvent
+        {
+            YourUserId = self.Id, YourLogin = self.Login, YourLeaderboardHidden = self.LeaderboardHidden,
+        };
         var offline = new List<UserAccount>();
         foreach (var user in users.Users)
         {

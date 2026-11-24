@@ -98,3 +98,61 @@ public partial class GamePlayEventData
     public string Level = string.Empty;
     public string Params = string.Empty;
 }
+
+/// <summary>
+/// A leaderboard call relayed from a game by the page playing it (the jam SDK's
+/// <c>lb</c> message): <see cref="Op"/> <c>score</c> / <c>entries</c> / <c>player</c> /
+/// <c>description</c>, or <c>boards</c> (every board with its top rows — the game's page).
+/// Always as the connection's own user. Answered with a <c>LeaderboardResultEvent</c>
+/// carrying <see cref="RequestId"/>.
+/// </summary>
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class LeaderboardRequest : IClientRequest
+{
+    public static byte TypeId => 156;
+
+    public uint RequestId;
+    public string GameId = string.Empty;
+    public string Board = string.Empty;
+    public string Op = string.Empty;
+    /// <summary>An integer (|score| ≤ 10^15) — a double on the wire (a long would be a TS bigint).</summary>
+    public double Score;
+    public string ExtraData = string.Empty;
+    public int Top;
+    public int Around;
+    public bool IncludeUser;
+}
+
+/// <summary>
+/// A board's settings, by the game's owner or a server admin: <see cref="Action"/>
+/// <c>configure</c> (title, order, score format — all of them), <c>reset</c> (wipe the
+/// scores) or <c>delete</c>. Answered with a <c>LeaderboardResultEvent</c>.
+/// </summary>
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class LeaderboardConfigRequest : IClientRequest
+{
+    public static byte TypeId => 157;
+
+    public uint RequestId;
+    public string GameId = string.Empty;
+    public string Board = string.Empty;
+    public string Action = string.Empty;
+    public string Title = string.Empty;
+    public bool InvertSortOrder;
+    /// <summary><c>numeric</c> or <c>time</c>.</summary>
+    public string ScoreType = string.Empty;
+    public int DecimalOffset;
+}
+
+/// <summary>Hide us from others on every leaderboard, or not (a display rule). Answered with a <c>LeaderboardResultEvent</c>.</summary>
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class SetLeaderboardHiddenRequest : IClientRequest
+{
+    public static byte TypeId => 158;
+
+    public uint RequestId;
+    public bool Hidden;
+}

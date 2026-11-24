@@ -54,6 +54,10 @@ public sealed class SqliteChatStorage : IChatStorage
     private sealed record SaveApiTokenOp(StoredApiToken Token) : Op;
     private sealed record DeleteApiTokenOp(string Hash) : Op;
     private sealed record SaveGameCountersOp(StoredGameCounters Counters) : Op;
+    private sealed record SaveLeaderboardOp(StoredLeaderboard Board) : Op;
+    private sealed record DeleteLeaderboardOp(long BoardId) : Op;
+    private sealed record SaveLeaderboardEntryOp(StoredLeaderboardEntry Entry) : Op;
+    private sealed record DeleteLeaderboardEntriesOp(long BoardId) : Op;
     private sealed record SavePlaySessionOp(StoredPlaySession Session) : Op;
     private sealed record AppendPlayEventsOp(IReadOnlyList<StoredPlayEvent> Events) : Op;
     private sealed record AppendGameHitOp(StoredGameHit Hit) : Op;
@@ -160,7 +164,8 @@ public sealed class SqliteChatStorage : IChatStorage
     //       api_tokens (publishing from an agent / script).
     //   7 — games analytics: games.*_total counters, game_hits, game_play_sessions,
     //       game_play_events, game_daily.
-    private const int SchemaVersion = 7;
+    //   8 — leaderboards: leaderboards, leaderboard_entries, users.leaderboard_hidden.
+    private const int SchemaVersion = 8;
 
     private void MigrateUsers()
     {
@@ -314,6 +319,35 @@ public sealed class SqliteChatStorage : IChatStorage
                 ) WITHOUT ROWID;
                 """);
         }
+        if (version < 8)
+        {
+            if (Scalar("SELECT COUNT(*) FROM pragma_table_info('users') WHERE name = 'leaderboard_hidden';") == 0)
+                Execute("ALTER TABLE users ADD COLUMN leaderboard_hidden INTEGER NOT NULL DEFAULT 0;");
+            Execute("""
+                CREATE TABLE IF NOT EXISTS leaderboards(
+                    id               INTEGER PRIMARY KEY,
+                    game_id          TEXT    NOT NULL,
+                    name             TEXT    NOT NULL,
+                    title            TEXT    NOT NULL DEFAULT '',
+                    invert_sort      INTEGER NOT NULL DEFAULT 0,
+                    score_type       TEXT    NOT NULL DEFAULT 'numeric',
+                    decimal_offset   INTEGER NOT NULL DEFAULT 0,
+                    created_ms       INTEGER NOT NULL,
+                    UNIQUE(game_id, name)
+                );
+                CREATE TABLE IF NOT EXISTS leaderboard_entries(
+                    board_id    INTEGER NOT NULL,
+                    user_id     INTEGER NOT NULL,
+                    score       INTEGER NOT NULL,
+                    extra_data  TEXT    NOT NULL DEFAULT '',
+                    submissions INTEGER NOT NULL DEFAULT 0,
+                    own         INTEGER NOT NULL DEFAULT 0,
+                    created_ms  INTEGER NOT NULL,
+                    updated_ms  INTEGER NOT NULL,
+                    PRIMARY KEY(board_id, user_id)
+                ) WITHOUT ROWID;
+                """);
+        }
         Execute($"PRAGMA user_version = {SchemaVersion};");
         tx.Commit();
 
@@ -373,7 +407,7 @@ public sealed class SqliteChatStorage : IChatStorage
         var users = new List<StoredUser>();
         using (var cmd = _db.CreateCommand())
         {
-            cmd.CommandText = "SELECT id, name, last_seen, login, password_hash, about, avatar_version, is_admin FROM users;";
+            cmd.CommandText = "SELECT id, name, last_seen, login, password_hash, about, avatar_version, is_admin, leaderboard_hidden FROM users;";
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
@@ -384,6 +418,7 @@ public sealed class SqliteChatStorage : IChatStorage
                     About = reader.GetString(5),
                     AvatarVersion = (uint)reader.GetInt64(6),
                     IsAdmin = reader.GetInt64(7) != 0,
+                    LeaderboardHidden = reader.GetInt64(8) != 0,
                 });
             }
         }
@@ -511,6 +546,26 @@ public sealed class SqliteChatStorage : IChatStorage
             }
         }
 
+        var leaderboards = Select("""
+            SELECT id, game_id, name, title, invert_sort, score_type, decimal_offset, created_ms FROM leaderboards;
+            """, r => new StoredLeaderboard(r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetInt64(7))
+            {
+                Title = r.GetString(3),
+                InvertSortOrder = r.GetInt64(4) != 0,
+                ScoreType = r.GetString(5),
+                DecimalOffset = (int)r.GetInt64(6),
+            });
+        var leaderboardEntries = Select("""
+            SELECT board_id, user_id, score, extra_data, submissions, own, created_ms, updated_ms FROM leaderboard_entries;
+            """, r => new StoredLeaderboardEntry(r.GetInt64(0), (uint)r.GetInt64(1), r.GetInt64(2))
+            {
+                ExtraData = r.GetString(3),
+                Submissions = (int)r.GetInt64(4),
+                Own = r.GetInt64(5) != 0,
+                CreatedMs = r.GetInt64(6),
+                UpdatedMs = r.GetInt64(7),
+            });
+
         var apiTokens = new List<StoredApiToken>();
         using (var cmd = _db.CreateCommand())
         {
@@ -551,6 +606,8 @@ public sealed class SqliteChatStorage : IChatStorage
             GameReleases = gameReleases,
             ApiTokens = apiTokens,
             GameCounters = gameCounters,
+            Leaderboards = leaderboards,
+            LeaderboardEntries = leaderboardEntries,
         };
     }
 
@@ -591,14 +648,15 @@ public sealed class SqliteChatStorage : IChatStorage
 
         _upsertUser = _db.CreateCommand();
         _upsertUser.CommandText = """
-            INSERT INTO users(id, name, last_seen, login, password_hash, about, avatar_version, is_admin)
-            VALUES($id, $name, $seen, $login, $password, $about, $avatar, $admin)
+            INSERT INTO users(id, name, last_seen, login, password_hash, about, avatar_version, is_admin, leaderboard_hidden)
+            VALUES($id, $name, $seen, $login, $password, $about, $avatar, $admin, $hidden)
             ON CONFLICT(id) DO UPDATE SET
                 name = excluded.name, last_seen = excluded.last_seen, login = excluded.login,
                 password_hash = excluded.password_hash, about = excluded.about,
-                avatar_version = excluded.avatar_version, is_admin = excluded.is_admin;
+                avatar_version = excluded.avatar_version, is_admin = excluded.is_admin,
+                leaderboard_hidden = excluded.leaderboard_hidden;
             """;
-        AddParameters(_upsertUser, "$id", "$name", "$seen", "$login", "$password", "$about", "$avatar", "$admin");
+        AddParameters(_upsertUser, "$id", "$name", "$seen", "$login", "$password", "$about", "$avatar", "$admin", "$hidden");
 
         _deleteUser = _db.CreateCommand();
         _deleteUser.CommandText = "DELETE FROM users WHERE id = $id;";
@@ -761,6 +819,10 @@ public sealed class SqliteChatStorage : IChatStorage
     public void SaveApiToken(StoredApiToken token) => EnqueueWrite(new SaveApiTokenOp(token));
     public void DeleteApiToken(string hash) => EnqueueWrite(new DeleteApiTokenOp(hash));
     public void SaveGameCounters(StoredGameCounters counters) => EnqueueWrite(new SaveGameCountersOp(counters));
+    public void SaveLeaderboard(StoredLeaderboard board) => EnqueueWrite(new SaveLeaderboardOp(board));
+    public void DeleteLeaderboard(long boardId) => EnqueueWrite(new DeleteLeaderboardOp(boardId));
+    public void SaveLeaderboardEntry(StoredLeaderboardEntry entry) => EnqueueWrite(new SaveLeaderboardEntryOp(entry));
+    public void DeleteLeaderboardEntries(long boardId) => EnqueueWrite(new DeleteLeaderboardEntriesOp(boardId));
     public void SavePlaySession(StoredPlaySession session) => EnqueueWrite(new SavePlaySessionOp(session));
     public void AppendPlayEvents(IReadOnlyList<StoredPlayEvent> events) => EnqueueWrite(new AppendPlayEventsOp(events));
     public void AppendGameHit(StoredGameHit hit) => EnqueueWrite(new AppendGameHitOp(hit));
@@ -870,6 +932,7 @@ public sealed class SqliteChatStorage : IChatStorage
                         _upsertUser.Parameters[5].Value = u.About;
                         _upsertUser.Parameters[6].Value = (long)u.AvatarVersion;
                         _upsertUser.Parameters[7].Value = u.IsAdmin ? 1L : 0L;
+                        _upsertUser.Parameters[8].Value = u.LeaderboardHidden ? 1L : 0L;
                         _upsertUser.ExecuteNonQuery();
                         break;
                     case DeleteMessageOp(var messageId):
@@ -918,6 +981,7 @@ public sealed class SqliteChatStorage : IChatStorage
                         _deletePushSubscriptionsOfUser.ExecuteNonQuery();
                         _deleteApiTokensOfUser.Parameters[0].Value = (long)id;
                         _deleteApiTokensOfUser.ExecuteNonQuery();
+                        Exec("DELETE FROM leaderboard_entries WHERE user_id = $id;", ("$id", (long)id));
                         break;
                     case SaveGameOp(var g):
                         _upsertGame.Parameters[0].Value = g.Id;
@@ -956,6 +1020,33 @@ public sealed class SqliteChatStorage : IChatStorage
                     case DeleteApiTokenOp(var hash):
                         _deleteApiToken.Parameters[0].Value = hash;
                         _deleteApiToken.ExecuteNonQuery();
+                        break;
+                    case SaveLeaderboardOp(var b):
+                        Exec("""
+                            INSERT OR REPLACE INTO leaderboards(id, game_id, name, title, invert_sort, score_type,
+                                decimal_offset, created_ms)
+                            VALUES($id, $g, $n, $t, $inv, $type, $dec, $created);
+                            """, ("$id", b.Id), ("$g", b.GameId), ("$n", b.Name), ("$t", b.Title),
+                            ("$inv", b.InvertSortOrder ? 1L : 0L), ("$type", b.ScoreType), ("$dec", (long)b.DecimalOffset),
+                            ("$created", b.CreatedMs));
+                        break;
+                    case DeleteLeaderboardOp(var boardId):
+                        Exec("""
+                            DELETE FROM leaderboard_entries WHERE board_id = $id;
+                            DELETE FROM leaderboards WHERE id = $id;
+                            """, ("$id", boardId));
+                        break;
+                    case DeleteLeaderboardEntriesOp(var boardId):
+                        Exec("DELETE FROM leaderboard_entries WHERE board_id = $id;", ("$id", boardId));
+                        break;
+                    case SaveLeaderboardEntryOp(var le):
+                        Exec("""
+                            INSERT OR REPLACE INTO leaderboard_entries(board_id, user_id, score, extra_data, submissions,
+                                own, created_ms, updated_ms)
+                            VALUES($b, $u, $s, $x, $n, $own, $c, $up);
+                            """, ("$b", le.BoardId), ("$u", (long)le.UserId), ("$s", le.Score), ("$x", le.ExtraData),
+                            ("$n", (long)le.Submissions), ("$own", le.Own ? 1L : 0L), ("$c", le.CreatedMs),
+                            ("$up", le.UpdatedMs));
                         break;
                     case SaveGameCountersOp(var c):
                         Exec("""
@@ -1156,6 +1247,7 @@ public sealed class SqliteChatStorage : IChatStorage
                 DELETE FROM channel_members WHERE user_id NOT IN (SELECT id FROM users);
                 DELETE FROM push_subscriptions WHERE user_id NOT IN (SELECT id FROM users);
                 DELETE FROM api_tokens WHERE user_id NOT IN (SELECT id FROM users);
+                DELETE FROM leaderboard_entries WHERE user_id NOT IN (SELECT id FROM users);
                 """;
             cmd.Parameters.AddWithValue("$cutoff",
                 DateTimeOffset.UtcNow.AddDays(-_userRetentionDays).ToUnixTimeMilliseconds());

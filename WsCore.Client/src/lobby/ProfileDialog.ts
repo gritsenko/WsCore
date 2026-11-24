@@ -22,6 +22,8 @@ export interface ProfileView {
   apiTokens: ApiToken[] | null;
   /** The token just created — shown once, until the dialog closes. */
   newApiToken: string;
+  /** Hidden from others on the games' leaderboards. */
+  leaderboardHidden: boolean;
 }
 
 export interface ProfileHandlers {
@@ -35,12 +37,14 @@ export interface ProfileHandlers {
   /** A guest wants to enter an account they already have. */
   onSwitchAccount(): void;
   onCreateApiToken(name: string): void;
+  onLeaderboardHidden(hidden: boolean): void;
   onRevokeApiToken(id: string): void;
   onClose(): void;
 }
 
 /** The part of the dialog a status line belongs to. */
-export type ProfileSection = 'profile' | 'avatar' | 'account' | 'notifications' | 'tokens';
+export type ProfileSection =
+  'profile' | 'avatar' | 'account' | 'notifications' | 'tokens' | 'leaderboards';
 
 const NOTIFICATION_HINTS: Record<AlertsStatus, string> = {
   on: 'Включены: о новых сообщениях придёт уведомление, даже когда вкладка закрыта.',
@@ -78,6 +82,8 @@ export default class ProfileDialog {
   private readonly accountSection: HTMLDivElement;
   private readonly notificationsSection: HTMLDivElement;
   private readonly tokensSection: HTMLDivElement;
+  private readonly leaderboardsSection: HTMLDivElement;
+  private readonly leaderboardHidden: HTMLInputElement;
   /** What the tokens section was last built for. */
   private tokensKey = '';
   /** The status the notifications section was last built for. */
@@ -186,6 +192,33 @@ export default class ProfileDialog {
     // ---- notifications ----
     this.notificationsSection = el('div', 'lobby-dialog-account lobby-dialog-notifications');
     dialog.appendChild(this.notificationsSection);
+
+    // ---- leaderboards ----
+    this.leaderboardsSection = el('div', 'lobby-dialog-account');
+    this.leaderboardsSection.appendChild(
+      el('div', 'lobby-dialog-section-title', 'Таблицы рекордов')
+    );
+    const hiddenRow = el('label', 'lobby-dialog-check');
+    this.leaderboardHidden = el('input');
+    this.leaderboardHidden.type = 'checkbox';
+    this.leaderboardHidden.id = 'lobby-leaderboard-hidden';
+    this.leaderboardHidden.checked = view.leaderboardHidden;
+    this.leaderboardHidden.onchange = () =>
+      handlers.onLeaderboardHidden(this.leaderboardHidden.checked);
+    hiddenRow.append(
+      this.leaderboardHidden,
+      document.createTextNode(' Скрыть меня из таблиц рекордов')
+    );
+    this.leaderboardsSection.append(
+      hiddenRow,
+      el(
+        'div',
+        'lobby-dialog-hint',
+        'Результаты сохраняются, но другие игроки их не видят. Вы своё место видите.'
+      ),
+      this.statusLine('leaderboards')
+    );
+    dialog.appendChild(this.leaderboardsSection);
 
     // ---- account ----
     this.accountSection = el('div', 'lobby-dialog-account');
@@ -348,6 +381,8 @@ export default class ProfileDialog {
 
     this.renderNotifications();
     this.renderTokens();
+    this.leaderboardsSection.hidden = !view.identified;
+    this.leaderboardHidden.checked = view.leaderboardHidden;
 
     const accountKey = `${view.identified}|${view.login ?? ''}`;
     if (accountKey === this.accountKey) return;

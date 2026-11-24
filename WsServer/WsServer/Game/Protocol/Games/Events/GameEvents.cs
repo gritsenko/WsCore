@@ -82,3 +82,33 @@ public partial class ApiTokenInfo
     /// <summary>0 = never used (updated at most hourly).</summary>
     public double LastUsedMs { get; set; }
 }
+
+/// <summary>
+/// The answer to a leaderboard request (<see cref="RequestId"/> echoes it). <see cref="Ok"/>
+/// false = the call failed (<see cref="Status"/> 404: no such board yet; 403, 400…);
+/// otherwise <see cref="ResultJson"/> is the JSON value the jam SDK expects, built by the
+/// server in the jam / Yandex shape (avatar URLs as paths — the page makes them absolute).
+/// </summary>
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class LeaderboardResultEvent : IServerEvent
+{
+    public static byte TypeId => 152;
+
+    public uint RequestId;
+    public bool Ok;
+    public int Status;
+    public string Error = string.Empty;
+    public string ResultJson = string.Empty;
+}
+
+/// <summary>A board of the game changed (a better score, settings, a reset) — to the game's room.</summary>
+[GenerateTypeScript]
+[MemoryPackable]
+public partial class LeaderboardChangedEvent : IServerEvent
+{
+    public static byte TypeId => 153;
+
+    public string GameId = string.Empty;
+    public string Board = string.Empty;
+}

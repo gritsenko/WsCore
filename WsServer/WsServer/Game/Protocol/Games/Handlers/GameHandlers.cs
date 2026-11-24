@@ -100,3 +100,18 @@ public class GamePlayEventsRequestHandler(GameAnalytics analytics) : RequestHand
     protected override void Handle(uint clientId, GamePlayEventsRequest request)
         => analytics.Events(clientId, request.SessionId ?? string.Empty, request.Events ?? []);
 }
+
+public class LeaderboardRequestHandler(LeaderboardRequests leaderboards) : RequestHandlerBase<LeaderboardRequest>
+{
+    protected override void Handle(uint clientId, LeaderboardRequest request) => leaderboards.Handle(clientId, request);
+}
+
+public class LeaderboardConfigRequestHandler(LeaderboardRequests leaderboards) : RequestHandlerBase<LeaderboardConfigRequest>
+{
+    protected override void Handle(uint clientId, LeaderboardConfigRequest request) => leaderboards.Configure(clientId, request);
+}
+
+public class SetLeaderboardHiddenRequestHandler(LeaderboardRequests leaderboards) : RequestHandlerBase<SetLeaderboardHiddenRequest>
+{
+    protected override void Handle(uint clientId, SetLeaderboardHiddenRequest request) => leaderboards.SetHidden(clientId, request);
+}

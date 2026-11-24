@@ -23,6 +23,7 @@ import { VoiceRoomInfo } from '../network/protocol/VoiceRoomInfo';
 import { VoiceParticipantInfo } from '../network/protocol/VoiceParticipantInfo';
 import { GameCatalogEvent } from '../network/protocol/GameCatalogEvent';
 import { GameInfo } from '../network/protocol/GameInfo';
+import { LeaderboardError } from '../portal/JamBridge';
 
 // LobbyState drives the (DOM-only) LobbyUI from client events. The UI is replaced by
 // a recorder so the lobby's room flow can be checked without a DOM.
@@ -190,7 +191,9 @@ const hosts: {
     onLeave(): void;
     onRestart?(): void;
     play?: { sendBeat(ms: number, ended: boolean): void };
+    leaderboard?: (op: string, board: string, args: Record<string, unknown>) => Promise<unknown>;
   };
+  notices: string[];
   destroyed: boolean;
   updateAvailable: boolean;
 }[] = [];
@@ -201,6 +204,10 @@ vi.mock('../portal/GameHost', () => ({
     element = { stage: true };
     destroyed = false;
     updateAvailable = false;
+    notices: string[] = [];
+    showNotice(text: string) {
+      this.notices.push(text);
+    }
     constructor(
       public game: unknown,
       public options: unknown
@@ -226,8 +233,8 @@ vi.mock('../portal/PortalUI', () => ({
     showCatalog(cards: unknown) {
       this.shown.push(['catalog', cards]);
     }
-    showGame(card: unknown) {
-      this.shown.push(['game', card]);
+    showGame(card: unknown, boards: unknown = null) {
+      this.shown.push(['game', card, boards] as any);
     }
   },
 }));
@@ -957,5 +964,145 @@ describe('LobbyState games portal', () => {
     expect(ui.blocked).toBe('Войдите, чтобы писать в чат');
     (ui as any).profile();
     expect(signIn).toHaveBeenCalledOnce();
+  });
+});
+
+describe('LobbyState leaderboards', () => {
+  const store = new Map<string, string>();
+  beforeEach(() => {
+    ui.calls = [];
+    ui.current = null;
+    hosts.length = 0;
+    pages.length = 0;
+    store.clear();
+    (globalThis as any).sessionStorage = {
+      getItem: (k: string) => store.get(k) ?? null,
+      setItem: (k: string, v: string) => store.set(k, v),
+      removeItem: (k: string) => store.delete(k),
+    };
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete (globalThis as any).sessionStorage;
+  });
+
+  async function playing(userKey: string) {
+    const s = await setup();
+    s.client.userKey = userKey;
+    s.client.overrideUrl = 'ws://srv:5000/ws';
+    s.state.nav = fakeNav('/');
+    s.state.enter();
+    init(s.client, 3);
+    s.client.onJoinRoomResultEvent(result(LOBBY()));
+    catalog(s.client, gameInfo('aaaaaaaaaa', 'chpok'));
+    s.client.joinRoom('g-aaaaaaaaaa');
+    s.client.onJoinRoomResultEvent(result(room('g-aaaaaaaaaa', ['TextChat'])));
+    return s;
+  }
+
+  it("relays a game's calls as us, with avatars the game can load, and failures as errors", async () => {
+    const { client } = await playing('key-0123456789abcdef');
+    const calls = vi.spyOn(client, 'leaderboard');
+    calls.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      error: '',
+      result: {
+        entries: [{ avatarUrl: '/avatars/1?v=2', player: { avatarUrl: '/avatars/1?v=2' } }],
+      },
+    });
+    calls.mockResolvedValueOnce({ ok: false, status: 404, error: 'no such board', result: null });
+
+    const lb = hosts[0].options.leaderboard!;
+    const read = (await lb('entries', 'best', { top: 5, around: 1, includeUser: true })) as any;
+    expect(calls).toHaveBeenCalledWith('aaaaaaaaaa', 'best', 'entries', {
+      top: 5,
+      around: 1,
+      includeUser: true,
+    });
+    expect(read.entries[0].avatarUrl).toBe('http://srv:5000/avatars/1?v=2');
+    expect(read.entries[0].player.avatarUrl).toBe('http://srv:5000/avatars/1?v=2');
+
+    const failed = lb('description', 'none', {}).catch(e => e);
+    const error = (await failed) as LeaderboardError;
+    expect(error).toBeInstanceOf(LeaderboardError);
+    expect(error.status).toBe(404);
+  });
+
+  it("an unnamed visitor's score waits for them to enter, and the game says how", async () => {
+    const { client } = await playing('');
+    const calls = vi.spyOn(client, 'leaderboard').mockResolvedValue({
+      ok: true,
+      status: 200,
+      error: '',
+      result: { ok: false, reason: 'not_signed_in' },
+    });
+    const lb = hosts[0].options.leaderboard!;
+    await lb('score', 'best', { score: 120, extraData: null });
+    await lb('score', 'best', { score: 80, extraData: null });
+    expect(hosts[0].notices).toEqual(['Войдите, чтобы попасть в таблицу рекордов']); // once
+    expect(JSON.parse(store.get('wscore.pendingScores')!)).toEqual({
+      aaaaaaaaaa: {
+        best: { max: { score: 120, extraData: '' }, min: { score: 80, extraData: '' } },
+      },
+    });
+
+    // Entered (identified): the best goes to the board; the other end shortly after.
+    vi.useFakeTimers();
+    calls.mockClear();
+    client.userKey = 'key-0123456789abcdef';
+    const snap = new PresenceSnapshotEvent();
+    snap.yourUserId = 5;
+    snap.users = [];
+    client.onPresenceSnapshotEvent(snap);
+    expect(calls).toHaveBeenCalledWith('aaaaaaaaaa', 'best', 'score', {
+      score: 120,
+      extraData: '',
+    });
+    vi.advanceTimersByTime(1000);
+    expect(calls).toHaveBeenCalledWith('aaaaaaaaaa', 'best', 'score', { score: 80, extraData: '' });
+    expect(store.has('wscore.pendingScores')).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("a game's page shows its boards, with settings for its people", async () => {
+    const s = await setup();
+    s.client.userKey = 'key-0123456789abcdef';
+    s.state.nav = fakeNav('/games/chpok');
+    const calls = vi.spyOn(s.client, 'leaderboard').mockResolvedValue({
+      ok: true,
+      status: 200,
+      error: '',
+      result: [
+        {
+          description: {
+            name: 'best',
+            titleText: 'Очки',
+            entryCount: 1,
+            description: { type: 'numeric' },
+          },
+          entries: [{ rank: 1, formattedScore: '10', name: 'Al' }],
+          myRank: 0,
+          myEntry: null,
+          ownCount: 0,
+        },
+      ],
+    });
+    s.state.enter();
+    init(s.client, 3);
+    catalog(s.client, gameInfo('aaaaaaaaaa', 'chpok'));
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls).toHaveBeenCalledWith('aaaaaaaaaa', '', 'boards', { top: 10 });
+    const [kind, , boards] = pages[0].shown[pages[0].shown.length - 1] as unknown as [
+      string,
+      unknown,
+      any,
+    ];
+    expect(kind).toBe('game');
+    expect(boards.boards[0]).toMatchObject({ name: 'best', title: 'Очки' });
+    expect(boards.canEdit).toBe(false);
   });
 });

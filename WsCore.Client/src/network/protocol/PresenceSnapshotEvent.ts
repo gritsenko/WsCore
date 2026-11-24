@@ -6,11 +6,13 @@ export class PresenceSnapshotEvent {
     yourUserId: number;
     users: (PresenceUserInfo | null)[] | null;
     yourLogin: string | null;
+    yourLeaderboardHidden: boolean;
 
     constructor() {
         this.yourUserId = 0;
         this.users = null;
         this.yourLogin = null;
+        this.yourLeaderboardHidden = false;
 
     }
 
@@ -26,10 +28,11 @@ export class PresenceSnapshotEvent {
             return;
         }
 
-        writer.writeObjectHeader(3);
+        writer.writeObjectHeader(4);
         writer.writeUint32(value.yourUserId);
         writer.writeArray(value.users, (writer, x) => PresenceUserInfo.serializeCore(writer, x));
         writer.writeString(value.yourLogin);
+        writer.writeBoolean(value.yourLeaderboardHidden);
 
     }
 
@@ -54,13 +57,14 @@ export class PresenceSnapshotEvent {
         }
 
         const value = new PresenceSnapshotEvent();
-        if (count == 3) {
+        if (count == 4) {
             value.yourUserId = reader.readUint32();
             value.users = reader.readArray(reader => PresenceUserInfo.deserializeCore(reader));
             value.yourLogin = reader.readString();
+            value.yourLeaderboardHidden = reader.readBoolean();
 
         }
-        else if (count > 3) {
+        else if (count > 4) {
             throw new Error("Current object's property count is larger than type schema, can't deserialize about versioning.");
         }
         else {
@@ -68,6 +72,7 @@ export class PresenceSnapshotEvent {
             value.yourUserId = reader.readUint32(); if (count == 1) return value;
             value.users = reader.readArray(reader => PresenceUserInfo.deserializeCore(reader)); if (count == 2) return value;
             value.yourLogin = reader.readString(); if (count == 3) return value;
+            value.yourLeaderboardHidden = reader.readBoolean(); if (count == 4) return value;
 
         }
         return value;

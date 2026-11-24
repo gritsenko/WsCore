@@ -52,6 +52,9 @@ public partial class PresenceSnapshotEvent : IServerEvent
 
     // The login of your account if it is claimed; null for a guest (see ClaimAccountRequest).
     public string? YourLogin;
+
+    /// <summary>We chose to be hidden from others on the games' leaderboards.</summary>
+    public bool YourLeaderboardHidden;
 }
 
 /// <summary>

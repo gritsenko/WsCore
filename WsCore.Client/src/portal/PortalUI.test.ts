@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { plays } from './PortalUI';
+import { countOf, plays } from './PortalUI';
 
 describe('plays', () => {
   it('words the count in Russian', () => {
@@ -13,5 +13,13 @@ describe('plays', () => {
     expect(plays(1000)).toBe('1 тыс. партий');
     expect(plays(1250)).toBe('1,3 тыс. партий');
     expect(plays(2_400_000)).toBe('2,4 млн партий');
+  });
+});
+
+describe('countOf', () => {
+  it('declines the noun', () => {
+    expect(countOf(1, 'игрок', 'игрока', 'игроков')).toBe('1 игрок');
+    expect(countOf(3, 'игрок', 'игрока', 'игроков')).toBe('3 игрока');
+    expect(countOf(14, 'игрок', 'игрока', 'игроков')).toBe('14 игроков');
   });
 });

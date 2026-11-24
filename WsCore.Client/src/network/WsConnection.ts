@@ -31,6 +31,8 @@ export enum ServerEventType {
   VoiceRosterEvent = 143,
   GameCatalogEvent = 150,
   ApiTokensEvent = 151,
+  LeaderboardResultEvent = 152,
+  LeaderboardChangedEvent = 153,
   RoomListEvent = 250,
   RoomUsersUpdateEvent = 251,
   JoinRoomResultEvent = 252,
@@ -76,6 +78,9 @@ export enum ClientMessageType {
   GameViewRequest = 153,
   GamePlayBeatRequest = 154,
   GamePlayEventsRequest = 155,
+  LeaderboardRequest = 156,
+  LeaderboardConfigRequest = 157,
+  SetLeaderboardHiddenRequest = 158,
   GetRoomListRequest = 250,
   JoinRoomRequest = 251,
 }
@@ -155,6 +160,11 @@ import { GameViewRequest } from './protocol/GameViewRequest';
 import { GamePlayBeatRequest } from './protocol/GamePlayBeatRequest';
 import { GamePlayEventsRequest } from './protocol/GamePlayEventsRequest';
 import { GamePlayEventData } from './protocol/GamePlayEventData';
+import { LeaderboardResultEvent } from './protocol/LeaderboardResultEvent';
+import { LeaderboardChangedEvent } from './protocol/LeaderboardChangedEvent';
+import { LeaderboardRequest } from './protocol/LeaderboardRequest';
+import { LeaderboardConfigRequest } from './protocol/LeaderboardConfigRequest';
+import { SetLeaderboardHiddenRequest } from './protocol/SetLeaderboardHiddenRequest';
 
 import { MemoryPackReader } from './protocol/MemoryPackReader';
 import Emitter, { Unsubscribe } from '../utils/Emitter';
@@ -195,6 +205,8 @@ export interface ServerEventHandlers {
   onVoiceRosterEvent(msg: VoiceRosterEvent): void;
   onGameCatalogEvent(msg: GameCatalogEvent): void;
   onApiTokensEvent(msg: ApiTokensEvent): void;
+  onLeaderboardResultEvent(msg: LeaderboardResultEvent): void;
+  onLeaderboardChangedEvent(msg: LeaderboardChangedEvent): void;
   onRoomListEvent(msg: RoomListEvent): void;
   onRoomUsersUpdateEvent(msg: RoomUsersUpdateEvent): void;
   onJoinRoomResultEvent(msg: JoinRoomResultEvent): void;
@@ -295,6 +307,12 @@ export const SERVER_EVENT_ROUTES: { readonly [K in ServerEventType]: ServerEvent
   [ServerEventType.VoiceRosterEvent]: route(VoiceRosterEvent, (h, m) => h.onVoiceRosterEvent(m)),
   [ServerEventType.GameCatalogEvent]: route(GameCatalogEvent, (h, m) => h.onGameCatalogEvent(m)),
   [ServerEventType.ApiTokensEvent]: route(ApiTokensEvent, (h, m) => h.onApiTokensEvent(m)),
+  [ServerEventType.LeaderboardResultEvent]: route(LeaderboardResultEvent, (h, m) =>
+    h.onLeaderboardResultEvent(m)
+  ),
+  [ServerEventType.LeaderboardChangedEvent]: route(LeaderboardChangedEvent, (h, m) =>
+    h.onLeaderboardChangedEvent(m)
+  ),
   [ServerEventType.RoomListEvent]: route(RoomListEvent, (h, m) => h.onRoomListEvent(m)),
   [ServerEventType.RoomUsersUpdateEvent]: route(RoomUsersUpdateEvent, (h, m) =>
     h.onRoomUsersUpdateEvent(m)
@@ -391,6 +409,8 @@ export default class WsConnection<T extends IPlayer = IPlayer> implements Server
   onVoiceRosterEvent(_msg: VoiceRosterEvent): void {}
   onGameCatalogEvent(_msg: GameCatalogEvent): void {}
   onApiTokensEvent(_msg: ApiTokensEvent): void {}
+  onLeaderboardResultEvent(_msg: LeaderboardResultEvent): void {}
+  onLeaderboardChangedEvent(_msg: LeaderboardChangedEvent): void {}
   onRoomListEvent(_msg: RoomListEvent): void {}
   onRoomUsersUpdateEvent(_msg: RoomUsersUpdateEvent): void {}
   onJoinRoomResultEvent(_msg: JoinRoomResultEvent): void {}
@@ -853,6 +873,50 @@ export default class WsConnection<T extends IPlayer = IPlayer> implements Server
     this.sendMessage(
       ClientMessageType.GamePlayEventsRequest,
       GamePlayEventsRequest.serialize(request)
+    );
+  }
+
+  sendLeaderboardRequest(r: {
+    requestId: number;
+    gameId: string;
+    board: string;
+    op: string;
+    score: number;
+    extraData: string;
+    top: number;
+    around: number;
+    includeUser: boolean;
+  }): void {
+    const request = new LeaderboardRequest();
+    Object.assign(request, r);
+    this.sendMessage(ClientMessageType.LeaderboardRequest, LeaderboardRequest.serialize(request));
+  }
+
+  sendLeaderboardConfigRequest(r: {
+    requestId: number;
+    gameId: string;
+    board: string;
+    action: string;
+    title: string;
+    invertSortOrder: boolean;
+    scoreType: string;
+    decimalOffset: number;
+  }): void {
+    const request = new LeaderboardConfigRequest();
+    Object.assign(request, r);
+    this.sendMessage(
+      ClientMessageType.LeaderboardConfigRequest,
+      LeaderboardConfigRequest.serialize(request)
+    );
+  }
+
+  sendSetLeaderboardHiddenRequest(requestId: number, hidden: boolean): void {
+    const request = new SetLeaderboardHiddenRequest();
+    request.requestId = requestId;
+    request.hidden = hidden;
+    this.sendMessage(
+      ClientMessageType.SetLeaderboardHiddenRequest,
+      SetLeaderboardHiddenRequest.serialize(request)
     );
   }
 

@@ -16,6 +16,8 @@ public sealed record StoredUser(uint Id, string Name, long LastSeenMs)
     public uint AvatarVersion { get; init; }
     /// <summary>A server admin (every right in every channel).</summary>
     public bool IsAdmin { get; init; }
+    /// <summary>Hidden from others on every leaderboard (a display rule; scores are still kept).</summary>
+    public bool LeaderboardHidden { get; init; }
 }
 
 /// <summary>
@@ -143,6 +145,32 @@ public sealed record GameStatsData(
     IReadOnlyList<NamedCount> Levels,
     IReadOnlyList<NamedCount> Sources);
 
+/// <summary>
+/// A game's leaderboard: created by its first score (the jam / Yandex shape); title, order
+/// and score format are set by the game's people afterwards.
+/// </summary>
+public sealed record StoredLeaderboard(long Id, string GameId, string Name, long CreatedMs)
+{
+    public string Title { get; init; } = string.Empty;
+    /// <summary>Lower is better (times, fewest moves).</summary>
+    public bool InvertSortOrder { get; init; }
+    /// <summary><c>numeric</c> or <c>time</c> (milliseconds).</summary>
+    public string ScoreType { get; init; } = "numeric";
+    public int DecimalOffset { get; init; }
+}
+
+/// <summary>One player's best on a board (one row per board × player).</summary>
+public sealed record StoredLeaderboardEntry(long BoardId, uint UserId, long Score)
+{
+    /// <summary>The game's string for the best score (≤ 1024 chars).</summary>
+    public string ExtraData { get; init; } = string.Empty;
+    public int Submissions { get; init; }
+    /// <summary>Set by the game's own people (its owner, server admins) — shown, flagged.</summary>
+    public bool Own { get; init; }
+    public long CreatedMs { get; init; }
+    public long UpdatedMs { get; init; }
+}
+
 /// <summary>The most recent messages of one room, oldest first.</summary>
 public sealed record StoredRoomHistory(string RoomId, IReadOnlyList<ChatMessage> Recent, bool HasOlder);
 
@@ -164,6 +192,8 @@ public sealed record StorageSnapshot(
     public IReadOnlyList<StoredGameRelease> GameReleases { get; init; } = [];
     public IReadOnlyList<StoredApiToken> ApiTokens { get; init; } = [];
     public IReadOnlyList<StoredGameCounters> GameCounters { get; init; } = [];
+    public IReadOnlyList<StoredLeaderboard> Leaderboards { get; init; } = [];
+    public IReadOnlyList<StoredLeaderboardEntry> LeaderboardEntries { get; init; } = [];
 }
 
 /// <summary>
@@ -214,6 +244,15 @@ public interface IChatStorage : IDisposable
     void SaveGameRelease(StoredGameRelease release);
 
     void SaveApiToken(StoredApiToken token);
+
+    // ---- leaderboards ----
+
+    void SaveLeaderboard(StoredLeaderboard board);
+    /// <summary>Removes the board and its entries.</summary>
+    void DeleteLeaderboard(long boardId);
+    void SaveLeaderboardEntry(StoredLeaderboardEntry entry);
+    /// <summary>Removes every entry of the board (a reset), keeping the board.</summary>
+    void DeleteLeaderboardEntries(long boardId);
 
     // ---- games analytics (write-behind like everything else) ----
 
@@ -290,6 +329,10 @@ public sealed class NullChatStorage : IChatStorage
     public void SaveGameRelease(StoredGameRelease release) { }
     public void SaveApiToken(StoredApiToken token) { }
     public void DeleteApiToken(string hash) { }
+    public void SaveLeaderboard(StoredLeaderboard board) { }
+    public void DeleteLeaderboard(long boardId) { }
+    public void SaveLeaderboardEntry(StoredLeaderboardEntry entry) { }
+    public void DeleteLeaderboardEntries(long boardId) { }
     public void SaveGameCounters(StoredGameCounters counters) { }
     public void SavePlaySession(StoredPlaySession session) { }
     public void AppendPlayEvents(IReadOnlyList<StoredPlayEvent> events) { }

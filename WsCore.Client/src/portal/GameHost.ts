@@ -68,6 +68,8 @@ export default class GameHost {
   private splashTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly timers = new Set<ReturnType<typeof setTimeout>>();
   private session: PlaySession | null = null;
+  private notice: HTMLDivElement | null = null;
+  private readonly frameWrap: HTMLDivElement;
 
   constructor(game: PortalGame, options: GameHostOptions) {
     this.game = game;
@@ -117,6 +119,7 @@ export default class GameHost {
     this.element.appendChild(bar);
 
     const wrap = div('portal-stage-frame');
+    this.frameWrap = wrap;
     this.frame = document.createElement('iframe');
     this.frame.title = game.title;
     // Another origin, so allow-same-origin gives the game its own origin (engine builds
@@ -186,6 +189,23 @@ export default class GameHost {
   };
 
   private readonly onPageHide = (): void => this.session?.stop();
+
+  /**
+   * A line over the bottom of the game with an action (e.g. "enter to get on the
+   * leaderboard"); closing it is the player's.
+   */
+  showNotice(text: string, actionLabel: string, action: () => void): void {
+    this.notice?.remove();
+    const notice = div('portal-notice');
+    notice.appendChild(document.createTextNode(text));
+    const go = button('portal-notice-action', actionLabel, actionLabel);
+    go.onclick = () => action();
+    const close = button('portal-notice-close', '×', 'Закрыть');
+    close.onclick = () => notice.remove();
+    notice.append(go, close);
+    this.frameWrap.appendChild(notice);
+    this.notice = notice;
+  }
 
   /** A newer build of this game is out: offer a restart. */
   setUpdateAvailable(available: boolean): void {

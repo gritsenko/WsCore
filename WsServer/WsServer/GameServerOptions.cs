@@ -257,6 +257,9 @@ public class GameServerOptions
     /// <summary>Play counts on the cards are re-sent to clients at most this often.</summary>
     public double GameCatalogCountsFlushSeconds { get; set; } = 10;
 
+    /// <summary>A player's scores to one board are taken at most this often (others: too_fast).</summary>
+    public double LeaderboardWriteCooldownSeconds { get; set; } = 0.5;
+
     /// <summary>API tokens one user may hold (the agent / scripts publishing games).</summary>
     public int ApiTokensPerUser { get; set; } = 10;
 

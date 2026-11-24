@@ -1,5 +1,21 @@
 import type { PortalGame } from '../network/ClientEvents';
 import { renderMarkdown } from './Markdown';
+import type { BoardPanel, BoardRow } from './Leaderboard';
+
+/** A board's settings as its editor reports them. */
+export interface BoardSettings {
+  title: string;
+  invertSortOrder: boolean;
+  scoreType: 'numeric' | 'time';
+  decimalOffset: number;
+}
+
+/** The leaderboards block of a game's page: null = still loading. */
+export interface BoardsView {
+  boards: BoardPanel[];
+  /** The game's owner / a server admin: settings, reset, delete. */
+  canEdit: boolean;
+}
 
 /** Someone playing a game right now (in its room). */
 export interface PortalPlayer {
@@ -19,6 +35,9 @@ export interface PortalCallbacks {
   /** "All games" on a game's page. */
   onBack(): void;
   onPlay(game: PortalGame): void;
+  onBoardConfigure?(board: string, settings: BoardSettings): void;
+  onBoardReset?(board: string): void;
+  onBoardDelete?(board: string): void;
 }
 
 /**
@@ -59,7 +78,7 @@ export default class PortalUI {
   }
 
   /** A game's page; `null` = no such game (or not visible to us). */
-  showGame(card: PortalCard | null): void {
+  showGame(card: PortalCard | null, boards: BoardsView | null = null): void {
     const page = div('portal-page');
     const back = el('button', 'portal-back', '← Все игры') as HTMLButtonElement;
     back.type = 'button';
@@ -117,12 +136,86 @@ export default class PortalUI {
     hero.appendChild(info);
     page.appendChild(hero);
 
+    if (boards && boards.boards.length) page.appendChild(this.buildBoards(boards));
     if (game.description) {
       const description = div('portal-description');
       description.appendChild(renderMarkdown(game.description));
       page.appendChild(description);
     }
     this.element.replaceChildren(page);
+  }
+
+  private buildBoards({ boards, canEdit }: BoardsView): HTMLElement {
+    const box = div('portal-boards');
+    box.appendChild(el('h2', 'portal-boards-title', 'Таблицы рекордов'));
+    for (const board of boards) {
+      const section = div('portal-board');
+      const head = div('portal-board-head');
+      head.appendChild(el('span', undefined, board.title));
+      head.appendChild(
+        el('span', 'portal-board-count', countOf(board.entryCount, 'игрок', 'игрока', 'игроков'))
+      );
+      section.appendChild(head);
+      if (board.entries.length === 0)
+        section.appendChild(el('div', 'portal-board-empty', 'Пока никого — будьте первым'));
+      for (const row of board.entries) section.appendChild(boardRow(row));
+      if (board.myEntry && board.myRank > board.entries.length) {
+        section.appendChild(el('div', 'portal-board-gap', '…'));
+        section.appendChild(boardRow(board.myEntry));
+      }
+      if (canEdit) section.appendChild(this.buildBoardSettings(board));
+      box.appendChild(section);
+    }
+    return box;
+  }
+
+  private buildBoardSettings(board: BoardPanel): HTMLElement {
+    const details = el('details', 'portal-board-settings') as HTMLDetailsElement;
+    details.appendChild(el('summary', undefined, `Настройки · ${board.name}`));
+    const form = div('portal-board-form');
+    const title = el('input') as HTMLInputElement;
+    title.type = 'text';
+    title.placeholder = board.name;
+    title.value = board.titleRaw;
+    title.maxLength = 120;
+    const invertLabel = el('label') as HTMLLabelElement;
+    const invert = el('input') as HTMLInputElement;
+    invert.type = 'checkbox';
+    invert.checked = board.invertSortOrder;
+    invertLabel.append(invert, document.createTextNode(' меньше — лучше'));
+    const format = el('select') as HTMLSelectElement;
+    for (const [value, label] of [
+      ['numeric:0', 'Число'],
+      ['numeric:1', 'Число, 1 знак'],
+      ['numeric:2', 'Число, 2 знака'],
+      ['time:0', 'Время (мс → м:сс)'],
+    ]) {
+      const option = el('option', undefined, label) as HTMLOptionElement;
+      option.value = value;
+      format.appendChild(option);
+    }
+    format.value =
+      board.scoreType === 'time' ? 'time:0' : `numeric:${Math.min(board.decimalOffset, 2)}`;
+    const save = el('button', 'portal-board-save', 'Сохранить') as HTMLButtonElement;
+    save.type = 'button';
+    save.onclick = () => {
+      const [type, offset] = format.value.split(':');
+      this.callbacks.onBoardConfigure?.(board.name, {
+        title: title.value.trim(),
+        invertSortOrder: invert.checked,
+        scoreType: type === 'time' ? 'time' : 'numeric',
+        decimalOffset: Number(offset) || 0,
+      });
+    };
+    const reset = confirmButton('Очистить результаты', 'Точно очистить?', () =>
+      this.callbacks.onBoardReset?.(board.name)
+    );
+    const remove = confirmButton('Удалить таблицу', 'Точно удалить?', () =>
+      this.callbacks.onBoardDelete?.(board.name)
+    );
+    form.append(title, invertLabel, format, save, reset, remove);
+    details.appendChild(form);
+    return details;
   }
 
   private buildCard({ game, playing }: PortalCard): HTMLElement {
@@ -151,16 +244,21 @@ export default class PortalUI {
   }
 }
 
-/** "1 партия", "3 партии", "1,2 тыс. партий". */
-export function plays(n: number): string {
+/** "1 игрок", "3 игрока", "5 игроков" — the Russian plural for a count. */
+export function countOf(n: number, one: string, few: string, many: string): string {
+  return `${n} ${pluralRu(n, one, few, many)}`;
+}
+
+function pluralRu(n: number, one: string, few: string, many: string): string {
   const mod10 = n % 10;
   const mod100 = n % 100;
-  const word =
-    mod10 === 1 && mod100 !== 11
-      ? 'партия'
-      : mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)
-        ? 'партии'
-        : 'партий';
+  if (mod10 === 1 && mod100 !== 11) return one;
+  return mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14) ? few : many;
+}
+
+/** "1 партия", "3 партии", "1,2 тыс. партий". */
+export function plays(n: number): string {
+  const word = pluralRu(n, 'партия', 'партии', 'партий');
   const compact = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1).replace('.', ','));
   if (n >= 1_000_000) return `${compact(Math.round(n / 100_000) / 10)} млн партий`;
   if (n >= 1000) return `${compact(Math.round(n / 100) / 10)} тыс. партий`;
@@ -176,6 +274,47 @@ function cover(game: PortalGame, className: string): HTMLDivElement {
   box.style.background = `linear-gradient(135deg, hsl(${hue} 45% 32%), hsl(${(hue + 50) % 360} 50% 18%))`;
   box.appendChild(el('span', 'portal-cover-letter', (game.title.trim()[0] ?? '?').toUpperCase()));
   return box;
+}
+
+function boardRow(row: BoardRow): HTMLDivElement {
+  const line = div('portal-board-row');
+  if (row.isPlayer) line.classList.add('portal-board-me');
+  line.appendChild(el('span', 'portal-board-rank', String(row.rank)));
+  const face = div('portal-face');
+  if (row.avatarUrl) {
+    const img = document.createElement('img');
+    img.src = row.avatarUrl;
+    img.alt = '';
+    face.appendChild(img);
+  } else face.textContent = (row.name.trim()[0] ?? '?').toUpperCase();
+  line.appendChild(face);
+  const name = el('span', 'portal-board-name', row.name);
+  if (row.username) name.appendChild(el('span', 'portal-board-login', `@${row.username}`));
+  line.appendChild(name);
+  if (row.own) line.appendChild(el('span', 'portal-board-flag', 'автор'));
+  if (row.hiddenFromOthers) line.appendChild(el('span', 'portal-board-flag', 'скрыт от других'));
+  line.appendChild(el('span', 'portal-board-score', row.formattedScore));
+  return line;
+}
+
+/** A destructive button: the first click asks, the second (within a few seconds) does it. */
+function confirmButton(label: string, confirmLabel: string, action: () => void): HTMLButtonElement {
+  const b = el('button', 'portal-board-danger', label) as HTMLButtonElement;
+  b.type = 'button';
+  let armed = false;
+  b.onclick = () => {
+    if (armed) {
+      action();
+      return;
+    }
+    armed = true;
+    b.textContent = confirmLabel;
+    setTimeout(() => {
+      armed = false;
+      b.textContent = label;
+    }, 4000);
+  };
+  return b;
 }
 
 function tags(list: string[]): HTMLDivElement {

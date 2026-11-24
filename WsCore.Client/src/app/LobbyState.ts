@@ -30,6 +30,35 @@ import UpdateChecker from '../utils/UpdateChecker';
 import PortalUI, { PortalCard } from '../portal/PortalUI';
 import GameHost from '../portal/GameHost';
 import { newSessionId } from '../portal/PlaySession';
+import { LeaderboardError } from '../portal/JamBridge';
+import {
+  absolutizeAvatars,
+  addPending,
+  parsePanel,
+  sdkArgs,
+  type PendingScores,
+} from '../portal/Leaderboard';
+import type { BoardsView } from '../portal/PortalUI';
+import type { BoardPanel } from '../portal/Leaderboard';
+
+const PENDING_SCORES_KEY = 'wscore.pendingScores';
+
+function loadPendingScores(): PendingScores {
+  try {
+    return JSON.parse(sessionStorage.getItem(PENDING_SCORES_KEY) ?? '{}') as PendingScores;
+  } catch {
+    return {};
+  }
+}
+
+function savePendingScores(scores: PendingScores | null): void {
+  try {
+    if (scores) sessionStorage.setItem(PENDING_SCORES_KEY, JSON.stringify(scores));
+    else sessionStorage.removeItem(PENDING_SCORES_KEY);
+  } catch {
+    // Unavailable storage: the scores are simply not carried over.
+  }
+}
 import { loadOrCreateVisitorId } from './IdentityStorage';
 import type { ApiToken, PortalGame } from '../network/ClientEvents';
 
@@ -177,6 +206,10 @@ export default class LobbyState {
   private host: GameHost | null = null;
   /** A game page opened before the catalog arrived: its view is reported once it does. */
   private pendingView: { slug: string; source: ViewSource } | null = null;
+  /** The leaderboards of the game whose page is shown (null view = loading). */
+  private boards: { gameId: string; list: BoardPanel[] | null } | null = null;
+  /** The "enter to get on the board" notice was shown in this game session. */
+  private scoreNoticeShown = false;
   /** How each game's page was last reached — the launch is attributed to it. */
   private readonly viewSources = new Map<string, ViewSource>();
   /** After a reconnect: the game room we are getting back into (the game keeps running). */
@@ -259,6 +292,10 @@ export default class LobbyState {
       this.client.on('chat', (roomId, entry) => this.handleChat(roomId, entry)),
       this.client.on('chatHistory', (roomId, change) => this.handleChatHistory(roomId, change)),
       this.client.on('games', () => this.handleGames()),
+      this.client.on('leaderboardChanged', gameId => {
+        if (this.boards?.gameId === gameId) this.loadBoards(gameId);
+      }),
+      this.client.on('identified', () => this.flushPendingScores()),
       this.client.on('presence', () => {
         this.renderPortal(); // who is playing what
         this.ui.setAnonymous(this.client.isAnonymous);
@@ -665,9 +702,12 @@ export default class LobbyState {
 
   private memberDetail(user: PresenceUser, currentRoomId: string | null): string | undefined {
     if (user.status === PresenceStatus.Offline) return formatLastSeen(user.lastSeenMs);
+    const game = this.client.gameByRoom(user.roomId);
     const elsewhere =
       user.roomId && user.roomId !== currentRoomId
-        ? (this.client.roomManager.getRoom(user.roomId)?.name ?? user.roomId)
+        ? game
+          ? `играет в «${game.title}»`
+          : (this.client.roomManager.getRoom(user.roomId)?.name ?? user.roomId)
         : null;
     if (user.status === PresenceStatus.Away) return elsewhere ? `Отошёл · ${elsewhere}` : 'Отошёл';
     return elsewhere ?? undefined;
@@ -686,6 +726,7 @@ export default class LobbyState {
       isAdmin: me?.isAdmin ?? false,
       notifications: this.alerts?.status ?? 'unsupported',
       apiTokens: me?.isAdmin ? this.apiTokens : null,
+      leaderboardHidden: this.client.leaderboardHidden,
       newApiToken: this.newApiToken,
     };
   }
@@ -842,6 +883,12 @@ export default class LobbyState {
         location.hash = '#login';
         location.reload();
       },
+      onLeaderboardHidden: hidden =>
+        void this.client.setLeaderboardHidden(hidden).then(answer => {
+          this.profile?.update(this.profileView());
+          if (answer.ok) this.profile?.showStatus('leaderboards', 'Сохранено');
+          else this.profile?.showStatus('leaderboards', 'Не удалось сохранить', true);
+        }),
       onCreateApiToken: name => this.client.createApiToken(name),
       onRevokeApiToken: id => this.client.revokeApiToken(id),
       onClose: () => this.closeProfile(),
@@ -864,11 +911,15 @@ export default class LobbyState {
     if (this.host) this.leaveGame();
     if (route.kind === 'game' && source) this.reportView(route.slug, source);
     this.portalRoute = route;
+    this.boards = null; // a page opened again shows fresh boards
     if (push && this.nav.path() !== pathOf(route)) this.nav.push(pathOf(route));
     this.portal ??= new PortalUI({
       onOpen: slug => this.openPortal({ kind: 'game', slug }, true, 'catalog'),
       onBack: () => this.openPortal({ kind: 'catalog' }),
       onPlay: game => this.play(game),
+      onBoardConfigure: (board, settings) => this.configureBoard('configure', board, settings),
+      onBoardReset: board => this.configureBoard('reset', board),
+      onBoardDelete: board => this.configureBoard('delete', board),
     });
     this.portalDrawn = '';
     this.renderPortal();
@@ -939,11 +990,100 @@ export default class LobbyState {
       const game = this.client.games.find(g => g.slug === route.slug);
       cards = game ? [this.cardOf(game)] : [];
     }
-    const drawn = JSON.stringify([route, this.client.gamesLoaded, cards]);
+    const game = route.kind === 'game' ? cards[0]?.game : undefined;
+    if (game && this.boards?.gameId !== game.id) this.loadBoards(game.id);
+    // Whether we may set the boards up is decided now: the page may load before we are identified.
+    const list = game && this.boards?.gameId === game.id ? this.boards.list : null;
+    const me = this.client.subject;
+    const boards: BoardsView | null =
+      game && list
+        ? { boards: list, canEdit: !!me && (me.isAdmin || me.userId === game.ownerUserId) }
+        : null;
+    const drawn = JSON.stringify([route, this.client.gamesLoaded, cards, boards]);
     if (drawn === this.portalDrawn) return;
     this.portalDrawn = drawn;
     if (route.kind === 'catalog') portal.showCatalog(cards);
-    else if (cards.length || this.client.gamesLoaded) portal.showGame(cards[0] ?? null);
+    else if (cards.length || this.client.gamesLoaded) portal.showGame(cards[0] ?? null, boards);
+  }
+
+  // ---- leaderboards ----
+
+  /** The game page's boards, (re)loaded; drawn once they arrive. */
+  private loadBoards(gameId: string): void {
+    if (this.boards?.gameId !== gameId) this.boards = { gameId, list: null };
+    void this.client.leaderboard(gameId, '', 'boards', { top: 10 }).then(answer => {
+      if (this.boards?.gameId !== gameId || !answer.ok) return;
+      this.boards = {
+        gameId,
+        list: parsePanel(absolutizeAvatars(answer.result, p => this.client.serverPathUrl(p))),
+      };
+      this.renderPortal();
+    });
+  }
+
+  private configureBoard(
+    action: 'configure' | 'reset' | 'delete',
+    board: string,
+    settings?: { title: string; invertSortOrder: boolean; scoreType: string; decimalOffset: number }
+  ): void {
+    const gameId = this.boards?.gameId;
+    if (!gameId) return;
+    void this.client
+      .configureLeaderboard(gameId, board, action, settings)
+      .then(() => this.loadBoards(gameId));
+  }
+
+  /**
+   * A game's leaderboard call (through the jam bridge), as our user. An unnamed visitor's
+   * score is refused by the server; it is kept for this browser session and sent once
+   * they enter — and the game shows them how.
+   */
+  private async leaderboardCall(
+    game: PortalGame,
+    op: string,
+    board: string,
+    args: Record<string, unknown>
+  ): Promise<unknown> {
+    const answer = await this.client.leaderboard(game.id, board, op, sdkArgs(op, args));
+    if (!answer.ok) throw new LeaderboardError(answer.error || 'failed', answer.status);
+    const result = absolutizeAvatars(answer.result, p => this.client.serverPathUrl(p));
+    if (op === 'score' && (result as { reason?: string } | null)?.reason === 'not_signed_in') {
+      const { score, extraData } = sdkArgs(op, args);
+      if (score !== undefined && Number.isFinite(score))
+        savePendingScores(
+          addPending(loadPendingScores(), game.id, board, { score, extraData: extraData ?? '' })
+        );
+      if (!this.scoreNoticeShown && this.host?.game.id === game.id) {
+        this.scoreNoticeShown = true;
+        this.host.showNotice('Войдите, чтобы попасть в таблицу рекордов', 'Войти', () =>
+          this.onSignIn?.()
+        );
+      }
+    }
+    return result;
+  }
+
+  /** Entered: the scores made as an unnamed visitor go to the boards (the server keeps the better). */
+  private flushPendingScores(): void {
+    if (this.client.isAnonymous) return;
+    const pending = loadPendingScores();
+    savePendingScores(null);
+    // The page shown is not in the game's room (no change events): it reloads its boards.
+    const reload = (gameId: string) => {
+      if (this.boards?.gameId === gameId) this.loadBoards(gameId);
+    };
+    for (const [gameId, boards] of Object.entries(pending)) {
+      for (const [board, { max, min }] of Object.entries(boards)) {
+        void this.client.leaderboard(gameId, board, 'score', max).then(() => reload(gameId));
+        // One write per board per cooldown: the other end of the range a moment later.
+        if (min.score !== max.score)
+          setTimeout(
+            () =>
+              void this.client.leaderboard(gameId, board, 'score', min).then(() => reload(gameId)),
+            800
+          );
+      }
+    }
   }
 
   private play(game: PortalGame): void {
@@ -967,7 +1107,9 @@ export default class LobbyState {
       },
       onToggleChat: () => this.ui.togglePlayingChat(),
       play: this.playReporter(game),
+      leaderboard: (op, board, args) => this.leaderboardCall(game, op, board, args),
     });
+    this.scoreNoticeShown = false;
     this.ui.setGameStage(this.host.element);
     this.closePortal(false);
     const path = pathOf({ kind: 'game', slug: game.slug });

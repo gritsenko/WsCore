@@ -41,6 +41,7 @@ public class GameServer : GameServerBase<GameModel>
         VoiceService voice,
         GameCatalog games,
         GameAnalytics analytics,
+        LeaderboardRequests leaderboards, // built now: it relays board changes to the games' rooms
         GameServerOptions options,
         ILogger<GameServer> logger) : base(gameModel, messenger, connectionManager, serverLogicProvider, options, logger)
     {

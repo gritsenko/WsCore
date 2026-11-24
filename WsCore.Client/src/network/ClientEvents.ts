@@ -86,6 +86,8 @@ export type ClientEvents<T extends IPlayer = IPlayer> = {
   voiceRoster: () => void;
   /** The games portal's catalog changed (WsClient.games). */
   games: () => void;
+  /** A leaderboard of a game whose room we are in changed (a better score, settings, a reset). */
+  leaderboardChanged: (gameId: string, board: string) => void;
   /** The server answered an API-token request (our tokens, a new one once, or a refusal). */
   apiTokens: (result: ApiTokensResult) => void;
   /** We are in voice in `roomId`: call `peers` (client ids already there) with these ICE servers. */
@@ -203,4 +205,13 @@ export interface ApiTokensResult {
   newToken: string;
   /** "forbidden" / "limit" / "not_found"; empty on success. */
   error: string;
+}
+
+/** The answer to a leaderboard request: `result` is the JSON value the jam SDK reads. */
+export interface LeaderboardAnswer {
+  ok: boolean;
+  /** 404 = no such board yet; 0 = no answer (timeout / not connected). */
+  status: number;
+  error: string;
+  result: unknown;
 }

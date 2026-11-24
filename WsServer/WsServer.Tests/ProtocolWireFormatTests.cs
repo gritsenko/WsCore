@@ -109,9 +109,11 @@ public class ProtocolWireFormatTests
 
     [Fact]
     public void PresenceSnapshotEvent_MatchesPinnedBytes()
-        => Assert.Equal([3, 3, 0, 0, 0, 1, 0, 0, 0, .. PresenceUserBytes, 253, 255, 255, 255, 2, 0, 0, 0, 97, 108],
-            MemoryPackSerializer.Serialize(
-                new PresenceSnapshotEvent { YourUserId = 3, Users = [PresenceUser()], YourLogin = "al" }));
+        => Assert.Equal([4, 3, 0, 0, 0, 1, 0, 0, 0, .. PresenceUserBytes, 253, 255, 255, 255, 2, 0, 0, 0, 97, 108, 1],
+            MemoryPackSerializer.Serialize(new PresenceSnapshotEvent
+            {
+                YourUserId = 3, Users = [PresenceUser()], YourLogin = "al", YourLeaderboardHidden = true,
+            }));
 
     // ---- accounts ----
 

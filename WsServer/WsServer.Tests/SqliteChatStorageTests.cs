@@ -478,6 +478,56 @@ public class SqliteChatStorageTests
     }
 
     [Fact]
+    public void AnAnalyticsDatabase_IsMigratedToLeaderboards_KeepingItsUsers()
+    {
+        using var db = new TempDatabase();
+        using (var storage = Open(db.Path))
+        {
+            storage.Load(10);
+            storage.SaveUser(new StoredUser(3, "Alice", 5) { IsAdmin = true });
+            storage.FlushAsync().Wait();
+        }
+        // Back to schema v7 (no leaderboards, no hidden flag).
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db.Path};Pooling=False"))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                DROP TABLE leaderboards;
+                DROP TABLE leaderboard_entries;
+                ALTER TABLE users DROP COLUMN leaderboard_hidden;
+                PRAGMA user_version = 7;
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        using (var migrated = Open(db.Path))
+        {
+            var user = Assert.Single(migrated.Load(10).Users);
+            Assert.True(user.IsAdmin);
+            Assert.False(user.LeaderboardHidden);
+            migrated.SaveUser(user with { LeaderboardHidden = true });
+            migrated.SaveLeaderboard(new StoredLeaderboard(1, "abcdefghij", "best", 9) { Title = "T", InvertSortOrder = true, ScoreType = "time", DecimalOffset = 2 });
+            migrated.SaveLeaderboardEntry(new StoredLeaderboardEntry(1, 3, 42) { ExtraData = "x", Submissions = 2, Own = true, CreatedMs = 1, UpdatedMs = 2 });
+            migrated.FlushAsync().Wait();
+        }
+        using var reopened = Open(db.Path);
+        var snapshot = reopened.Load(10);
+        Assert.True(snapshot.Users.Single().LeaderboardHidden);
+        Assert.Equal(new StoredLeaderboard(1, "abcdefghij", "best", 9) { Title = "T", InvertSortOrder = true, ScoreType = "time", DecimalOffset = 2 },
+            Assert.Single(snapshot.Leaderboards));
+        Assert.Equal(new StoredLeaderboardEntry(1, 3, 42) { ExtraData = "x", Submissions = 2, Own = true, CreatedMs = 1, UpdatedMs = 2 },
+            Assert.Single(snapshot.LeaderboardEntries));
+
+        reopened.DeleteLeaderboard(1);
+        reopened.FlushAsync().Wait();
+        using var after = Open(db.Path);
+        var gone = after.Load(10);
+        Assert.Empty(gone.Leaderboards);
+        Assert.Empty(gone.LeaderboardEntries);
+    }
+
+    [Fact]
     public void Factory_WithoutAPath_OrWithAnUnusablePath_RunsWithoutPersistence()
     {
         using var none = ChatStorageFactory.Create(new GameServerOptions(), NullLogger.Instance);

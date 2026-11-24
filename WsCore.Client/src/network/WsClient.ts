@@ -3,6 +3,7 @@ import { AccountAction } from './ClientEvents';
 import { VoiceSignalKind } from './ClientEvents';
 import type {
   IPlayer,
+  LeaderboardAnswer,
   PortalGame,
   PresenceUser,
   VoiceIceServerConfig,
@@ -41,6 +42,8 @@ import { VoiceSignalEvent } from './protocol/VoiceSignalEvent';
 import { VoiceRosterEvent } from './protocol/VoiceRosterEvent';
 import type { GameCatalogEvent } from './protocol/GameCatalogEvent';
 import type { ApiTokensEvent } from './protocol/ApiTokensEvent';
+import type { LeaderboardResultEvent } from './protocol/LeaderboardResultEvent';
+import type { LeaderboardChangedEvent } from './protocol/LeaderboardChangedEvent';
 import {
   ChannelAdmin,
   ChannelPermissions,
@@ -256,6 +259,7 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
   override onPresenceSnapshotEvent(msg: PresenceSnapshotEvent): void {
     this.myUserId = msg.yourUserId;
     this.myLogin = msg.yourLogin || null;
+    this.leaderboardHidden = msg.yourLeaderboardHidden;
     this.presence.clear();
     for (const info of msg.users ?? []) {
       if (info) this.presence.set(info.userId, toPresenceUser(info));
@@ -348,6 +352,115 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
     );
     this.gamesLoaded = true;
     this.emitter.emit('games');
+  }
+
+  /** We chose to be hidden from others on the games' leaderboards (from the identify's answer). */
+  leaderboardHidden = false;
+  private leaderboardSeq = 0;
+  private readonly leaderboardPending = new Map<
+    number,
+    { resolve: (a: LeaderboardAnswer) => void; timer: ReturnType<typeof setTimeout> }
+  >();
+
+  /**
+   * A leaderboard request, answered by the server (or, after `LEADERBOARD_TIMEOUT_MS`
+   * without an answer, by a failure — like the jam SDK's own proxy timeout).
+   */
+  private leaderboardCall(send: (requestId: number) => void): Promise<LeaderboardAnswer> {
+    const requestId = (this.leaderboardSeq = (this.leaderboardSeq % 0xfffffff0) + 1);
+    return new Promise(resolve => {
+      const timer = setTimeout(() => {
+        this.leaderboardPending.delete(requestId);
+        resolve({ ok: false, status: 0, error: 'no answer', result: null });
+      }, WsClient.LEADERBOARD_TIMEOUT_MS);
+      this.leaderboardPending.set(requestId, { resolve, timer });
+      send(requestId);
+    });
+  }
+
+  static readonly LEADERBOARD_TIMEOUT_MS = 8000;
+
+  /** score / entries / player / description (the jam SDK's) or boards (the game page's). */
+  leaderboard(
+    gameId: string,
+    board: string,
+    op: string,
+    args: {
+      score?: number;
+      extraData?: string;
+      top?: number;
+      around?: number;
+      includeUser?: boolean;
+    } = {}
+  ): Promise<LeaderboardAnswer> {
+    return this.leaderboardCall(requestId =>
+      this.sendLeaderboardRequest({
+        requestId,
+        gameId,
+        board,
+        op,
+        score: args.score ?? 0,
+        extraData: args.extraData ?? '',
+        top: args.top ?? 0,
+        around: args.around ?? 0,
+        includeUser: args.includeUser ?? false,
+      })
+    );
+  }
+
+  /** A board's settings / reset / delete (the game's owner and server admins). */
+  configureLeaderboard(
+    gameId: string,
+    board: string,
+    action: 'configure' | 'reset' | 'delete',
+    settings: {
+      title?: string;
+      invertSortOrder?: boolean;
+      scoreType?: string;
+      decimalOffset?: number;
+    } = {}
+  ): Promise<LeaderboardAnswer> {
+    return this.leaderboardCall(requestId =>
+      this.sendLeaderboardConfigRequest({
+        requestId,
+        gameId,
+        board,
+        action,
+        title: settings.title ?? '',
+        invertSortOrder: settings.invertSortOrder ?? false,
+        scoreType: settings.scoreType ?? 'numeric',
+        decimalOffset: settings.decimalOffset ?? 0,
+      })
+    );
+  }
+
+  setLeaderboardHidden(hidden: boolean): Promise<LeaderboardAnswer> {
+    return this.leaderboardCall(requestId => {
+      this.sendSetLeaderboardHiddenRequest(requestId, hidden);
+    }).then(answer => {
+      if (answer.ok) this.leaderboardHidden = hidden;
+      return answer;
+    });
+  }
+
+  override onLeaderboardResultEvent(msg: LeaderboardResultEvent): void {
+    const pending = this.leaderboardPending.get(msg.requestId);
+    if (!pending) return;
+    this.leaderboardPending.delete(msg.requestId);
+    clearTimeout(pending.timer);
+    let result: unknown = null;
+    if (msg.ok && msg.resultJson) {
+      try {
+        result = JSON.parse(msg.resultJson);
+      } catch {
+        result = null;
+      }
+    }
+    pending.resolve({ ok: msg.ok, status: msg.status, error: msg.error ?? '', result });
+  }
+
+  override onLeaderboardChangedEvent(msg: LeaderboardChangedEvent): void {
+    this.emitter.emit('leaderboardChanged', msg.gameId ?? '', msg.board ?? '');
   }
 
   /** No identity at all: no key, no login under way (browsing the games portal unnamed). */
@@ -635,10 +748,15 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
     user: Pick<PresenceUser, 'userId' | 'avatarVersion'> | undefined | null
   ): string | null {
     if (!user || !user.avatarVersion) return null;
+    return this.serverPathUrl(`/avatars/${user.userId}?v=${user.avatarVersion}`);
+  }
+
+  /** An absolute URL of a path on the game server (in dev that is :5000, not the page's origin). */
+  serverPathUrl(path: string): string | null {
     const socketUrl = this.overrideUrl || this.serverUrl;
     if (!socketUrl) return null;
     const base = socketUrl.replace(/^ws/, 'http').replace(/\/ws\/?$/, '');
-    return `${base}/avatars/${user.userId}?v=${user.avatarVersion}`;
+    return `${base}${path}`;
   }
 
   /** Whether a chat entry was written by us (by user — so it holds across reconnects). */
