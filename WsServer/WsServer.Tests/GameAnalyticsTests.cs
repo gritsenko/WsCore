@@ -326,6 +326,9 @@ public class GameAnalyticsTests
         var portal = await Query(h, string.Empty);
         Assert.Equal(stats.Days.Select(d => d.Plays), portal.Days.Select(d => d.Plays));
         Assert.Equal(2, portal.Players);
+        var row = Assert.Single(portal.Games);
+        Assert.Equal((gameId, 2L, 3L, 2L, 145_000L, 2L), (row.GameId, row.Views, row.Launches, row.Plays, row.ActiveMs, row.Players));
+        Assert.Empty(stats.Games); // per game: no table
 
         var summary = Games.GamesHttp.Summarize(stats.SessionActiveMs);
         Assert.Equal((3, 20_000L, 120_000L, 1, 0, 0), (summary.Sessions, summary.MedianMs, summary.LongestMs,

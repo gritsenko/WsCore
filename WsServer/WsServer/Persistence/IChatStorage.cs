@@ -148,6 +148,9 @@ public sealed record GameDay(string Day, long Views, long Launches, long Plays, 
 /// <summary>A count by name (an event, a level, a traffic source).</summary>
 public sealed record NamedCount(string Name, long Count);
 
+/// <summary>One game's sums over a period (the portal's table).</summary>
+public sealed record GamePeriod(string GameId, long Views, long Launches, long Plays, long ActiveMs, long Players);
+
 /// <summary>What the storage knows about a game's audience since a moment (authors excluded).</summary>
 public sealed record GameStatsData(
     IReadOnlyList<GameDay> Days,
@@ -156,7 +159,11 @@ public sealed record GameStatsData(
     long ReturningPlayers,
     IReadOnlyList<NamedCount> Events,
     IReadOnlyList<NamedCount> Levels,
-    IReadOnlyList<NamedCount> Sources);
+    IReadOnlyList<NamedCount> Sources)
+{
+    /// <summary>For the whole portal (an empty game id): every game's sums over the period.</summary>
+    public IReadOnlyList<GamePeriod> Games { get; init; } = [];
+}
 
 /// <summary>
 /// A game's leaderboard: created by its first score (the jam / Yandex shape); title, order

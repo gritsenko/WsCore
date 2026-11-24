@@ -42,6 +42,8 @@ import type { BoardsView } from '../portal/PortalUI';
 import type { BoardPanel } from '../portal/Leaderboard';
 import GameEditor from '../portal/GameEditor';
 import GamesApi from '../portal/GamesApi';
+import StatsView from '../portal/StatsView';
+import { parseStats } from '../portal/Stats';
 import { scaleDown } from '../utils/PictureScale';
 
 /** How large each kind of picture is uploaded (the browser scales it down first). */
@@ -218,6 +220,8 @@ export default class LobbyState {
   private pendingView: { slug: string; source: ViewSource } | null = null;
   /** The leaderboards of the game whose page is shown (null view = loading). */
   private boards: { gameId: string; list: BoardPanel[] | null } | null = null;
+  /** The analytics panel open on the page: a game's (its id) or the portal's (''). */
+  private stats: { key: string; view: StatsView } | null = null;
   /** The game editor (owner / admins), while open. */
   private editor: GameEditor | null = null;
   private editorGameId: string | null = null;
@@ -927,6 +931,7 @@ export default class LobbyState {
     if (route.kind === 'game' && source) this.reportView(route.slug, source);
     this.portalRoute = route;
     this.boards = null; // a page opened again shows fresh boards
+    this.stats = null; // and its numbers start closed
     if (push && this.nav.path() !== pathOf(route)) this.nav.push(pathOf(route));
     this.portal ??= new PortalUI({
       onOpen: slug => this.openPortal({ kind: 'game', slug }, true, 'catalog'),
@@ -967,6 +972,44 @@ export default class LobbyState {
   /** Our anonymous visitor id — only while we are nobody (an identified user is itself). */
   private visitorId(): string {
     return this.client.isAnonymous ? loadOrCreateVisitorId() : '';
+  }
+
+  // ---- analytics ----
+
+  private gamesApi(): GamesApi {
+    return new GamesApi({
+      url: p => this.client.serverPathUrl(p),
+      userKey: () => this.client.userKey,
+    });
+  }
+
+  /** Opens / closes the numbers of a game (its id) or of the whole portal (''). */
+  private toggleStats(key: string): void {
+    if (this.stats?.key === key) this.stats = null;
+    else {
+      const api = this.gamesApi();
+      this.stats = {
+        key,
+        view: new StatsView({
+          scope: key ? 'game' : 'portal',
+          load: days => api.stats(key || null, days).then(parseStats),
+          onOpenGame: slug => this.openPortal({ kind: 'game', slug }),
+        }),
+      };
+    }
+    this.renderPortal();
+  }
+
+  /** The catalog's "the portal's numbers" button and panel (server admins). */
+  private portalStatsExtra(): { button?: HTMLElement; panel?: HTMLElement } {
+    if (!this.client.subject?.isAdmin) return {};
+    const open = this.stats?.key === '';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'portal-share portal-stats-toggle';
+    button.textContent = open ? 'Скрыть статистику' : 'Статистика раздела';
+    button.onclick = () => this.toggleStats('');
+    return { button, panel: open ? this.stats!.view.element : undefined };
   }
 
   // ---- the game editor ----
@@ -1070,12 +1113,31 @@ export default class LobbyState {
     const me = this.client.subject;
     const editable = !!game && !!me && (me.isAdmin || me.userId === game.ownerUserId);
     const boards: BoardsView | null = game && list ? { boards: list, canEdit: editable } : null;
-    const drawn = JSON.stringify([route, this.client.gamesLoaded, cards, boards, editable]);
+    const statsKey = this.stats?.key ?? null;
+    const drawn = JSON.stringify([
+      route,
+      this.client.gamesLoaded,
+      cards,
+      boards,
+      editable,
+      statsKey,
+    ]);
     if (drawn === this.portalDrawn) return;
     this.portalDrawn = drawn;
-    if (route.kind === 'catalog') portal.showCatalog(cards);
+    if (route.kind === 'catalog') portal.showCatalog(cards, this.portalStatsExtra());
     else if (cards.length || this.client.gamesLoaded)
-      portal.showGame(cards[0] ?? null, boards, editable);
+      portal.showGame(
+        cards[0] ?? null,
+        boards,
+        editable,
+        game && editable
+          ? {
+              open: statsKey === game.id,
+              panel: statsKey === game.id ? this.stats!.view.element : null,
+              toggle: () => this.toggleStats(game.id),
+            }
+          : null
+      );
   }
 
   // ---- leaderboards ----

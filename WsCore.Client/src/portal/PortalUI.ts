@@ -55,7 +55,10 @@ export default class PortalUI {
     this.element = div('portal');
   }
 
-  showCatalog(cards: PortalCard[]): void {
+  showCatalog(
+    cards: PortalCard[],
+    extra: { button?: HTMLElement; panel?: HTMLElement } = {}
+  ): void {
     const page = div('portal-page');
     const head = div('portal-head');
     const h = el('h1', 'portal-h1', 'Игры');
@@ -67,7 +70,9 @@ export default class PortalUI {
         'Мини-игры с таблицами рекордов. Играйте вместе — у каждой игры свой чат.'
       )
     );
+    if (extra.button) head.appendChild(extra.button);
     page.appendChild(head);
+    if (extra.panel) page.appendChild(extra.panel);
 
     if (cards.length === 0) {
       page.appendChild(el('p', 'portal-empty', 'Игр пока нет.'));
@@ -80,7 +85,12 @@ export default class PortalUI {
   }
 
   /** A game's page; `null` = no such game (or not visible to us). */
-  showGame(card: PortalCard | null, boards: BoardsView | null = null, editable = false): void {
+  showGame(
+    card: PortalCard | null,
+    boards: BoardsView | null = null,
+    editable = false,
+    stats: { open: boolean; panel: HTMLElement | null; toggle(): void } | null = null
+  ): void {
     const page = div('portal-page');
     // The wide header strip (or nothing: the hero's cover carries the page).
     if (card?.game.headerUrl) {
@@ -136,6 +146,16 @@ export default class PortalUI {
       edit.onclick = () => this.callbacks.onEdit?.(game);
       actions.appendChild(edit);
     }
+    if (stats) {
+      const toggle = el(
+        'button',
+        'portal-share portal-stats-toggle',
+        stats.open ? 'Скрыть аналитику' : 'Аналитика'
+      ) as HTMLButtonElement;
+      toggle.type = 'button';
+      toggle.onclick = () => stats.toggle();
+      actions.appendChild(toggle);
+    }
     info.appendChild(actions);
 
     const meta = div('portal-meta');
@@ -150,6 +170,7 @@ export default class PortalUI {
     hero.appendChild(info);
     page.appendChild(hero);
 
+    if (stats?.open && stats.panel) page.appendChild(stats.panel);
     if (game.screenshots.length) page.appendChild(gallery(game));
     if (boards && boards.boards.length) page.appendChild(this.buildBoards(boards));
     if (game.description) {

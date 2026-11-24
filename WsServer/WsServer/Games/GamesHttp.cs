@@ -647,7 +647,11 @@ public static class GamesHttp
 
     public sealed record StatsDto(string? GameId, int Days, StatsTotals? Totals, SessionStats Sessions, long Players,
         long ReturningPlayers, IReadOnlyList<GameDay> Daily, IReadOnlyList<NamedCount> Events,
-        IReadOnlyList<NamedCount> Levels, IReadOnlyList<NamedCount> Sources);
+        IReadOnlyList<NamedCount> Levels, IReadOnlyList<NamedCount> Sources, IReadOnlyList<GameRow> Games);
+
+    /// <summary>A game's line in the portal's table (its title as of now).</summary>
+    public sealed record GameRow(string GameId, string Title, string Slug, long Views, long Launches, long Plays,
+        long ActiveMs, long Players);
 
     private static async Task<IResult> Stats(HttpContext http, string? idOrSlug)
     {
@@ -697,7 +701,10 @@ public static class GamesHttp
             days,
             target.Totals is { } t ? new StatsTotals(t.Views, t.Launches, t.Plays, t.ActiveMs) : null,
             Summarize(data.SessionActiveMs),
-            data.Players, data.ReturningPlayers, data.Days, data.Events, data.Levels, data.Sources));
+            data.Players, data.ReturningPlayers, data.Days, data.Events, data.Levels, data.Sources,
+            data.Games.Select(g => catalog.Find(g.GameId) is { } game
+                ? new GameRow(g.GameId, game.Game.Title, game.Game.Slug, g.Views, g.Launches, g.Plays, g.ActiveMs, g.Players)
+                : null).OfType<GameRow>().ToList()));
     }
 
     /// <summary>Median / longest session and the retention buckets (≥ 1, 3, 10 minutes).</summary>

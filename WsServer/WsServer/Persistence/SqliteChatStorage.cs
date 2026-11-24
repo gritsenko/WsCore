@@ -1374,7 +1374,20 @@ public sealed class SqliteChatStorage : IChatStorage
             SELECT source, COUNT(*) FROM game_hits WHERE {gameFilter} AND kind = 'view' AND ms >= $since
             GROUP BY source ORDER BY 2 DESC;
             """, r => new NamedCount(r.GetString(0), r.GetInt64(1)), args);
-        return new GameStatsData(days, sessions, players, returning, events, levels, sources);
+        IReadOnlyList<GamePeriod> games = [];
+        if (all)
+        {
+            var playersByGame = Select($"""
+                SELECT game_id, COUNT(DISTINCT {PlayerKey}) FROM game_play_sessions
+                WHERE own = 0 AND started_ms >= $since GROUP BY game_id;
+                """, r => (r.GetString(0), r.GetInt64(1)), args).ToDictionary(x => x.Item1, x => x.Item2);
+            games = Select("""
+                SELECT game_id, SUM(views), SUM(launches), SUM(plays), SUM(active_ms) FROM game_daily
+                WHERE game_id <> '' AND day >= $sinceDay GROUP BY game_id ORDER BY SUM(plays) DESC;
+                """, r => new GamePeriod(r.GetString(0), r.GetInt64(1), r.GetInt64(2), r.GetInt64(3), r.GetInt64(4),
+                    playersByGame.GetValueOrDefault(r.GetString(0))), args);
+        }
+        return new GameStatsData(days, sessions, players, returning, events, levels, sources) { Games = games };
     }
 
     // ---- helpers ----------------------------------------------------------------------

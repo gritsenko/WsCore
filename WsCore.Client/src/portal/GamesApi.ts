@@ -71,6 +71,14 @@ export default class GamesApi {
     );
   }
 
+  /** A game's numbers (its owner, admins) or, with null, the whole portal's (admins). */
+  stats(id: string | null, days: number): Promise<unknown> {
+    return this.call(
+      'GET',
+      id ? `/api/games/${id}/stats?days=${days}` : `/api/games/stats?days=${days}`
+    );
+  }
+
   private async call(
     method: string,
     path: string,
