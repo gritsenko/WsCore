@@ -17,6 +17,9 @@ export class GameInfo {
     createdMs: number;
     updatedMs: number;
     plays: number;
+    coverUrl: string | null;
+    headerUrl: string | null;
+    screenshots: (string | null)[] | null;
 
     constructor() {
         this.id = null;
@@ -34,6 +37,9 @@ export class GameInfo {
         this.createdMs = 0;
         this.updatedMs = 0;
         this.plays = 0;
+        this.coverUrl = null;
+        this.headerUrl = null;
+        this.screenshots = null;
 
     }
 
@@ -49,7 +55,7 @@ export class GameInfo {
             return;
         }
 
-        writer.writeObjectHeader(15);
+        writer.writeObjectHeader(18);
         writer.writeString(value.id);
         writer.writeString(value.slug);
         writer.writeString(value.title);
@@ -65,6 +71,9 @@ export class GameInfo {
         writer.writeFloat64(value.createdMs);
         writer.writeFloat64(value.updatedMs);
         writer.writeUint32(value.plays);
+        writer.writeString(value.coverUrl);
+        writer.writeString(value.headerUrl);
+        writer.writeArray(value.screenshots, (writer, x) => writer.writeString(x));
 
     }
 
@@ -89,7 +98,7 @@ export class GameInfo {
         }
 
         const value = new GameInfo();
-        if (count == 15) {
+        if (count == 18) {
             value.id = reader.readString();
             value.slug = reader.readString();
             value.title = reader.readString();
@@ -105,9 +114,12 @@ export class GameInfo {
             value.createdMs = reader.readFloat64();
             value.updatedMs = reader.readFloat64();
             value.plays = reader.readUint32();
+            value.coverUrl = reader.readString();
+            value.headerUrl = reader.readString();
+            value.screenshots = reader.readArray(reader => reader.readString());
 
         }
-        else if (count > 15) {
+        else if (count > 18) {
             throw new Error("Current object's property count is larger than type schema, can't deserialize about versioning.");
         }
         else {
@@ -127,6 +139,9 @@ export class GameInfo {
             value.createdMs = reader.readFloat64(); if (count == 13) return value;
             value.updatedMs = reader.readFloat64(); if (count == 14) return value;
             value.plays = reader.readUint32(); if (count == 15) return value;
+            value.coverUrl = reader.readString(); if (count == 16) return value;
+            value.headerUrl = reader.readString(); if (count == 17) return value;
+            value.screenshots = reader.readArray(reader => reader.readString()); if (count == 18) return value;
 
         }
         return value;

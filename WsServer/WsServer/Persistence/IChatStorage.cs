@@ -81,6 +81,19 @@ public sealed record StoredGame(string Id, string Slug, uint OwnerUserId, string
     public uint NextReleaseNo { get; init; } = 1;
 }
 
+/// <summary>
+/// A picture of a game — its cover (one; cards, the page, link previews), its header (one,
+/// a wide strip atop the page) or a screenshot (ordered by <see cref="Order"/>). The file is
+/// on disk next to the builds; <see cref="Width"/> / <see cref="Height"/> are read from it.
+/// </summary>
+public sealed record StoredGameMedia(string Id, string GameId, string Kind, string ContentType, long CreatedMs)
+{
+    public int Order { get; init; }
+    public int Width { get; init; }
+    public int Height { get; init; }
+    public long Bytes { get; init; }
+}
+
 /// <summary>One uploaded build of a game. Never deleted (its files may be, see GameKeepReleases).</summary>
 public sealed record StoredGameRelease(string GameId, uint No, uint AuthorUserId, long CreatedMs)
 {
@@ -194,6 +207,7 @@ public sealed record StorageSnapshot(
     public IReadOnlyList<StoredGameCounters> GameCounters { get; init; } = [];
     public IReadOnlyList<StoredLeaderboard> Leaderboards { get; init; } = [];
     public IReadOnlyList<StoredLeaderboardEntry> LeaderboardEntries { get; init; } = [];
+    public IReadOnlyList<StoredGameMedia> GameMedia { get; init; } = [];
 }
 
 /// <summary>
@@ -244,6 +258,9 @@ public interface IChatStorage : IDisposable
     void SaveGameRelease(StoredGameRelease release);
 
     void SaveApiToken(StoredApiToken token);
+
+    void SaveGameMedia(StoredGameMedia media);
+    void DeleteGameMedia(string mediaId);
 
     // ---- leaderboards ----
 
@@ -329,6 +346,8 @@ public sealed class NullChatStorage : IChatStorage
     public void SaveGameRelease(StoredGameRelease release) { }
     public void SaveApiToken(StoredApiToken token) { }
     public void DeleteApiToken(string hash) { }
+    public void SaveGameMedia(StoredGameMedia media) { }
+    public void DeleteGameMedia(string mediaId) { }
     public void SaveLeaderboard(StoredLeaderboard board) { }
     public void DeleteLeaderboard(long boardId) { }
     public void SaveLeaderboardEntry(StoredLeaderboardEntry entry) { }

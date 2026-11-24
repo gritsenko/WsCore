@@ -528,6 +528,35 @@ public class SqliteChatStorageTests
     }
 
     [Fact]
+    public void ALeaderboardsDatabase_IsMigratedToGameMedia()
+    {
+        using var db = new TempDatabase();
+        using (var storage = Open(db.Path))
+        {
+            storage.Load(10);
+            storage.FlushAsync().Wait();
+        }
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db.Path};Pooling=False"))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "DROP TABLE game_media; PRAGMA user_version = 8;";
+            cmd.ExecuteNonQuery();
+        }
+        var media = new StoredGameMedia("m1", "abcdefghij", "cover", "image/png", 5) { Order = 0, Width = 1200, Height = 630, Bytes = 99 };
+        using (var migrated = Open(db.Path))
+        {
+            Assert.Empty(migrated.Load(10).GameMedia);
+            migrated.SaveGameMedia(media);
+            migrated.SaveGameMedia(media with { Id = "m2", Kind = "screenshot", Order = 1 });
+            migrated.DeleteGameMedia("m2");
+            migrated.FlushAsync().Wait();
+        }
+        using var reopened = Open(db.Path);
+        Assert.Equal(media, Assert.Single(reopened.Load(10).GameMedia));
+    }
+
+    [Fact]
     public void Factory_WithoutAPath_OrWithAnUnusablePath_RunsWithoutPersistence()
     {
         using var none = ChatStorageFactory.Create(new GameServerOptions(), NullLogger.Instance);

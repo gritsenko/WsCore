@@ -52,6 +52,12 @@ public partial class GameInfo
     public double UpdatedMs { get; set; }
     /// <summary>Plays so far: sessions with ≥ GamePlayCountMinActiveSeconds played (authors excluded).</summary>
     public uint Plays { get; set; }
+    /// <summary>The cover's path on the game server (<c>/game-media/…</c>); empty = none.</summary>
+    public string CoverUrl { get; set; } = string.Empty;
+    /// <summary>The wide header strip's path; empty = none (the page uses the cover).</summary>
+    public string HeaderUrl { get; set; } = string.Empty;
+    [MemoryPackAllowSerialize]
+    public List<string> Screenshots { get; set; } = new();
 }
 
 /// <summary>

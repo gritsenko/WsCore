@@ -235,6 +235,11 @@ public class GameServerOptions
     public int MaxGameTags { get; set; } = 10;
     public int MaxReleaseNotesLength { get; set; } = 4000;
 
+    /// <summary>Largest cover / header / screenshot (the browser scales pictures down before upload).</summary>
+    public int GameMaxMediaMb { get; set; } = 8;
+
+    public int MaxGameScreenshots { get; set; } = 12;
+
     // ---- games analytics ----------------------------------------------------------------
 
     /// <summary>A play session counts as a play (the number on the cards) after this much attention time.</summary>

@@ -188,6 +188,10 @@ export interface PortalGame {
   updatedMs: number;
   /** Plays so far (sessions past the threshold; the game's own people excluded). */
   plays: number;
+  /** Absolute picture URLs ('' = none). */
+  coverUrl: string;
+  headerUrl: string;
+  screenshots: string[];
 }
 
 /** One of our API tokens (the token itself is never shown again after creation). */

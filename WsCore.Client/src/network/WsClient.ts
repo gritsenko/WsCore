@@ -346,6 +346,12 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
               createdMs: g.createdMs,
               updatedMs: g.updatedMs,
               plays: g.plays,
+              coverUrl: g.coverUrl ? (this.serverPathUrl(g.coverUrl) ?? '') : '',
+              headerUrl: g.headerUrl ? (this.serverPathUrl(g.headerUrl) ?? '') : '',
+              screenshots: (g.screenshots ?? []).flatMap(p => {
+                const url = p ? this.serverPathUrl(p) : null;
+                return url ? [url] : [];
+              }),
             },
           ]
         : []

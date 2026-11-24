@@ -1,6 +1,7 @@
 using System.Text.RegularExpressions;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.StaticFiles;
+using Microsoft.Extensions.FileProviders;
 using WsServer.Persistence;
 using WsServer.Sessions;
 
@@ -164,7 +165,34 @@ public static class GamesHttp
 
     public sealed record GameDto(string Id, string Slug, string Title, string Tagline, string Description,
         IReadOnlyList<string> Tags, string Visibility, string RoomId, string PageUrl, string? PlayUrl,
-        string CreatedAt, string UpdatedAt, IReadOnlyList<ReleaseDto> Releases);
+        string CreatedAt, string UpdatedAt, IReadOnlyList<ReleaseDto> Releases,
+        MediaDto? Cover, MediaDto? Header, IReadOnlyList<MediaDto> Screenshots);
+
+    /// <summary>
+    /// The game page with link-preview tags: <c>GET /games/{slug}</c> answers the client's
+    /// <c>index.html</c> with its title, description, canonical, Open Graph and Twitter tags
+    /// set for the game (crawlers run no JavaScript). A draft or an unknown slug gets the
+    /// page as it is — nothing about a draft leaks.
+    /// </summary>
+    public static IEndpointRouteBuilder MapGamePages(this IEndpointRouteBuilder endpoints, IFileProvider webRoot)
+    {
+        endpoints.MapGet("/games/{slug}", (string slug, HttpContext http) =>
+        {
+            var index = webRoot.GetFileInfo("index.html");
+            if (!index.Exists)
+                return Results.NotFound();
+            string html;
+            using (var reader = new StreamReader(index.CreateReadStream()))
+                html = reader.ReadToEnd();
+            var catalog = http.RequestServices.GetRequiredService<GameCatalog>();
+            var game = catalog.Find(slug);
+            if (game is { Game.IsPublic: true })
+                html = GamePage.Render(html, catalog, game);
+            http.Response.Headers.CacheControl = "no-cache";
+            return Results.Content(html, "text/html; charset=utf-8");
+        });
+        return endpoints;
+    }
 
     /// <summary>Maps the <c>/api/…</c> endpoints of the games portal.</summary>
     public static IEndpointRouteBuilder MapGamesApi(this IEndpointRouteBuilder endpoints)
@@ -218,6 +246,25 @@ public static class GamesHttp
 
         endpoints.MapPut("/api/games/{idOrSlug}/build", UploadBuild);
 
+        // Pictures: a cover / header (replaces) or a screenshot (appended); the screenshots as
+        // a whole ordered list (ids left out are removed); one picture removed.
+        endpoints.MapPut("/api/games/{idOrSlug}/media", UploadMedia);
+        endpoints.MapPut("/api/games/{idOrSlug}/screenshots", (string idOrSlug, ScreenshotsBody body, HttpContext http) =>
+            Run(http, optionalAuth: false, (catalog, user) =>
+            {
+                var (game, removed) = catalog.SetScreenshots(user!, idOrSlug, body.Ids ?? []);
+                DeleteFiles(catalog, removed);
+                return ToDto(catalog, game);
+            }));
+        endpoints.MapDelete("/api/games/{idOrSlug}/media/{mediaId}", (string idOrSlug, string mediaId, HttpContext http) =>
+            Run(http, optionalAuth: false, (catalog, user) =>
+            {
+                var (game, removed) = catalog.RemoveMedia(user!, idOrSlug, mediaId);
+                DeleteFiles(catalog, [removed]);
+                return ToDto(catalog, game);
+            }));
+        endpoints.MapGet("/game-media/{gameId}/{file}", ServeMedia);
+
         // Leaderboards: every board with its top rows (public games: anyone); settings,
         // reset and delete for the game's owner and server admins.
         endpoints.MapGet("/api/games/{idOrSlug}/leaderboards", (string idOrSlug, int? top, HttpContext http) =>
@@ -251,6 +298,97 @@ public static class GamesHttp
         return endpoints;
     }
 
+    public sealed record ScreenshotsBody(List<string>? Ids);
+
+    public sealed record MediaDto(string Id, string Kind, string Url, int Width, int Height);
+
+    private static void DeleteFiles(GameCatalog catalog, IEnumerable<StoredGameMedia> media)
+    {
+        foreach (var m in media)
+            TryDelete(catalog.MediaFile(m));
+    }
+
+    /// <summary>PUT /api/games/{idOrSlug}/media?kind=cover|header|screenshot — the picture as the body.</summary>
+    private static async Task<IResult> UploadMedia(string idOrSlug, HttpContext http)
+    {
+        var services = http.RequestServices;
+        var options = services.GetRequiredService<GameServerOptions>();
+        var server = services.GetRequiredService<GameServer>();
+        var catalog = services.GetRequiredService<GameCatalog>();
+        var users = services.GetRequiredService<UserDirectory>();
+        if (await Authenticate(http) is not { } userId)
+            return Error(401, "unauthorized", "An API token is required (Authorization: Bearer tox_…)");
+
+        var kind = http.Request.Query["kind"].ToString();
+        long maxBytes = (long)options.GameMaxMediaMb * 1024 * 1024;
+        if (http.Request.ContentLength > maxBytes)
+            return Error(413, "too_large", $"A picture may be at most {options.GameMaxMediaMb} MB");
+        using var body = new MemoryStream();
+        var buffer = new byte[81920];
+        int read;
+        while ((read = await http.Request.Body.ReadAsync(buffer, http.RequestAborted)) > 0)
+        {
+            if (body.Length + read > maxBytes)
+                return Error(413, "too_large", $"A picture may be at most {options.GameMaxMediaMb} MB");
+            body.Write(buffer, 0, read);
+        }
+        var bytes = body.ToArray();
+        if (ImageInfo.Read(bytes) is not { } image)
+            return Error(400, "bad_image", "A picture must be a PNG, JPEG, WebP or GIF");
+        var (contentType, width, height) = image;
+
+        // The file goes in first (named by a fresh id), then the catalog takes it.
+        var media = new StoredGameMedia(GameCatalog.NewMediaId(), string.Empty, kind, contentType,
+            DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()) { Width = width, Height = height, Bytes = bytes.Length };
+        var game = catalog.Find(idOrSlug);
+        if (game == null)
+            return Error(404, "not_found", "No such game");
+        var file = catalog.MediaFile(media with { GameId = game.Id });
+        Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+        await File.WriteAllBytesAsync(file, bytes, http.RequestAborted);
+        try
+        {
+            var (view, replaced) = await server.RunOnTickAsync(() =>
+            {
+                var user = users.FindById(userId)
+                    ?? throw new GameRequestException(401, "unauthorized", "The token's user no longer exists");
+                return catalog.AddMedia(user, game.Id, media);
+            });
+            DeleteFiles(catalog, replaced);
+            var added = view.Media.First(m => m.Id == media.Id);
+            return Results.Json(new
+            {
+                game = ToDto(catalog, view),
+                media = new MediaDto(added.Id, added.Kind, catalog.PublicUrl(GameCatalog.MediaPath(added)), width, height),
+                warnings = contentType is "image/png" or "image/jpeg" || kind != GameCatalog.CoverKind
+                    ? Array.Empty<string>()
+                    : ["Link previews show a JPEG or PNG cover most reliably"],
+            }, statusCode: StatusCodes.Status201Created);
+        }
+        catch (GameRequestException e)
+        {
+            TryDelete(file);
+            return Error(e.Status, e.Code, e.Message);
+        }
+    }
+
+    /// <summary>GET /game-media/{gameId}/{id}.{ext} — a picture; immutable (an id is never reused).</summary>
+    private static IResult ServeMedia(string gameId, string file, HttpContext http)
+    {
+        var catalog = http.RequestServices.GetRequiredService<GameCatalog>();
+        var game = catalog.Find(gameId);
+        var id = Path.GetFileNameWithoutExtension(file);
+        var media = game?.Id == gameId ? game.Media.FirstOrDefault(m => m.Id == id) : null;
+        if (media == null || GameCatalog.MediaPath(media) != $"/game-media/{gameId}/{file}")
+            return Results.NotFound();
+        var path = catalog.MediaFile(media);
+        if (!File.Exists(path))
+            return Results.NotFound();
+        http.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
+        http.Response.Headers.XContentTypeOptions = "nosniff";
+        return Results.File(path, media.ContentType);
+    }
+
     public sealed record BoardBody(string? Title, bool? InvertSortOrder, string? ScoreType, int? DecimalOffset);
 
     private static GameView BoardOwner(GameCatalog catalog, UserAccount? user, string idOrSlug)
@@ -274,7 +412,7 @@ public static class GamesHttp
         Func<GameCatalog, UserAccount?, T> action, int status = StatusCodes.Status200OK)
     {
         var services = http.RequestServices;
-        var userId = Authenticate(http);
+        var userId = await Authenticate(http);
         if (userId == null && !optionalAuth)
             return Error(401, "unauthorized", "An API token is required (Authorization: Bearer tox_…)");
         var server = services.GetRequiredService<GameServer>();
@@ -297,13 +435,23 @@ public static class GamesHttp
         }
     }
 
-    private static uint? Authenticate(HttpContext http)
+    /// <summary>
+    /// Who the request acts as: an API token (<c>Authorization: Bearer tox_…</c> — an agent,
+    /// a script) or the browser's own user key (<c>X-User-Key</c> — the game editor in the
+    /// page; the same secret the socket identifies with, over the same TLS).
+    /// </summary>
+    private static async Task<uint?> Authenticate(HttpContext http)
     {
         var header = http.Request.Headers.Authorization.ToString();
         const string bearer = "Bearer ";
-        if (!header.StartsWith(bearer, StringComparison.OrdinalIgnoreCase))
+        if (header.StartsWith(bearer, StringComparison.OrdinalIgnoreCase))
+            return http.RequestServices.GetRequiredService<ApiTokens>().Authenticate(header[bearer.Length..].Trim());
+        var key = http.Request.Headers["X-User-Key"].ToString();
+        if (key.Length == 0 || !UserDirectory.IsValidKey(key))
             return null;
-        return http.RequestServices.GetRequiredService<ApiTokens>().Authenticate(header[bearer.Length..].Trim());
+        var users = http.RequestServices.GetRequiredService<UserDirectory>();
+        return await http.RequestServices.GetRequiredService<GameServer>()
+            .RunOnTickAsync(() => users.FindByKeyHash(UserDirectory.HashKey(key))?.Id);
     }
 
     private static IResult Error(int status, string code, string message)
@@ -324,7 +472,7 @@ public static class GamesHttp
         var users = services.GetRequiredService<UserDirectory>();
         var logger = services.GetRequiredService<ILoggerFactory>().CreateLogger("WsServer.Games.Upload");
 
-        if (Authenticate(http) is not { } userId)
+        if (await Authenticate(http) is not { } userId)
             return Error(401, "unauthorized", "An API token is required (Authorization: Bearer tox_…)");
 
         var fileName = Path.GetFileName(http.Request.Query["filename"].ToString());
@@ -432,7 +580,7 @@ public static class GamesHttp
     private static async Task<IResult> Stats(HttpContext http, string? idOrSlug)
     {
         var services = http.RequestServices;
-        if (Authenticate(http) is not { } userId)
+        if (await Authenticate(http) is not { } userId)
             return Error(401, "unauthorized", "An API token is required (Authorization: Bearer tox_…)");
         var days = int.TryParse(http.Request.Query["days"], out var d) ? Math.Clamp(d, 1, 3650) : 30;
         var server = services.GetRequiredService<GameServer>();
@@ -504,8 +652,14 @@ public static class GamesHttp
             g.IsPublic ? "public" : "team", view.RoomId, catalog.PageUrl(g),
             view.Current is { } current ? catalog.PlayUrl(g.Id, current) : null,
             Iso(g.CreatedMs), Iso(g.UpdatedMs),
-            view.Releases.Reverse().Select(r => ToReleaseDto(catalog, view, r)).ToList());
+            view.Releases.Reverse().Select(r => ToReleaseDto(catalog, view, r)).ToList(),
+            view.Cover is { } cover ? Media(catalog, cover) : null,
+            view.Header is { } header ? Media(catalog, header) : null,
+            view.Screenshots.Select(m => Media(catalog, m)).ToList());
     }
+
+    private static MediaDto Media(GameCatalog catalog, StoredGameMedia m)
+        => new(m.Id, m.Kind, catalog.PublicUrl(GameCatalog.MediaPath(m)), m.Width, m.Height);
 
     private static ReleaseDto ToReleaseDto(GameCatalog catalog, GameView view, StoredGameRelease r)
         => new(r.No, r.Version, r.Notes, r.AuthorUserId, Iso(r.CreatedMs), r.EntryPath, r.Files, r.Bytes,

@@ -14,6 +14,12 @@ namespace WsServer.Games;
 /// <summary>A game with its releases (oldest first), as the catalog holds it. Immutable.</summary>
 public sealed record GameView(StoredGame Game, ImmutableList<StoredGameRelease> Releases)
 {
+    /// <summary>Cover, header and screenshots (screenshots in their order).</summary>
+    public ImmutableList<StoredGameMedia> Media { get; init; } = ImmutableList<StoredGameMedia>.Empty;
+    public StoredGameMedia? Cover => Media.FirstOrDefault(m => m.Kind == GameCatalog.CoverKind);
+    public StoredGameMedia? Header => Media.FirstOrDefault(m => m.Kind == GameCatalog.HeaderKind);
+    public IEnumerable<StoredGameMedia> Screenshots
+        => Media.Where(m => m.Kind == GameCatalog.ScreenshotKind).OrderBy(m => m.Order);
     public string Id => Game.Id;
     public string RoomId => GameCatalog.RoomIdOf(Game.Id);
     public StoredGameRelease? Current => Releases.Count > 0 ? Releases[^1] : null;
@@ -46,6 +52,9 @@ public sealed record GameFields(string? Title = null, string? Tagline = null, st
 public sealed class GameCatalog
 {
     public const string RoomPrefix = "g-";
+    public const string CoverKind = "cover";
+    public const string HeaderKind = "header";
+    public const string ScreenshotKind = "screenshot";
 
     private static readonly Regex SlugPattern = new("^[a-z0-9][a-z0-9-]{1,39}$", RegexOptions.CultureInvariant);
 
@@ -77,8 +86,12 @@ public sealed class GameCatalog
 
         var releases = snapshot.GameReleases.GroupBy(r => r.GameId)
             .ToDictionary(g => g.Key, g => g.OrderBy(r => r.No).ToImmutableList());
+        var media = snapshot.GameMedia.GroupBy(m => m.GameId).ToDictionary(g => g.Key, g => g.ToImmutableList());
         _games = snapshot.Games.ToImmutableDictionary(g => g.Id,
-            g => new GameView(g, releases.GetValueOrDefault(g.Id) ?? ImmutableList<StoredGameRelease>.Empty));
+            g => new GameView(g, releases.GetValueOrDefault(g.Id) ?? ImmutableList<StoredGameRelease>.Empty)
+            {
+                Media = media.GetValueOrDefault(g.Id) ?? ImmutableList<StoredGameMedia>.Empty,
+            });
     }
 
     /// <summary>The portal is configured (a games origin to serve builds from).</summary>
@@ -106,9 +119,23 @@ public sealed class GameCatalog
     public string ReleaseDirectory(string gameId, uint releaseNo)
         => Path.Combine(Path.GetFullPath(_options.GamesDataPath), gameId, "r" + releaseNo);
 
+    public string MediaDirectory(string gameId) => Path.Combine(Path.GetFullPath(_options.GamesDataPath), gameId, "media");
+
+    public string MediaFile(StoredGameMedia media)
+        => Path.Combine(MediaDirectory(media.GameId), media.Id + ImageInfo.ExtensionOf(media.ContentType));
+
+    /// <summary>A picture's path on the game server (immutable: a media id is never reused).</summary>
+    public static string MediaPath(StoredGameMedia media)
+        => $"/game-media/{media.GameId}/{media.Id}{ImageInfo.ExtensionOf(media.ContentType)}";
+
+    public static string NewMediaId() => Convert.ToHexStringLower(RandomNumberGenerator.GetBytes(10));
+
     /// <summary>The entry URL of a release on the games origin.</summary>
     public string PlayUrl(string gameId, StoredGameRelease release)
         => $"{_options.GamesOrigin.TrimEnd('/')}/g/{gameId}/r{release.No}/{EscapePath(release.EntryPath)}";
+
+    /// <summary>A path on the main origin as an absolute URL (the first portal origin; relative without one).</summary>
+    public string PublicUrl(string path) => $"{(_options.PortalOrigins.FirstOrDefault() ?? string.Empty).TrimEnd('/')}{path}";
 
     /// <summary>The game's page in the TOX client (the first portal origin).</summary>
     public string PageUrl(StoredGame game)
@@ -196,6 +223,73 @@ public sealed class GameCatalog
         _logger.LogInformation("Game {GameId} is now {State}", view.Id, isPublic ? "public" : "a draft");
         BroadcastCatalog();
         return view;
+    }
+
+    /// <summary>
+    /// Attaches a picture whose file is already in place. A cover or header replaces the
+    /// previous one; screenshots are appended (≤ MaxGameScreenshots). Returns what it
+    /// replaced, for the caller to delete off the tick thread.
+    /// </summary>
+    public (GameView Game, IReadOnlyList<StoredGameMedia> Replaced) AddMedia(UserAccount by, string idOrSlug, StoredGameMedia media)
+    {
+        var view = Editable(by, idOrSlug);
+        if (media.Kind is not (CoverKind or HeaderKind or ScreenshotKind))
+            throw new GameRequestException(400, "bad_kind", "kind is cover, header or screenshot");
+        var replaced = media.Kind == ScreenshotKind
+            ? []
+            : view.Media.Where(m => m.Kind == media.Kind).ToList();
+        if (media.Kind == ScreenshotKind && view.Screenshots.Count() >= _options.MaxGameScreenshots)
+            throw new GameRequestException(409, "too_many", $"A game has at most {_options.MaxGameScreenshots} screenshots");
+        var order = media.Kind == ScreenshotKind ? view.Screenshots.Select(m => m.Order).DefaultIfEmpty(0).Max() + 1 : 0;
+        media = media with { GameId = view.Id, Order = order };
+        foreach (var old in replaced)
+            _storage.DeleteGameMedia(old.Id);
+        _storage.SaveGameMedia(media);
+        view = Save(view with
+        {
+            Game = view.Game with { UpdatedMs = NowMs() },
+            Media = view.Media.RemoveAll(m => replaced.Contains(m)).Add(media),
+        });
+        BroadcastCatalog();
+        return (view, replaced);
+    }
+
+    /// <summary>
+    /// The screenshots as they should end up, in order (the jam's <c>attach_media</c>): ids
+    /// left out are removed. Returns the removed ones (files to delete).
+    /// </summary>
+    public (GameView Game, IReadOnlyList<StoredGameMedia> Removed) SetScreenshots(UserAccount by, string idOrSlug,
+        IReadOnlyList<string> ids)
+    {
+        var view = Editable(by, idOrSlug);
+        var current = view.Screenshots.ToDictionary(m => m.Id);
+        if (ids.Any(id => !current.ContainsKey(id)) || ids.Distinct().Count() != ids.Count)
+            throw new GameRequestException(400, "bad_ids", "Every id must be one of the game's screenshots, once");
+        var kept = ids.Select((id, i) => current[id] with { Order = i + 1 }).ToList();
+        var removed = current.Values.Where(m => !ids.Contains(m.Id)).ToList();
+        foreach (var m in removed)
+            _storage.DeleteGameMedia(m.Id);
+        foreach (var m in kept)
+            _storage.SaveGameMedia(m);
+        view = Save(view with
+        {
+            Game = view.Game with { UpdatedMs = NowMs() },
+            Media = view.Media.RemoveAll(m => m.Kind == ScreenshotKind).AddRange(kept),
+        });
+        BroadcastCatalog();
+        return (view, removed);
+    }
+
+    /// <summary>Removes one picture (a cover, a header or a screenshot). Returns it (its file to delete).</summary>
+    public (GameView Game, StoredGameMedia Removed) RemoveMedia(UserAccount by, string idOrSlug, string mediaId)
+    {
+        var view = Editable(by, idOrSlug);
+        var media = view.Media.FirstOrDefault(m => m.Id == mediaId)
+            ?? throw new GameRequestException(404, "no_media", "No such picture");
+        _storage.DeleteGameMedia(media.Id);
+        view = Save(view with { Game = view.Game with { UpdatedMs = NowMs() }, Media = view.Media.Remove(media) });
+        BroadcastCatalog();
+        return (view, media);
     }
 
     /// <summary>
@@ -298,6 +392,9 @@ public sealed class GameCatalog
             CreatedMs = game.CreatedMs,
             UpdatedMs = game.UpdatedMs,
             Plays = PlaysOf(game.Id),
+            CoverUrl = view.Cover is { } cover ? MediaPath(cover) : string.Empty,
+            HeaderUrl = view.Header is { } header ? MediaPath(header) : string.Empty,
+            Screenshots = view.Screenshots.Select(MediaPath).ToList(),
         };
     }
 

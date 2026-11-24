@@ -90,6 +90,13 @@ public static class GameServerHostingExtensions
         services.AddSingleton<IGameServer>(sp => sp.GetRequiredService<GameServer>());
         services.AddHostedService(sp => sp.GetRequiredService<GameServer>());
 
+        // The TOX client may call /api/… from its own origin (in dev the page is :5001, the
+        // server :5000): the portal origins only, no cookies involved (auth is a header).
+        services.AddCors();
+        services.AddOptions<Microsoft.AspNetCore.Cors.Infrastructure.CorsOptions>()
+            .Configure<GameServerOptions>((cors, game) => cors.AddDefaultPolicy(policy =>
+                policy.WithOrigins(game.PortalOrigins).AllowAnyHeader().AllowAnyMethod()));
+
         services.AddTransient<WebSocketHandlerFactory>();
         return services;
     }
@@ -102,6 +109,7 @@ public static class GameServerHostingExtensions
     {
         var options = app.Services.GetRequiredService<GameServerOptions>();
         app.UseWebSockets(CreateWebSocketOptions(options));
+        app.UseCors();
         app.Map(wsPath, WebSocketHandler.HandleWebSocket);
         app.MapGameHealth();
         // Dashboard JSON: connections, game-world players, room occupancy, process stats.

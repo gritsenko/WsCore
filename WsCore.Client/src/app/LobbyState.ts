@@ -40,6 +40,16 @@ import {
 } from '../portal/Leaderboard';
 import type { BoardsView } from '../portal/PortalUI';
 import type { BoardPanel } from '../portal/Leaderboard';
+import GameEditor from '../portal/GameEditor';
+import GamesApi from '../portal/GamesApi';
+import { scaleDown } from '../utils/PictureScale';
+
+/** How large each kind of picture is uploaded (the browser scales it down first). */
+const PICTURE_LIMITS: Record<'cover' | 'header' | 'screenshot', [number, number]> = {
+  cover: [1200, 1200],
+  header: [2400, 600],
+  screenshot: [1920, 1920],
+};
 
 const PENDING_SCORES_KEY = 'wscore.pendingScores';
 
@@ -208,6 +218,9 @@ export default class LobbyState {
   private pendingView: { slug: string; source: ViewSource } | null = null;
   /** The leaderboards of the game whose page is shown (null view = loading). */
   private boards: { gameId: string; list: BoardPanel[] | null } | null = null;
+  /** The game editor (owner / admins), while open. */
+  private editor: GameEditor | null = null;
+  private editorGameId: string | null = null;
   /** The "enter to get on the board" notice was shown in this game session. */
   private scoreNoticeShown = false;
   /** How each game's page was last reached — the launch is attributed to it. */
@@ -375,6 +388,7 @@ export default class LobbyState {
     for (const off of this.unsubs) off();
     this.unsubs = [];
     this.stopGame();
+    this.closeEditor();
     this.closeProfile();
     this.closeChannelDialog();
     this.closeCreateChannel();
@@ -920,6 +934,7 @@ export default class LobbyState {
       onBoardConfigure: (board, settings) => this.configureBoard('configure', board, settings),
       onBoardReset: board => this.configureBoard('reset', board),
       onBoardDelete: board => this.configureBoard('delete', board),
+      onEdit: game => this.openEditor(game),
     });
     this.portalDrawn = '';
     this.renderPortal();
@@ -953,7 +968,64 @@ export default class LobbyState {
     return this.client.isAnonymous ? loadOrCreateVisitorId() : '';
   }
 
+  // ---- the game editor ----
+
+  private openEditor(game: PortalGame): void {
+    this.closeEditor();
+    const api = new GamesApi({
+      url: p => this.client.serverPathUrl(p),
+      userKey: () => this.client.userKey,
+    });
+    const id = game.id;
+    this.editorGameId = id;
+    this.editor = new GameEditor(game, {
+      onSave: async fields => {
+        await api.updateGame(id, fields);
+        // A new address: follow it.
+        const latest = this.client.games.find(g => g.id === id);
+        if (
+          latest &&
+          fields.slug &&
+          fields.slug !== latest.slug &&
+          this.portalRoute?.kind === 'game'
+        )
+          this.nav.replace(pathOf({ kind: 'game', slug: fields.slug }));
+      },
+      onPublic: async isPublic => {
+        await api.setPublic(id, isPublic);
+      },
+      onUpload: async (kind, file) => {
+        const [w, h] = PICTURE_LIMITS[kind];
+        await api.uploadMedia(id, kind, await scaleDown(file, w, h));
+      },
+      onRemoveMedia: async mediaId => {
+        await api.deleteMedia(id, mediaId);
+      },
+      onReorder: async ids => {
+        await api.setScreenshots(id, ids);
+      },
+      onClose: () => this.closeEditor(),
+    });
+  }
+
+  private closeEditor(): void {
+    this.editor?.destroy();
+    this.editor = null;
+    this.editorGameId = null;
+  }
+
   private handleGames(): void {
+    if (this.editor) {
+      const game = this.client.games.find(g => g.id === this.editorGameId);
+      if (game) this.editor.update(game);
+      else this.closeEditor(); // no longer ours to see
+    }
+    // The page follows a renamed address.
+    if (this.portalRoute?.kind === 'game' && this.editorGameId) {
+      const game = this.client.games.find(g => g.id === this.editorGameId);
+      if (game && game.slug !== this.portalRoute.slug)
+        this.portalRoute = { kind: 'game', slug: game.slug };
+    }
     if (this.pendingView) this.reportView(this.pendingView.slug, this.pendingView.source);
     this.renderGamesNav();
     this.renderPortal();
@@ -995,15 +1067,14 @@ export default class LobbyState {
     // Whether we may set the boards up is decided now: the page may load before we are identified.
     const list = game && this.boards?.gameId === game.id ? this.boards.list : null;
     const me = this.client.subject;
-    const boards: BoardsView | null =
-      game && list
-        ? { boards: list, canEdit: !!me && (me.isAdmin || me.userId === game.ownerUserId) }
-        : null;
-    const drawn = JSON.stringify([route, this.client.gamesLoaded, cards, boards]);
+    const editable = !!game && !!me && (me.isAdmin || me.userId === game.ownerUserId);
+    const boards: BoardsView | null = game && list ? { boards: list, canEdit: editable } : null;
+    const drawn = JSON.stringify([route, this.client.gamesLoaded, cards, boards, editable]);
     if (drawn === this.portalDrawn) return;
     this.portalDrawn = drawn;
     if (route.kind === 'catalog') portal.showCatalog(cards);
-    else if (cards.length || this.client.gamesLoaded) portal.showGame(cards[0] ?? null, boards);
+    else if (cards.length || this.client.gamesLoaded)
+      portal.showGame(cards[0] ?? null, boards, editable);
   }
 
   // ---- leaderboards ----

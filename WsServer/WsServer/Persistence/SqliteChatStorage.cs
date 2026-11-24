@@ -55,6 +55,8 @@ public sealed class SqliteChatStorage : IChatStorage
     private sealed record DeleteApiTokenOp(string Hash) : Op;
     private sealed record SaveGameCountersOp(StoredGameCounters Counters) : Op;
     private sealed record SaveLeaderboardOp(StoredLeaderboard Board) : Op;
+    private sealed record SaveGameMediaOp(StoredGameMedia Media) : Op;
+    private sealed record DeleteGameMediaOp(string MediaId) : Op;
     private sealed record DeleteLeaderboardOp(long BoardId) : Op;
     private sealed record SaveLeaderboardEntryOp(StoredLeaderboardEntry Entry) : Op;
     private sealed record DeleteLeaderboardEntriesOp(long BoardId) : Op;
@@ -165,7 +167,8 @@ public sealed class SqliteChatStorage : IChatStorage
     //   7 — games analytics: games.*_total counters, game_hits, game_play_sessions,
     //       game_play_events, game_daily.
     //   8 — leaderboards: leaderboards, leaderboard_entries, users.leaderboard_hidden.
-    private const int SchemaVersion = 8;
+    //   9 — game media: game_media (covers, headers, screenshots; the files are on disk).
+    private const int SchemaVersion = 9;
 
     private void MigrateUsers()
     {
@@ -346,6 +349,23 @@ public sealed class SqliteChatStorage : IChatStorage
                     updated_ms  INTEGER NOT NULL,
                     PRIMARY KEY(board_id, user_id)
                 ) WITHOUT ROWID;
+                """);
+        }
+        if (version < 9)
+        {
+            Execute("""
+                CREATE TABLE IF NOT EXISTS game_media(
+                    id           TEXT    PRIMARY KEY,
+                    game_id      TEXT    NOT NULL,
+                    kind         TEXT    NOT NULL,
+                    ord          INTEGER NOT NULL DEFAULT 0,
+                    content_type TEXT    NOT NULL,
+                    width        INTEGER NOT NULL DEFAULT 0,
+                    height       INTEGER NOT NULL DEFAULT 0,
+                    bytes        INTEGER NOT NULL DEFAULT 0,
+                    created_ms   INTEGER NOT NULL
+                ) WITHOUT ROWID;
+                CREATE INDEX IF NOT EXISTS ix_game_media_game ON game_media(game_id);
                 """);
         }
         Execute($"PRAGMA user_version = {SchemaVersion};");
@@ -566,6 +586,13 @@ public sealed class SqliteChatStorage : IChatStorage
                 UpdatedMs = r.GetInt64(7),
             });
 
+        var gameMedia = Select("""
+            SELECT id, game_id, kind, ord, content_type, width, height, bytes, created_ms FROM game_media;
+            """, r => new StoredGameMedia(r.GetString(0), r.GetString(1), r.GetString(2), r.GetString(4), r.GetInt64(8))
+            {
+                Order = (int)r.GetInt64(3), Width = (int)r.GetInt64(5), Height = (int)r.GetInt64(6), Bytes = r.GetInt64(7),
+            });
+
         var apiTokens = new List<StoredApiToken>();
         using (var cmd = _db.CreateCommand())
         {
@@ -608,6 +635,7 @@ public sealed class SqliteChatStorage : IChatStorage
             GameCounters = gameCounters,
             Leaderboards = leaderboards,
             LeaderboardEntries = leaderboardEntries,
+            GameMedia = gameMedia,
         };
     }
 
@@ -820,6 +848,8 @@ public sealed class SqliteChatStorage : IChatStorage
     public void DeleteApiToken(string hash) => EnqueueWrite(new DeleteApiTokenOp(hash));
     public void SaveGameCounters(StoredGameCounters counters) => EnqueueWrite(new SaveGameCountersOp(counters));
     public void SaveLeaderboard(StoredLeaderboard board) => EnqueueWrite(new SaveLeaderboardOp(board));
+    public void SaveGameMedia(StoredGameMedia media) => EnqueueWrite(new SaveGameMediaOp(media));
+    public void DeleteGameMedia(string mediaId) => EnqueueWrite(new DeleteGameMediaOp(mediaId));
     public void DeleteLeaderboard(long boardId) => EnqueueWrite(new DeleteLeaderboardOp(boardId));
     public void SaveLeaderboardEntry(StoredLeaderboardEntry entry) => EnqueueWrite(new SaveLeaderboardEntryOp(entry));
     public void DeleteLeaderboardEntries(long boardId) => EnqueueWrite(new DeleteLeaderboardEntriesOp(boardId));
@@ -1020,6 +1050,17 @@ public sealed class SqliteChatStorage : IChatStorage
                     case DeleteApiTokenOp(var hash):
                         _deleteApiToken.Parameters[0].Value = hash;
                         _deleteApiToken.ExecuteNonQuery();
+                        break;
+                    case SaveGameMediaOp(var gm):
+                        Exec("""
+                            INSERT OR REPLACE INTO game_media(id, game_id, kind, ord, content_type, width, height, bytes, created_ms)
+                            VALUES($id, $g, $k, $o, $t, $w, $h, $b, $c);
+                            """, ("$id", gm.Id), ("$g", gm.GameId), ("$k", gm.Kind), ("$o", (long)gm.Order),
+                            ("$t", gm.ContentType), ("$w", (long)gm.Width), ("$h", (long)gm.Height), ("$b", gm.Bytes),
+                            ("$c", gm.CreatedMs));
+                        break;
+                    case DeleteGameMediaOp(var mediaId):
+                        Exec("DELETE FROM game_media WHERE id = $id;", ("$id", mediaId));
                         break;
                     case SaveLeaderboardOp(var b):
                         Exec("""

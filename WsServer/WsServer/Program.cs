@@ -50,6 +50,10 @@ app.UseStaticFiles(new StaticFileOptions { OnPrepareResponse = StaticFileCaching
 // the tick loop stops ticking) and the /info dashboard JSON.
 app.UseGameServer();
 
+// A game's page with its link-preview tags (crawlers run no JavaScript); the catalog and
+// anything else under /games load the app shell as it is.
+app.MapGamePages(app.Environment.WebRootFileProvider);
+
 // Client-side routes of the games portal (/games, /games/{slug}) load the app shell.
 app.MapFallbackToFile("/games/{**path}", "index.html", new StaticFileOptions { OnPrepareResponse = StaticFileCaching.Apply });
 app.MapFallbackToFile("/games", "index.html", new StaticFileOptions { OnPrepareResponse = StaticFileCaching.Apply });

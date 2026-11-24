@@ -38,6 +38,8 @@ export interface PortalCallbacks {
   onBoardConfigure?(board: string, settings: BoardSettings): void;
   onBoardReset?(board: string): void;
   onBoardDelete?(board: string): void;
+  /** "Edit" on a game's page (its owner, server admins). */
+  onEdit?(game: PortalGame): void;
 }
 
 /**
@@ -78,8 +80,14 @@ export default class PortalUI {
   }
 
   /** A game's page; `null` = no such game (or not visible to us). */
-  showGame(card: PortalCard | null, boards: BoardsView | null = null): void {
+  showGame(card: PortalCard | null, boards: BoardsView | null = null, editable = false): void {
     const page = div('portal-page');
+    // The wide header strip (or nothing: the hero's cover carries the page).
+    if (card?.game.headerUrl) {
+      const header = div('portal-header');
+      header.style.backgroundImage = `url("${card.game.headerUrl.replace(/"/g, '%22')}")`;
+      page.appendChild(header);
+    }
     const back = el('button', 'portal-back', '← Все игры') as HTMLButtonElement;
     back.type = 'button';
     back.onclick = () => this.callbacks.onBack();
@@ -122,6 +130,12 @@ export default class PortalUI {
       );
     };
     actions.appendChild(share);
+    if (editable) {
+      const edit = el('button', 'portal-share portal-edit', 'Редактировать') as HTMLButtonElement;
+      edit.type = 'button';
+      edit.onclick = () => this.callbacks.onEdit?.(game);
+      actions.appendChild(edit);
+    }
     info.appendChild(actions);
 
     const meta = div('portal-meta');
@@ -136,6 +150,7 @@ export default class PortalUI {
     hero.appendChild(info);
     page.appendChild(hero);
 
+    if (game.screenshots.length) page.appendChild(gallery(game));
     if (boards && boards.boards.length) page.appendChild(this.buildBoards(boards));
     if (game.description) {
       const description = div('portal-description');
@@ -265,9 +280,35 @@ export function plays(n: number): string {
   return `${n} ${word}`;
 }
 
-/** A cover until real covers exist: a colour from the game's id and its initial. */
+/** The screenshots, in their order; a click opens the full picture. */
+function gallery(game: PortalGame): HTMLDivElement {
+  const box = div('portal-gallery');
+  game.screenshots.forEach((url, i) => {
+    const a = el('a', 'portal-shot') as HTMLAnchorElement;
+    a.href = url;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    const img = document.createElement('img');
+    img.src = url;
+    img.alt = `${game.title} — скриншот ${i + 1}`;
+    img.loading = 'lazy';
+    a.appendChild(img);
+    box.appendChild(a);
+  });
+  return box;
+}
+
+/** The game's cover, or — without one — a colour from its id and its initial. */
 function cover(game: PortalGame, className: string): HTMLDivElement {
   const box = div(className);
+  if (game.coverUrl) {
+    const img = document.createElement('img');
+    img.src = game.coverUrl;
+    img.alt = game.title;
+    img.loading = 'lazy';
+    box.appendChild(img);
+    return box;
+  }
   let hash = 0;
   for (const ch of game.id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
   const hue = hash % 360;
