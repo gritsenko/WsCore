@@ -1,6 +1,7 @@
 import type { PortalGame } from '../network/ClientEvents';
 import { renderMarkdown } from './Markdown';
 import type { BoardPanel, BoardRow } from './Leaderboard';
+import MediaGallery, { mediaItems, type MediaState } from './MediaGallery';
 
 /** A board's settings as its editor reports them. */
 export interface BoardSettings {
@@ -50,6 +51,8 @@ export interface PortalCallbacks {
  */
 export default class PortalUI {
   readonly element: HTMLDivElement;
+  /** The game page's pictures: which one is shown, full screen or not — kept across re-draws. */
+  private media: { gameId: string } & MediaState = { gameId: '', index: 0, open: false };
 
   constructor(private readonly callbacks: PortalCallbacks) {
     this.element = div('portal');
@@ -59,6 +62,7 @@ export default class PortalUI {
     cards: PortalCard[],
     extra: { button?: HTMLElement; panel?: HTMLElement } = {}
   ): void {
+    this.media = { gameId: '', index: 0, open: false };
     const page = div('portal-page');
     const head = div('portal-head');
     const h = el('h1', 'portal-h1', 'Игры');
@@ -111,7 +115,7 @@ export default class PortalUI {
 
     const { game, playing } = card;
     const hero = div('portal-hero');
-    hero.appendChild(cover(game, 'portal-hero-cover'));
+    hero.appendChild(this.buildMedia(game));
     const info = div('portal-hero-info');
     const title = el('h1', 'portal-h1', game.title);
     info.appendChild(title);
@@ -171,7 +175,6 @@ export default class PortalUI {
     page.appendChild(hero);
 
     if (stats?.open && stats.panel) page.appendChild(stats.panel);
-    if (game.screenshots.length) page.appendChild(gallery(game));
     if (boards && boards.boards.length) page.appendChild(this.buildBoards(boards));
     if (game.description) {
       const description = div('portal-description');
@@ -179,6 +182,15 @@ export default class PortalUI {
       page.appendChild(description);
     }
     this.element.replaceChildren(page);
+  }
+
+  /** The cover alone, or the cover and the screenshots in a gallery that pages through them. */
+  private buildMedia(game: PortalGame): HTMLElement {
+    if (this.media.gameId !== game.id) this.media = { gameId: game.id, index: 0, open: false };
+    if (!game.screenshots.length) return cover(game, 'portal-hero-cover');
+    return new MediaGallery(mediaItems(game), this.media, state => {
+      this.media = { gameId: game.id, ...state };
+    }).element;
   }
 
   private buildBoards({ boards, canEdit }: BoardsView): HTMLElement {
@@ -299,24 +311,6 @@ export function plays(n: number): string {
   if (n >= 1_000_000) return `${compact(Math.round(n / 100_000) / 10)} млн партий`;
   if (n >= 1000) return `${compact(Math.round(n / 100) / 10)} тыс. партий`;
   return `${n} ${word}`;
-}
-
-/** The screenshots, in their order; a click opens the full picture. */
-function gallery(game: PortalGame): HTMLDivElement {
-  const box = div('portal-gallery');
-  game.screenshots.forEach((url, i) => {
-    const a = el('a', 'portal-shot') as HTMLAnchorElement;
-    a.href = url;
-    a.target = '_blank';
-    a.rel = 'noopener';
-    const img = document.createElement('img');
-    img.src = url;
-    img.alt = `${game.title} — скриншот ${i + 1}`;
-    img.loading = 'lazy';
-    a.appendChild(img);
-    box.appendChild(a);
-  });
-  return box;
 }
 
 /** The game's cover, or — without one — a colour from its id and its initial. */
