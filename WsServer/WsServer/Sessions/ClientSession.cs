@@ -37,6 +37,7 @@ public sealed class ClientSession(uint id)
 
     // Stopwatch timestamp before which further chat messages are dropped (audit §2).
     private long _chatAllowedAt;
+    private long _artAllowedAt;
 
     private long _accountAllowedAt;
     private long _moderationAllowedAt;
@@ -77,6 +78,16 @@ public sealed class ClientSession(uint id)
     }
 
     public static string DefaultName(uint id) => "Player " + id;
+
+    /// <summary>True (and starts a new cooldown) if an ASCII art may be sent now.</summary>
+    public bool TryConsumeArtCooldown(double cooldownSeconds)
+    {
+        var now = Stopwatch.GetTimestamp();
+        if (now < _artAllowedAt)
+            return false;
+        _artAllowedAt = now + (long)(cooldownSeconds * Stopwatch.Frequency);
+        return true;
+    }
 
     /// <summary>True (and starts a new cooldown) if a chat message may be sent now.</summary>
     public bool TryConsumeChatCooldown(double cooldownSeconds)

@@ -8,6 +8,8 @@ export interface ChatEntry {
   text: string;
   /** Unix ms. */
   sentAtMs: number;
+  /** An ASCII art from the catalog (`lobby/AsciiArt`) by id; absent / '' = a text message. */
+  artId?: string;
 }
 
 /** What happened to a room's log — tells the UI the cheapest way to catch up. */

@@ -26,6 +26,8 @@ public partial class ChatMessageEvent : IServerEvent
     public string Name = string.Empty;
     // Unix time in milliseconds (a double so the TS client reads a plain number).
     public double SentAtMs;
+    // An ASCII art by its catalog id (see ChatMessageRequest.ArtId); empty = a text message.
+    public string ArtId = string.Empty;
 
     [MemoryPackConstructor]
     public ChatMessageEvent() { }

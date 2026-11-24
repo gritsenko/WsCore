@@ -1,6 +1,8 @@
 import styles from './LobbyUI.css?inline';
 import portalStyles from '../portal/Portal.css?inline';
 import { linkify } from '../utils/Linkify';
+import ChatPicker from './ChatPicker';
+import { artById } from './AsciiArt';
 
 const svg = (body: string, size = 20): string =>
   `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" ` +
@@ -48,6 +50,9 @@ const ICONS = {
     18
   ),
   send: svg('<path d="M21 3 10.500 13.500M21 3l-6.500 18-4-7.500L3 9.500 21 3z"/>'),
+  smile: svg(
+    '<circle cx="12" cy="12" r="9"/><path d="M8.500 14.500a4.500 4.500 0 0 0 7 0M9 9.500h.010M15 9.500h.010"/>'
+  ),
   trash: svg('<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>', 16),
   shield: svg('<path d="M12 3 5 6v5c0 4.500 3 8.300 7 10 4-1.700 7-5.500 7-10V6l-7-3z"/>', 18),
   settings: svg(
@@ -149,6 +154,8 @@ export interface LobbyMessage {
   role?: string | null;
   /** Whether we may delete it (our own message, or a moderator). */
   canDelete?: boolean;
+  /** An ASCII art from the catalog (`AsciiArt`), drawn instead of the text. */
+  artId?: string;
 }
 
 /** What a message shows about its author — re-resolved when presence / roles change. */
@@ -281,6 +288,11 @@ export default class LobbyUI {
   private voiceRoomId: string | null = null;
   private speaking: ReadonlySet<number> = new Set();
   private sendButton: HTMLButtonElement | null = null;
+  /** The composer's kaomoji / art button and its popover (built when opened). */
+  private pickerButton: HTMLButtonElement | null = null;
+  private picker: ChatPicker | null = null;
+  private composer: HTMLDivElement | null = null;
+  private artCallback: ((artId: string) => void) | null = null;
   /** "Open this link?" — a link in a message opens only once confirmed here. */
   private linkPopover: HTMLDivElement | null = null;
   /** The profile card of a member (opened by clicking them in the list). */
@@ -563,7 +575,19 @@ export default class LobbyUI {
     messagesWrap.appendChild(this.newMessagesButton);
     chatArea.appendChild(messagesWrap);
 
+    // The wrapper is what the picker pops up from.
+    const composer = el('div', 'lobby-composer');
+    this.composer = composer;
     const inputContainer = el('div', 'lobby-input-container');
+    const pickerButton = el('button', 'lobby-picker-btn');
+    pickerButton.type = 'button';
+    pickerButton.title = 'Каомодзи и ASCII-арт';
+    pickerButton.setAttribute('aria-label', 'Каомодзи и ASCII-арт');
+    pickerButton.setAttribute('aria-expanded', 'false');
+    pickerButton.innerHTML = ICONS.smile;
+    pickerButton.onclick = () => (this.picker ? this.closePicker() : this.openPicker());
+    inputContainer.appendChild(pickerButton);
+    this.pickerButton = pickerButton;
     this.chatInput = el('input', 'lobby-input');
     this.chatInput.type = 'text';
     this.chatInput.placeholder = 'Написать сообщение…';
@@ -583,7 +607,8 @@ export default class LobbyUI {
     inputContainer.appendChild(sendBtn);
     this.sendButton = sendBtn;
 
-    chatArea.appendChild(inputContainer);
+    composer.appendChild(inputContainer);
+    chatArea.appendChild(composer);
     return chatArea;
   }
 
@@ -747,6 +772,8 @@ export default class LobbyUI {
     this.chatInput.disabled = blocked;
     this.chatInput.placeholder = reason ?? 'Написать сообщение…';
     if (this.sendButton) this.sendButton.disabled = blocked;
+    if (this.pickerButton) this.pickerButton.disabled = blocked;
+    if (blocked) this.closePicker();
     this.chatInput.parentElement?.classList.toggle('lobby-input-blocked', blocked);
   }
 
@@ -1197,11 +1224,42 @@ export default class LobbyUI {
 
     const body = el('div', 'lobby-message-body');
     body.appendChild(this.buildMessageMeta(messageElement, message));
-    body.appendChild(this.buildMessageText(message.text));
+    if (message.artId) {
+      const art = artById(message.artId);
+      // The search matches the author and the art's title, not the drawing's characters.
+      messageElement.dataset.filterText = `${message.name} ${art?.title ?? ''}`;
+      // The art's font is sized from the column's width, so the body must take it all.
+      body.classList.add('lobby-message-body-art');
+      body.appendChild(this.buildMessageArt(message.artId));
+    } else {
+      body.appendChild(this.buildMessageText(message.text));
+    }
     messageElement.appendChild(body);
 
     messageElement.hidden = !this.matchesMessageFilter(messageElement);
     return messageElement;
+  }
+
+  /**
+   * An ASCII art: its rows are known up front, so the message's height is fixed the
+   * moment it is drawn (older history pages are prepended under a scroll correction).
+   * A narrow column shrinks the font instead of wrapping (CSS container units).
+   */
+  private buildMessageArt(artId: string): HTMLDivElement {
+    const box = el('div', 'lobby-message-art');
+    const art = artById(artId);
+    if (!art) {
+      // Sent from a newer catalog than this page has.
+      box.appendChild(el('div', 'lobby-message-art-missing', 'Арт недоступен — обновите страницу'));
+      return box;
+    }
+    const pre = el('pre', 'lobby-art', art.lines.join('\n'));
+    pre.style.setProperty('--cols', String(art.cols));
+    pre.setAttribute('role', 'img');
+    pre.setAttribute('aria-label', art.title);
+    pre.title = art.title;
+    box.appendChild(pre);
+    return box;
   }
 
   /** The message text, links in it clickable (each opens only after a confirmation). */
@@ -1474,7 +1532,9 @@ export default class LobbyUI {
   private matchesMessageFilter(messageElement: Element): boolean {
     return (
       !this.messageFilter ||
-      (messageElement.textContent ?? '').toLowerCase().includes(this.messageFilter)
+      ((messageElement as HTMLElement).dataset?.filterText ?? messageElement.textContent ?? '')
+        .toLowerCase()
+        .includes(this.messageFilter)
     );
   }
 
@@ -1490,6 +1550,54 @@ export default class LobbyUI {
   /**
    * Set callback for when message is sent
    */
+  /** Set callback for an ASCII art picked in the composer (sent by id). */
+  setOnArtCallback(callback: (artId: string) => void): void {
+    this.artCallback = callback;
+  }
+
+  private openPicker(): void {
+    if (this.picker || !this.composer || !this.pickerButton) return;
+    const button = this.pickerButton;
+    this.picker = new ChatPicker(this.composer, button, {
+      onKaomoji: text => this.insertIntoInput(text),
+      onArt: id => {
+        this.artCallback?.(id);
+        this.closePicker();
+        this.chatInput?.focus({ preventScroll: true });
+      },
+      onClose: () => {
+        this.closePicker();
+        button.focus({ preventScroll: true });
+      },
+    });
+    button.setAttribute('aria-expanded', 'true');
+    button.classList.add('lobby-picker-btn-open');
+  }
+
+  private closePicker(): void {
+    if (!this.picker) return;
+    this.picker.destroy();
+    this.picker = null;
+    this.pickerButton?.setAttribute('aria-expanded', 'false');
+    this.pickerButton?.classList.remove('lobby-picker-btn-open');
+  }
+
+  /** Puts `text` at the caret (replacing a selection), spaced from the words around it. */
+  private insertIntoInput(text: string): void {
+    const input = this.chatInput;
+    if (!input || input.disabled) return;
+    const start = input.selectionStart ?? input.value.length;
+    const end = input.selectionEnd ?? start;
+    const before = input.value.slice(0, start);
+    const after = input.value.slice(end);
+    const lead = before && !/\s$/.test(before) ? ' ' : '';
+    const trail = after && !/^\s/.test(after) ? ' ' : '';
+    input.value = before + lead + text + trail + after;
+    const caret = (before + lead + text + trail).length;
+    input.focus({ preventScroll: true });
+    input.setSelectionRange(caret, caret);
+  }
+
   setOnMessageCallback(callback: (message: string) => void): void {
     this.messageCallback = callback;
   }
@@ -1536,6 +1644,7 @@ export default class LobbyUI {
     window.visualViewport?.removeEventListener('resize', this.onViewportResize);
     this.closeUserCard();
     this.closeLinkPopover();
+    this.closePicker();
     if (this.container && this.container.parentNode) {
       this.container.parentNode.removeChild(this.container);
     }
@@ -1545,6 +1654,8 @@ export default class LobbyUI {
     this.newMessagesButton = null;
     this.chatInput = null;
     this.sendButton = null;
+    this.pickerButton = null;
+    this.composer = null;
     this.manageButton = null;
     this.createChannelButton = null;
     this.voicePanel = null;

@@ -47,6 +47,7 @@ const ui = {
     login?: string | null;
     role?: string | null;
     canDelete?: boolean;
+    artId?: string;
   }[],
   canManage: false,
   canCreate: false,
@@ -72,6 +73,9 @@ const ui = {
 vi.mock('../lobby/LobbyUI', () => ({
   default: class {
     setOnMessageCallback() {}
+    setOnArtCallback(cb: (id: string) => void) {
+      (ui as any).sendArt = cb;
+    }
     setOnRoomJoinCallback(cb: (id: string) => void) {
       (ui as any).join = cb;
     }
@@ -474,6 +478,28 @@ describe('LobbyState chat history and members', () => {
     expect(ui.messages.map(m => m.id)).toEqual([8, 9, 10, 11, 12]);
     expect(ui.loading).toBe(false);
     expect(ui.hasMore).toBe(false);
+  });
+
+  it('an ASCII art travels by id: sent from the picker, rendered from live and history', async () => {
+    const { client } = await inLobby();
+    const send = vi.spyOn(client, 'sendChatArtRequest').mockImplementation(() => {});
+    (ui as any).sendArt('cat-01');
+    expect(send).toHaveBeenCalledWith('cat-01');
+
+    const page = historyPage('lobby', [10], { reset: true });
+    page.messages![0]!.artId = 'cat-02';
+    page.messages![0]!.text = '';
+    client.onChatHistoryEvent(page);
+    const live = new ChatMessageEvent();
+    live.id = 11;
+    live.userId = 2;
+    live.message = '';
+    live.artId = 'cat-03';
+    client.onChatMessageEvent(live);
+    expect(ui.messages.map(m => [m.id, m.artId])).toEqual([
+      [10, 'cat-02'],
+      [11, 'cat-03'],
+    ]);
   });
 
   it('coming back to a room shows its cached messages at once, then appends the gap', async () => {

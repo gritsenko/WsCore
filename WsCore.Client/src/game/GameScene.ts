@@ -10,6 +10,7 @@ import { Unsubscribe } from '../utils/Emitter';
 import World from './World';
 import Player from './Player';
 import PlayerView from './PlayerView';
+import { entryText } from '../lobby/AsciiArt';
 
 /**
  * The 3D game state. Renders players/world over the shared, session-long WsClient.
@@ -72,14 +73,14 @@ export default class GameScene {
       this.client.on('playerRemove', (p: Player) => this.removeView(p.id)),
       this.client.on('mapObjects', objs => this.world.updateMapObjects(objs)),
       this.client.on('chat', (roomId, entry) => {
-        if (roomId === this.roomId) this.chatUI?.addMessage(entry.name, entry.text);
+        if (roomId === this.roomId) this.chatUI?.addMessage(entry.name, entryText(entry));
       }),
       this.client.on('chatHistory', (roomId, change) => {
         if (roomId !== this.roomId) return;
         // Catch-ups are appended; a replaced log is redrawn. (The overlay shows only the
         // recent tail, so older pages are never requested here.)
         if (change.kind === 'append') {
-          for (const entry of change.entries) this.chatUI?.addMessage(entry.name, entry.text);
+          for (const entry of change.entries) this.chatUI?.addMessage(entry.name, entryText(entry));
         } else if (change.kind === 'reset') {
           this.showRecentChat();
         }
@@ -142,7 +143,9 @@ export default class GameScene {
   }
 
   private showRecentChat(): void {
-    this.chatUI?.setMessages(this.client.getChatLog(this.roomId).entries);
+    this.chatUI?.setMessages(
+      this.client.getChatLog(this.roomId).entries.map(e => ({ name: e.name, text: entryText(e) }))
+    );
   }
 
   private onRoomJoinFailed(roomId: string): void {

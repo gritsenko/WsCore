@@ -32,11 +32,21 @@ describe('protocol round-trip against fixed binary samples', () => {
     value.message = 'hi';
 
     const bytes = Array.from(ChatMessageRequest.serialize(value));
-    expect(bytes).toEqual([1, 253, 255, 255, 255, 2, 0, 0, 0, 104, 105]);
+    // artId left null: a plain text message.
+    expect(bytes).toEqual([2, 253, 255, 255, 255, 2, 0, 0, 0, 104, 105, 255, 255, 255, 255]);
 
     const decoded = ChatMessageRequest.deserialize(new Uint8Array(bytes).buffer);
     expect(decoded).not.toBeNull();
     expect(decoded!.message).toBe('hi');
+  });
+
+  it('an art ChatMessageRequest matches the pinned byte layout', () => {
+    const value = new ChatMessageRequest();
+    value.message = '';
+    value.artId = 'cat';
+    expect(Array.from(ChatMessageRequest.serialize(value))).toEqual([
+      2, 0, 0, 0, 0, 252, 255, 255, 255, 3, 0, 0, 0, 99, 97, 116,
+    ]);
   });
 
   // Chat history + presence messages. Like the stage C/D ones below, the same byte
@@ -49,11 +59,13 @@ describe('protocol round-trip against fixed binary samples', () => {
     value.userId = 3;
     value.name = 'Al';
     value.sentAtMs = 1000;
+    value.artId = 'cat';
 
     const bytes = Array.from(ChatMessageEvent.serialize(value));
     expect(bytes).toEqual([
-      6, 7, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 104, 105, 42, 0, 0, 0, 3, 0, 0, 0, 253, 255,
-      255, 255, 2, 0, 0, 0, 65, 108, 0, 0, 0, 0, 0, 64, 143, 64,
+      7, 7, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 104, 105, 42, 0, 0, 0, 3, 0, 0, 0, 253, 255,
+      255, 255, 2, 0, 0, 0, 65, 108, 0, 0, 0, 0, 0, 64, 143, 64, 252, 255, 255, 255, 3, 0, 0, 0, 99,
+      97, 116,
     ]);
 
     const decoded = ChatMessageEvent.deserialize(new Uint8Array(bytes).buffer)!;
@@ -63,6 +75,7 @@ describe('protocol round-trip against fixed binary samples', () => {
     expect(decoded.userId).toBe(3);
     expect(decoded.name).toBe('Al');
     expect(decoded.sentAtMs).toBe(1000);
+    expect(decoded.artId).toBe('cat');
   });
 
   it('a pre-history ChatMessageEvent (2 members) still decodes', () => {
@@ -81,6 +94,7 @@ describe('protocol round-trip against fixed binary samples', () => {
     message.name = 'Al';
     message.text = 'hi';
     message.sentAtMs = 1000;
+    message.artId = 'cat';
     const value = new ChatHistoryEvent();
     value.roomId = 'game';
     value.epoch = 5;
@@ -91,8 +105,8 @@ describe('protocol round-trip against fixed binary samples', () => {
     const bytes = Array.from(ChatHistoryEvent.serialize(value));
     expect(bytes).toEqual([
       6, 251, 255, 255, 255, 4, 0, 0, 0, 103, 97, 109, 101, 5, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0,
-      0, 5, 42, 0, 0, 0, 3, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 65, 108, 253, 255, 255, 255,
-      2, 0, 0, 0, 104, 105, 0, 0, 0, 0, 0, 64, 143, 64,
+      0, 6, 42, 0, 0, 0, 3, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 65, 108, 253, 255, 255, 255,
+      2, 0, 0, 0, 104, 105, 0, 0, 0, 0, 0, 64, 143, 64, 252, 255, 255, 255, 3, 0, 0, 0, 99, 97, 116,
     ]);
 
     const decoded = ChatHistoryEvent.deserialize(new Uint8Array(bytes).buffer)!;
@@ -102,6 +116,7 @@ describe('protocol round-trip against fixed binary samples', () => {
     expect(decoded.reset).toBe(true);
     expect(decoded.hasMore).toBe(true);
     expect(decoded.messages![0]!.text).toBe('hi');
+    expect(decoded.messages![0]!.artId).toBe('cat');
   });
 
   it('ChatHistoryRequest / IdentifyRequest / SetAwayRequest match the pinned byte layouts', () => {

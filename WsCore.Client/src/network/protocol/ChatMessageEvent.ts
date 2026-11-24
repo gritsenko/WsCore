@@ -8,6 +8,7 @@ export class ChatMessageEvent {
     userId: number;
     name: string | null;
     sentAtMs: number;
+    artId: string | null;
 
     constructor() {
         this.clientId = 0;
@@ -16,6 +17,7 @@ export class ChatMessageEvent {
         this.userId = 0;
         this.name = null;
         this.sentAtMs = 0;
+        this.artId = null;
 
     }
 
@@ -31,13 +33,14 @@ export class ChatMessageEvent {
             return;
         }
 
-        writer.writeObjectHeader(6);
+        writer.writeObjectHeader(7);
         writer.writeUint32(value.clientId);
         writer.writeString(value.message);
         writer.writeUint32(value.id);
         writer.writeUint32(value.userId);
         writer.writeString(value.name);
         writer.writeFloat64(value.sentAtMs);
+        writer.writeString(value.artId);
 
     }
 
@@ -62,16 +65,17 @@ export class ChatMessageEvent {
         }
 
         const value = new ChatMessageEvent();
-        if (count == 6) {
+        if (count == 7) {
             value.clientId = reader.readUint32();
             value.message = reader.readString();
             value.id = reader.readUint32();
             value.userId = reader.readUint32();
             value.name = reader.readString();
             value.sentAtMs = reader.readFloat64();
+            value.artId = reader.readString();
 
         }
-        else if (count > 6) {
+        else if (count > 7) {
             throw new Error("Current object's property count is larger than type schema, can't deserialize about versioning.");
         }
         else {
@@ -82,6 +86,7 @@ export class ChatMessageEvent {
             value.userId = reader.readUint32(); if (count == 4) return value;
             value.name = reader.readString(); if (count == 5) return value;
             value.sentAtMs = reader.readFloat64(); if (count == 6) return value;
+            value.artId = reader.readString(); if (count == 7) return value;
 
         }
         return value;

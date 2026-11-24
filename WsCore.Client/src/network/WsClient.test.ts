@@ -387,6 +387,21 @@ describe('WsClient chat history', () => {
     expect(ids(client, 'lobby')).toEqual([20, 21, 22]);
   });
 
+  it('an ASCII art keeps its id in the cache, live and from history; text has none', () => {
+    const { client } = inLobby();
+    const page = historyPage('lobby', [30, 31], { reset: true });
+    page.messages![1]!.artId = 'cat-01';
+    client.onChatHistoryEvent(page);
+    const art = live(32, '');
+    art.artId = 'dog-01';
+    client.onChatMessageEvent(art);
+    expect(client.getChatLog('lobby').entries.map(e => [e.id, e.artId])).toEqual([
+      [30, undefined],
+      [31, 'cat-01'],
+      [32, 'dog-01'],
+    ]);
+  });
+
   it('chat logs are per room: a live message lands in the room we are in', () => {
     const { client } = inLobby();
     client.onChatMessageEvent(live(1));

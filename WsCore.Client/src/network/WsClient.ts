@@ -218,6 +218,7 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
       name: msg.name || this.resolveName(msg.clientId),
       text: msg.message || '',
       sentAtMs: msg.sentAtMs || Date.now(),
+      ...(msg.artId ? { artId: msg.artId } : {}),
     };
     switch (this.chatLog.addLive(roomId, entry)) {
       case 'added':
@@ -241,6 +242,7 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
         name: m.name || '',
         text: m.text || '',
         sentAtMs: m.sentAtMs,
+        ...(m.artId ? { artId: m.artId } : {}),
       });
     }
 

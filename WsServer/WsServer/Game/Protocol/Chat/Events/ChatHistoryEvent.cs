@@ -44,4 +44,6 @@ public partial class ChatMessageData
     public string Name = string.Empty;
     public string Text = string.Empty;
     public double SentAtMs;
+    // An ASCII art by its catalog id; empty = a text message.
+    public string ArtId = string.Empty;
 }

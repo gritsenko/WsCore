@@ -280,6 +280,7 @@ export default class LobbyState {
     // torn down its own DOM by the time transitionTo() calls enter().
     this.ui = new LobbyUI();
     this.ui.setOnMessageCallback(message => this.client.sendChatMessageRequest(message));
+    this.ui.setOnArtCallback(artId => this.client.sendChatArtRequest(artId));
     this.ui.setOnRoomJoinCallback(roomId => {
       this.closePortal();
       this.requestJoin(roomId);
@@ -456,6 +457,7 @@ export default class LobbyState {
     name: entry.name,
     text: entry.text,
     sentAtMs: entry.sentAtMs,
+    ...(entry.artId ? { artId: entry.artId } : {}),
     own: this.client.isOwnMessage(entry),
     userId: entry.userId,
     ...this.authorOf(entry.userId),

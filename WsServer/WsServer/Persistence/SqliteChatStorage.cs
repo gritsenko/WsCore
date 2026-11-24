@@ -168,7 +168,8 @@ public sealed class SqliteChatStorage : IChatStorage
     //       game_play_events, game_daily.
     //   8 — leaderboards: leaderboards, leaderboard_entries, users.leaderboard_hidden.
     //   9 — game media: game_media (covers, headers, screenshots; the files are on disk).
-    private const int SchemaVersion = 9;
+    //  10 — ASCII art in chat: messages.art_id (a catalog id; '' = a text message).
+    private const int SchemaVersion = 10;
 
     private void MigrateUsers()
     {
@@ -368,6 +369,8 @@ public sealed class SqliteChatStorage : IChatStorage
                 CREATE INDEX IF NOT EXISTS ix_game_media_game ON game_media(game_id);
                 """);
         }
+        if (version < 10 && !HasColumn("messages", "art_id"))
+            Execute("ALTER TABLE messages ADD COLUMN art_id TEXT NOT NULL DEFAULT '';");
         Execute($"PRAGMA user_version = {SchemaVersion};");
         tx.Commit();
 
@@ -671,8 +674,8 @@ public sealed class SqliteChatStorage : IChatStorage
     {
         _insertMessage = _db.CreateCommand();
         _insertMessage.CommandText =
-            "INSERT OR REPLACE INTO messages(id, room_id, user_id, name, text, sent_at) VALUES($id, $room, $user, $name, $text, $at);";
-        AddParameters(_insertMessage, "$id", "$room", "$user", "$name", "$text", "$at");
+            "INSERT OR REPLACE INTO messages(id, room_id, user_id, name, text, sent_at, art_id) VALUES($id, $room, $user, $name, $text, $at, $art);";
+        AddParameters(_insertMessage, "$id", "$room", "$user", "$name", "$text", "$at", "$art");
 
         _upsertUser = _db.CreateCommand();
         _upsertUser.CommandText = """
@@ -692,7 +695,7 @@ public sealed class SqliteChatStorage : IChatStorage
 
         _selectBefore = _db.CreateCommand();
         _selectBefore.CommandText = """
-            SELECT id, user_id, name, text, sent_at FROM messages
+            SELECT id, user_id, name, text, sent_at, art_id FROM messages
             WHERE room_id = $room AND id < $before
             ORDER BY id DESC LIMIT $limit;
             """;
@@ -951,6 +954,7 @@ public sealed class SqliteChatStorage : IChatStorage
                         _insertMessage.Parameters[3].Value = m.Name;
                         _insertMessage.Parameters[4].Value = m.Text;
                         _insertMessage.Parameters[5].Value = m.SentAtMs;
+                        _insertMessage.Parameters[6].Value = m.ArtId;
                         _insertMessage.ExecuteNonQuery();
                         break;
                     case SaveUserOp(var u):
@@ -1230,7 +1234,7 @@ public sealed class SqliteChatStorage : IChatStorage
         {
             result.Add(new ChatMessage(
                 (uint)reader.GetInt64(0), roomId, (uint)reader.GetInt64(1),
-                reader.GetString(2), reader.GetString(3), reader.GetInt64(4)));
+                reader.GetString(2), reader.GetString(3), reader.GetInt64(4), reader.GetString(5)));
         }
         return result;
     }
@@ -1404,6 +1408,9 @@ public sealed class SqliteChatStorage : IChatStorage
         cmd.CommandText = sql;
         cmd.ExecuteNonQuery();
     }
+
+    private bool HasColumn(string table, string column) =>
+        Scalar($"SELECT COUNT(*) FROM pragma_table_info('{table}') WHERE name = '{column}';") > 0;
 
     private long Scalar(string sql)
     {

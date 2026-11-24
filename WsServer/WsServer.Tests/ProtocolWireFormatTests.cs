@@ -59,9 +59,9 @@ public class ProtocolWireFormatTests
     [Fact]
     public void ChatMessageEvent_MatchesPinnedBytes()
     {
-        byte[] expected = [6, 7, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 104, 105, 42, 0, 0, 0, 3, 0, 0, 0, 253,
-            255, 255, 255, 2, 0, 0, 0, 65, 108, 0, 0, 0, 0, 0, 64, 143, 64];
-        var evt = new ChatMessageEvent(7, "hi") { Id = 42, UserId = 3, Name = "Al", SentAtMs = 1000 };
+        byte[] expected = [7, 7, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 104, 105, 42, 0, 0, 0, 3, 0, 0, 0, 253,
+            255, 255, 255, 2, 0, 0, 0, 65, 108, 0, 0, 0, 0, 0, 64, 143, 64, 252, 255, 255, 255, 3, 0, 0, 0, 99, 97, 116];
+        var evt = new ChatMessageEvent(7, "hi") { Id = 42, UserId = 3, Name = "Al", SentAtMs = 1000, ArtId = "cat" };
         Assert.Equal(expected, MemoryPackSerializer.Serialize(evt));
     }
 
@@ -69,14 +69,30 @@ public class ProtocolWireFormatTests
     public void ChatHistoryEvent_MatchesPinnedBytes()
     {
         byte[] expected = [6, 251, 255, 255, 255, 4, 0, 0, 0, 103, 97, 109, 101, 5, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1,
-            0, 0, 0, 5, 42, 0, 0, 0, 3, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 65, 108, 253, 255, 255, 255, 2,
-            0, 0, 0, 104, 105, 0, 0, 0, 0, 0, 64, 143, 64];
+            0, 0, 0, 6, 42, 0, 0, 0, 3, 0, 0, 0, 253, 255, 255, 255, 2, 0, 0, 0, 65, 108, 253, 255, 255, 255, 2,
+            0, 0, 0, 104, 105, 0, 0, 0, 0, 0, 64, 143, 64, 252, 255, 255, 255, 3, 0, 0, 0, 99, 97, 116];
         var evt = new ChatHistoryEvent
         {
             RoomId = "game", Epoch = 5, Reset = true, HasMore = true,
-            Messages = [new ChatMessageData { Id = 42, UserId = 3, Name = "Al", Text = "hi", SentAtMs = 1000 }],
+            Messages = [new ChatMessageData { Id = 42, UserId = 3, Name = "Al", Text = "hi", SentAtMs = 1000, ArtId = "cat" }],
         };
         Assert.Equal(expected, MemoryPackSerializer.Serialize(evt));
+    }
+
+    [Fact]
+    public void ChatMessageRequest_DecodesFromPinnedBytes_WithAndWithoutAnArt()
+    {
+        // As the TS client writes them: text (artId null), an art (text empty), and a
+        // pre-art client's single member.
+        var text = MemoryPackSerializer.Deserialize<ChatMessageRequest>(
+            [2, 253, 255, 255, 255, 2, 0, 0, 0, 104, 105, 255, 255, 255, 255])!;
+        Assert.Equal(("hi", null), (text.Message, (string?)text.ArtId));
+        var art = MemoryPackSerializer.Deserialize<ChatMessageRequest>(
+            [2, 0, 0, 0, 0, 252, 255, 255, 255, 3, 0, 0, 0, 99, 97, 116])!;
+        Assert.Equal(("", "cat"), (art.Message, art.ArtId));
+        var old = MemoryPackSerializer.Deserialize<ChatMessageRequest>([1, 253, 255, 255, 255, 2, 0, 0, 0, 104, 105])!;
+        Assert.Equal("hi", old.Message);
+        Assert.True(string.IsNullOrEmpty(old.ArtId)); // the handler reads null as "no art"
     }
 
     [Fact]

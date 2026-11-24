@@ -1,7 +1,8 @@
 namespace WsServer.Persistence;
 
 /// <summary>One stored chat message. Ids are global (across rooms) and strictly increasing.</summary>
-public sealed record ChatMessage(uint Id, string RoomId, uint UserId, string Name, string Text, long SentAtMs);
+/// <summary>A stored chat message; <c>ArtId</c> set = an ASCII art from the client's catalog (Text empty).</summary>
+public sealed record ChatMessage(uint Id, string RoomId, uint UserId, string Name, string Text, long SentAtMs, string ArtId = "");
 
 /// <summary>
 /// A known user as persisted. <see cref="Login"/> / <see cref="PasswordHash"/> are set once

@@ -54,6 +54,9 @@ public class GameServerOptions
 
     public float ShootCooldownSeconds { get; set; } = 0.25f; // max ~4 shots/sec
     public float ChatCooldownSeconds { get; set; } = 0.5f;   // max ~2 messages/sec
+    // ASCII art (ChatMessageRequest.ArtId) on top of the chat cooldown: a picture takes up
+    // a screen, so they cannot be flooded.
+    public float ChatArtCooldownSeconds { get; set; } = 2f;
 
     public int MaxChatLength { get; set; } = 256;
     public int MaxNameLength { get; set; } = 32;

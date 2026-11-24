@@ -61,10 +61,10 @@ public sealed class ChatHistoryService
     /// <summary>
     /// Records a new message and returns the live event to broadcast to the room.
     /// </summary>
-    public ChatMessageEvent Append(string roomId, uint clientId, uint userId, string name, string text)
+    public ChatMessageEvent Append(string roomId, uint clientId, uint userId, string name, string text, string artId = "")
     {
         var message = new ChatMessage(
-            _nextId++, roomId, userId, name, text, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            _nextId++, roomId, userId, name, text, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(), artId);
 
         if (!_rooms.TryGetValue(roomId, out var log))
             _rooms[roomId] = log = new RoomLog();
@@ -87,6 +87,7 @@ public sealed class ChatHistoryService
             UserId = userId,
             Name = name,
             SentAtMs = message.SentAtMs,
+            ArtId = artId,
         };
     }
 
@@ -220,6 +221,7 @@ public sealed class ChatHistoryService
         Name = m.Name,
         Text = m.Text,
         SentAtMs = m.SentAtMs,
+        ArtId = m.ArtId,
     };
 
     // Index of the first message with Id >= id (Count if none).

@@ -1,6 +1,7 @@
 import type WsClient from '../network/WsClient';
 import type { ChatEntry } from '../network/ChatLog';
 import type { Unsubscribe } from '../utils/Emitter';
+import { entryText } from '../lobby/AsciiArt';
 
 /**
  * Where notifications stand on this device, as the profile dialog shows it:
@@ -51,11 +52,11 @@ export const BADGE_ICON = '/icons/badge-96.png';
 export function notificationContent(
   roomName: string,
   count: number,
-  entry: Pick<ChatEntry, 'name' | 'text'>
+  entry: Pick<ChatEntry, 'name' | 'text' | 'artId'>
 ): { title: string; body: string } {
   return {
     title: count > 1 ? `${roomName} · ${count} новых` : roomName,
-    body: `${entry.name}: ${entry.text}`,
+    body: `${entry.name}: ${entryText(entry)}`,
   };
 }
 

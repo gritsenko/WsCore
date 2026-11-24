@@ -556,6 +556,7 @@
   padding: 6px 7px 6px 24px;
   border: 1px solid var(--line);
   border-radius: 28px;
+  /* (the picker button's negative margin takes the left padding down to ~10px) */
   background: var(--bg-sidebar);
   transition: border-color 0.15s;
 }
@@ -599,6 +600,280 @@
 .lobby-room-item:focus-visible {
   outline: 2px solid var(--accent-strong);
   outline-offset: 2px;
+}
+
+/* ASCII art: in messages and in the picker. The font shrinks to fit the column instead
+   of wrapping (container units; --cols is the art's width in characters). */
+.lobby-art {
+  margin: 0;
+  color: var(--text);
+  font-family:
+    ui-monospace, 'SF Mono', Menlo, Consolas, 'DejaVu Sans Mono', 'Liberation Mono', monospace;
+  font-size: min(13px, calc(100cqw / (var(--cols) * 0.62)));
+  line-height: 1.15;
+  white-space: pre;
+  overflow: hidden;
+}
+
+.lobby-message-body-art {
+  flex: 1;
+}
+
+.lobby-message-art {
+  container-type: inline-size;
+  margin-top: 4px;
+}
+
+.lobby-message-art .lobby-art {
+  display: inline-block;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: var(--surface);
+}
+
+.lobby-message-art-missing {
+  height: 2.5em;
+  display: flex;
+  align-items: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-style: italic;
+}
+
+/* The composer's kaomoji / art picker. */
+.lobby-composer {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.lobby-picker-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 38px;
+  height: 38px;
+  margin-left: -14px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+
+.lobby-picker-btn:hover,
+.lobby-picker-btn:focus-visible,
+.lobby-picker-btn-open {
+  background: var(--surface-hover);
+  color: var(--accent);
+  outline: none;
+}
+
+.lobby-picker-btn:disabled {
+  cursor: not-allowed;
+  background: none;
+  color: var(--text-muted);
+}
+
+.lobby-picker {
+  position: absolute;
+  z-index: 40;
+  left: 0;
+  bottom: calc(100% - 4px);
+  display: flex;
+  flex-direction: column;
+  width: min(460px, 100%);
+  height: min(400px, 60vh);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.lobby-picker-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.lobby-picker-tab {
+  padding: 8px 12px 10px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.lobby-picker-tab:hover,
+.lobby-picker-tab:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+
+.lobby-picker-tab-active {
+  border-bottom-color: var(--accent);
+  color: var(--text);
+}
+
+.lobby-picker-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.lobby-picker-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 10px 12px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.lobby-picker-section {
+  padding: 10px 4px 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.lobby-picker-kaomoji {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 2px;
+}
+
+.lobby-picker-kaomoji-item {
+  padding: 7px 4px;
+  border: none;
+  border-radius: 8px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.lobby-picker-kaomoji-item:hover,
+.lobby-picker-kaomoji-item:focus-visible,
+.lobby-picker-art:hover,
+.lobby-picker-art:focus-visible {
+  background: var(--surface-hover);
+  outline: none;
+}
+
+.lobby-picker-search {
+  margin: 10px 10px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 14px;
+}
+
+.lobby-picker-search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.lobby-picker-chips {
+  display: flex;
+  gap: 6px;
+  padding: 10px 10px 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.lobby-picker-chip {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.lobby-picker-chip:hover,
+.lobby-picker-chip:focus-visible {
+  color: var(--text);
+  outline: none;
+}
+
+.lobby-picker-chip-active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.lobby-picker-arts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
+  align-content: start;
+  gap: 6px;
+  padding-top: 6px;
+}
+
+.lobby-picker-art {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  padding: 6px;
+  border: none;
+  border-radius: 10px;
+  background: none;
+  color: var(--text-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.lobby-picker-art-preview {
+  container-type: inline-size;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 84px;
+  border-radius: 8px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.lobby-art-small {
+  font-size: min(9px, calc(92cqw / (var(--cols) * 0.62)));
+}
+
+.lobby-picker-art-title {
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.lobby-picker-empty {
+  grid-column: 1 / -1;
+  padding: 24px 0;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
 }
 
 /* Scrollbars */

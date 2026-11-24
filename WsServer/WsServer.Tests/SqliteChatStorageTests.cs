@@ -557,6 +557,34 @@ public class SqliteChatStorageTests
     }
 
     [Fact]
+    public void AGameMediaDatabase_IsMigratedToChatArt_KeepingItsMessages()
+    {
+        using var db = new TempDatabase();
+        using (var storage = Open(db.Path))
+        {
+            storage.Load(10);
+            storage.Append(new ChatMessage(1, "lobby", 0, "Al", "hi", 1000));
+            storage.FlushAsync().Wait();
+        }
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db.Path};Pooling=False"))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "ALTER TABLE messages DROP COLUMN art_id; PRAGMA user_version = 9;";
+            cmd.ExecuteNonQuery();
+        }
+        using (var migrated = Open(db.Path))
+        {
+            var old = Assert.Single(Assert.Single(migrated.Load(10).Rooms).Recent);
+            Assert.Equal(("hi", ""), (old.Text, old.ArtId));
+            migrated.Append(new ChatMessage(2, "lobby", 0, "Al", "", 2000, "cat-03"));
+            migrated.FlushAsync().Wait();
+        }
+        using var reopened = Open(db.Path);
+        Assert.Equal(["", "cat-03"], Assert.Single(reopened.Load(10).Rooms).Recent.Select(m => m.ArtId));
+    }
+
+    [Fact]
     public void Factory_WithoutAPath_OrWithAnUnusablePath_RunsWithoutPersistence()
     {
         using var none = ChatStorageFactory.Create(new GameServerOptions(), NullLogger.Instance);

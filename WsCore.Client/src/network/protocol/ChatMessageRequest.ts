@@ -3,9 +3,11 @@ import { MemoryPackReader } from "./MemoryPackReader.js";
 
 export class ChatMessageRequest {
     message: string | null;
+    artId: string | null;
 
     constructor() {
         this.message = null;
+        this.artId = null;
 
     }
 
@@ -21,8 +23,9 @@ export class ChatMessageRequest {
             return;
         }
 
-        writer.writeObjectHeader(1);
+        writer.writeObjectHeader(2);
         writer.writeString(value.message);
+        writer.writeString(value.artId);
 
     }
 
@@ -47,16 +50,18 @@ export class ChatMessageRequest {
         }
 
         const value = new ChatMessageRequest();
-        if (count == 1) {
+        if (count == 2) {
             value.message = reader.readString();
+            value.artId = reader.readString();
 
         }
-        else if (count > 1) {
+        else if (count > 2) {
             throw new Error("Current object's property count is larger than type schema, can't deserialize about versioning.");
         }
         else {
             if (count == 0) return value;
             value.message = reader.readString(); if (count == 1) return value;
+            value.artId = reader.readString(); if (count == 2) return value;
 
         }
         return value;

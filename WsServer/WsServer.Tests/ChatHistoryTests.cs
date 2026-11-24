@@ -226,4 +226,57 @@ public class ChatHistoryTests
         await Say(second, b, 1, "after");
         Assert.True(second.Events<ChatMessageEvent>(b).Single(e => e.Message == "after1").Id > lastId);
     }
+
+    // ---- ASCII art ----
+
+    [Fact]
+    public async Task AnArt_TravelsAsItsId_LiveAndInHistory_AndSurvivesARestart()
+    {
+        using var db = new TempDatabase();
+        await using (var first = new ServerHarness(o => o.ChatDatabasePath = db.Path))
+        {
+            var a = await first.Connect();
+            var b = await first.Connect();
+            // The text of an art message is ignored: only the id is the message.
+            await first.Request(a, new ChatMessageRequest { Message = "ignored", ArtId = "cat-03" });
+
+            var live = Assert.Single(first.Events<ChatMessageEvent>(b));
+            Assert.Equal(("cat-03", ""), (live.ArtId, live.Message));
+            var page = await History(first, b);
+            var stored = Assert.Single(page.Messages);
+            Assert.Equal(("cat-03", "", live.Id), (stored.ArtId, stored.Text, stored.Id));
+        }
+
+        await using var second = new ServerHarness(o => o.ChatDatabasePath = db.Path);
+        var c = await second.Connect();
+        await Say(second, c, 1);
+        var restored = await History(second, c);
+        Assert.Equal(["cat-03", ""], restored.Messages.Select(m => m.ArtId));
+    }
+
+    [Theory]
+    [InlineData("Cat")]
+    [InlineData("cat_03")]
+    [InlineData("cat 03")]
+    [InlineData("<b>")]
+    [InlineData("an-id-that-is-much-longer-than-forty-chars")]
+    public async Task AnArtWithAMalformedId_IsDropped(string artId)
+    {
+        await using var h = new ServerHarness();
+        var a = await h.Connect();
+        await h.Request(a, new ChatMessageRequest { Message = "x", ArtId = artId });
+        await h.Request(a, new ChatMessageRequest { Message = "after" });
+        Assert.Equal(["after"], h.Events<ChatMessageEvent>(a).Select(e => e.Message));
+    }
+
+    [Fact]
+    public async Task Arts_HaveTheirOwnCooldown_TextIsNotHeldUp()
+    {
+        await using var h = new ServerHarness(o => o.ChatArtCooldownSeconds = 60);
+        var a = await h.Connect();
+        await h.Request(a, new ChatMessageRequest { ArtId = "cat-01" });
+        await h.Request(a, new ChatMessageRequest { ArtId = "cat-02" });
+        await h.Request(a, new ChatMessageRequest { Message = "text" });
+        Assert.Equal(["cat-01", ""], h.Events<ChatMessageEvent>(a).Select(e => e.ArtId));
+    }
 }

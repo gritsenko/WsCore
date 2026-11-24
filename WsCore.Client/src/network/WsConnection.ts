@@ -677,6 +677,14 @@ export default class WsConnection<T extends IPlayer = IPlayer> implements Server
     this.sendMessage(ClientMessageType.SetMapObjectRequest, data);
   }
 
+  /** An ASCII art from the catalog, sent by id (like a sticker). */
+  sendChatArtRequest(artId: string): void {
+    const request = new ChatMessageRequest();
+    request.message = '';
+    request.artId = artId;
+    this.sendMessage(ClientMessageType.ChatMessageRequest, ChatMessageRequest.serialize(request));
+  }
+
   sendChatMessageRequest(message: string): void {
     const request = new ChatMessageRequest();
     request.message = message;
