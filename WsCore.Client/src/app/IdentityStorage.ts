@@ -93,3 +93,23 @@ export function clearIdentity(): void {
     // Nothing was persisted.
   }
 }
+
+const VISITOR_ID_STORAGE_KEY = 'wscore.visitorId';
+let sessionVisitorId: string | null = null;
+
+/**
+ * A random id telling anonymous visitors of the games portal apart in its numbers (unique
+ * players, returning players). Not a key and not tied to one: it proves nothing and is
+ * sent only while we are not identified. Kept for the session if storage is unavailable.
+ */
+export function loadOrCreateVisitorId(): string {
+  try {
+    const saved = localStorage.getItem(VISITOR_ID_STORAGE_KEY);
+    if (saved && USER_KEY_PATTERN.test(saved)) return saved;
+    const id = createUserKey();
+    localStorage.setItem(VISITOR_ID_STORAGE_KEY, id);
+    return id;
+  } catch {
+    return (sessionVisitorId ??= createUserKey());
+  }
+}

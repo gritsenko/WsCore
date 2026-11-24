@@ -306,6 +306,23 @@ public abstract class GameServerBase<TGameModel> : IGameServer<TGameModel>, IHos
             _commandQueue.Enqueue(() => handler.Handle(clientId, request));
     }
 
+    /// <summary>
+    /// Runs <paramref name="action"/> on the tick thread (behind everything queued so far)
+    /// and completes with its result — for callers off the tick thread (HTTP endpoints)
+    /// that need to read or change single-threaded state. An exception thrown by the
+    /// action faults the task. Never completes if the loop is not running.
+    /// </summary>
+    public Task<T> RunOnTickAsync<T>(Func<T> action)
+    {
+        var done = new TaskCompletionSource<T>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _commandQueue.Enqueue(() =>
+        {
+            try { done.TrySetResult(action()); }
+            catch (Exception e) { done.TrySetException(e); }
+        });
+        return done.Task;
+    }
+
     public void Dispose()
     {
         lock (_lifecycleLock)

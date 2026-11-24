@@ -1,5 +1,6 @@
 import { createAvatar, el } from './LobbyUI';
 import type { AlertsStatus } from '../app/ChatAlerts';
+import type { ApiToken } from '../network/ClientEvents';
 
 /** What the profile dialog shows about us. */
 export interface ProfileView {
@@ -14,6 +15,13 @@ export interface ProfileView {
   isAdmin: boolean;
   /** New-message notifications on this device. */
   notifications: AlertsStatus;
+  /**
+   * Our API tokens (agent access — publishing games); null = not offered (not a server
+   * admin) or not loaded yet.
+   */
+  apiTokens: ApiToken[] | null;
+  /** The token just created — shown once, until the dialog closes. */
+  newApiToken: string;
 }
 
 export interface ProfileHandlers {
@@ -26,11 +34,13 @@ export interface ProfileHandlers {
   onNotifications(on: boolean): void;
   /** A guest wants to enter an account they already have. */
   onSwitchAccount(): void;
+  onCreateApiToken(name: string): void;
+  onRevokeApiToken(id: string): void;
   onClose(): void;
 }
 
 /** The part of the dialog a status line belongs to. */
-export type ProfileSection = 'profile' | 'avatar' | 'account' | 'notifications';
+export type ProfileSection = 'profile' | 'avatar' | 'account' | 'notifications' | 'tokens';
 
 const NOTIFICATION_HINTS: Record<AlertsStatus, string> = {
   on: 'Включены: о новых сообщениях придёт уведомление, даже когда вкладка закрыта.',
@@ -67,6 +77,9 @@ export default class ProfileDialog {
   private readonly aboutCounter: HTMLSpanElement;
   private readonly accountSection: HTMLDivElement;
   private readonly notificationsSection: HTMLDivElement;
+  private readonly tokensSection: HTMLDivElement;
+  /** What the tokens section was last built for. */
+  private tokensKey = '';
   /** The status the notifications section was last built for. */
   private notificationsKey: AlertsStatus | '' = '';
   private readonly statusLines = new Map<ProfileSection, HTMLDivElement>();
@@ -178,6 +191,10 @@ export default class ProfileDialog {
     this.accountSection = el('div', 'lobby-dialog-account');
     dialog.appendChild(this.accountSection);
 
+    // ---- agent access (server admins) ----
+    this.tokensSection = el('div', 'lobby-dialog-account lobby-dialog-tokens');
+    dialog.appendChild(this.tokensSection);
+
     this.render();
     this.updateCounter();
     (document.getElementById('lobby-container') ?? document.body).appendChild(this.overlay);
@@ -241,6 +258,83 @@ export default class ProfileDialog {
     this.notificationsSection.appendChild(row);
   }
 
+  private renderTokens(): void {
+    const { apiTokens, newApiToken } = this.view;
+    const key = JSON.stringify([apiTokens, newApiToken]);
+    if (key === this.tokensKey) return;
+    this.tokensKey = key;
+    this.tokensSection.hidden = apiTokens === null;
+    if (apiTokens === null) {
+      this.tokensSection.replaceChildren();
+      return;
+    }
+    const status = this.statusLine('tokens');
+    this.tokensSection.replaceChildren(
+      el('div', 'lobby-dialog-section-title', 'Доступ для агента'),
+      el(
+        'div',
+        'lobby-dialog-hint',
+        'Токен, которым агент или скрипт публикует игры в раздел «Игры» (API /api/games). ' +
+          'Действует от вашего имени; показывается один раз.'
+      )
+    );
+
+    if (newApiToken) {
+      const box = el('input', 'lobby-dialog-input lobby-dialog-token');
+      box.readOnly = true;
+      box.value = newApiToken;
+      box.onfocus = () => box.select();
+      const copy = el('button', 'lobby-dialog-button', 'Скопировать');
+      copy.type = 'button';
+      copy.onclick = () =>
+        void navigator.clipboard
+          ?.writeText(newApiToken)
+          .then(() => (copy.textContent = 'Скопировано'));
+      const row = el('div', 'lobby-dialog-buttons');
+      row.append(copy);
+      this.tokensSection.append(
+        el(
+          'div',
+          'lobby-dialog-hint',
+          'Новый токен — сохраните его сейчас, потом его не показать:'
+        ),
+        box,
+        row
+      );
+    }
+
+    for (const token of apiTokens) {
+      const line = el('div', 'lobby-dialog-token-row');
+      const used = token.lastUsedMs
+        ? `использован ${new Date(token.lastUsedMs).toLocaleDateString('ru-RU')}`
+        : 'не использовался';
+      line.append(
+        el('span', 'lobby-dialog-token-name', token.name || 'без имени'),
+        el(
+          'span',
+          'lobby-dialog-hint',
+          `создан ${new Date(token.createdMs).toLocaleDateString('ru-RU')} · ${used}`
+        )
+      );
+      const revoke = el('button', 'lobby-dialog-button lobby-dialog-button-quiet', 'Отозвать');
+      revoke.type = 'button';
+      revoke.onclick = () => this.handlers.onRevokeApiToken(token.id);
+      line.appendChild(revoke);
+      this.tokensSection.appendChild(line);
+    }
+
+    const name = el('input', 'lobby-dialog-input');
+    name.type = 'text';
+    name.placeholder = 'Название токена (например, «claude на ноутбуке»)';
+    name.maxLength = 40;
+    const create = el('button', 'lobby-dialog-button lobby-dialog-button-primary', 'Создать токен');
+    create.type = 'button';
+    create.onclick = () => this.handlers.onCreateApiToken(name.value.trim());
+    const row = el('div', 'lobby-dialog-buttons');
+    row.append(create, status);
+    this.tokensSection.append(name, row);
+  }
+
   private render(): void {
     const { view } = this;
     this.avatarSlot.replaceChildren(createAvatar(view.name, 'lg', undefined, view.avatarUrl));
@@ -253,6 +347,7 @@ export default class ProfileDialog {
     if (view.isAdmin) this.identity.appendChild(el('span', 'lobby-role-badge', 'админ сервера'));
 
     this.renderNotifications();
+    this.renderTokens();
 
     const accountKey = `${view.identified}|${view.login ?? ''}`;
     if (accountKey === this.accountKey) return;

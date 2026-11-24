@@ -1,7 +1,13 @@
 ﻿import WsConnection from './WsConnection';
 import { AccountAction } from './ClientEvents';
 import { VoiceSignalKind } from './ClientEvents';
-import type { IPlayer, PresenceUser, VoiceIceServerConfig, VoiceParticipant } from './ClientEvents';
+import type {
+  IPlayer,
+  PortalGame,
+  PresenceUser,
+  VoiceIceServerConfig,
+  VoiceParticipant,
+} from './ClientEvents';
 import { AccountResultEvent } from './protocol/AccountResultEvent';
 import { InitPlayerEvent } from './protocol/InitPlayerEvent';
 import { PlayerJoinedEvent } from './protocol/PlayerJoinedEvent';
@@ -33,6 +39,8 @@ import { VoiceJoinResultEvent } from './protocol/VoiceJoinResultEvent';
 import { VoiceLeftEvent } from './protocol/VoiceLeftEvent';
 import { VoiceSignalEvent } from './protocol/VoiceSignalEvent';
 import { VoiceRosterEvent } from './protocol/VoiceRosterEvent';
+import type { GameCatalogEvent } from './protocol/GameCatalogEvent';
+import type { ApiTokensEvent } from './protocol/ApiTokensEvent';
 import {
   ChannelAdmin,
   ChannelPermissions,
@@ -120,6 +128,8 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
   keepServerName = false;
   /** Our user id, once the server answered the identify (0 until then). */
   myUserId = 0;
+  /** The games portal's catalog as the server lets us see it (public + our drafts). */
+  games: PortalGame[] = [];
   /** The member list: every known user — online, away and offline. */
   readonly presence = new Map<number, PresenceUser>();
   /**
@@ -310,6 +320,79 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
     this.pushPublicKey = msg.publicKey || null;
     // Sent on every identify: the subscription is (re)registered for the user we now are.
     if (this.pushPublicKey) this.emitter.emit('pushConfig', this.pushPublicKey);
+  }
+
+  override onGameCatalogEvent(msg: GameCatalogEvent): void {
+    this.games = (msg.games ?? []).flatMap(g =>
+      g
+        ? [
+            {
+              id: g.id ?? '',
+              slug: g.slug ?? '',
+              title: g.title ?? '',
+              tagline: g.tagline ?? '',
+              description: g.description ?? '',
+              tags: (g.tags ?? []).filter((t): t is string => !!t),
+              isPublic: g.isPublic,
+              roomId: g.roomId ?? '',
+              ownerUserId: g.ownerUserId,
+              releaseNo: g.releaseNo,
+              version: g.version ?? '',
+              playUrl: g.playUrl ?? '',
+              createdMs: g.createdMs,
+              updatedMs: g.updatedMs,
+              plays: g.plays,
+            },
+          ]
+        : []
+    );
+    this.gamesLoaded = true;
+    this.emitter.emit('games');
+  }
+
+  /** No identity at all: no key, no login under way (browsing the games portal unnamed). */
+  get isAnonymous(): boolean {
+    return !this.userKey && !this.pendingLogin && this.myUserId === 0;
+  }
+
+  /** Whether the games catalog has arrived (an empty one is still an answer). */
+  gamesLoaded = false;
+
+  /** The catalog game whose room is `roomId`, if it is a game room. */
+  gameByRoom(roomId: string | null): PortalGame | undefined {
+    return roomId ? this.games.find(g => g.roomId === roomId) : undefined;
+  }
+
+  override onApiTokensEvent(msg: ApiTokensEvent): void {
+    this.emitter.emit('apiTokens', {
+      tokens: (msg.tokens ?? []).flatMap(t =>
+        t
+          ? [
+              {
+                id: t.id ?? '',
+                name: t.name ?? '',
+                createdMs: t.createdMs,
+                lastUsedMs: t.lastUsedMs,
+              },
+            ]
+          : []
+      ),
+      newToken: msg.newToken ?? '',
+      error: msg.error ?? '',
+    });
+  }
+
+  /** API tokens (agent access) — server admins; answered with an `apiTokens` event. */
+  listApiTokens(): void {
+    this.sendListApiTokensRequest();
+  }
+
+  createApiToken(name: string): void {
+    this.sendCreateApiTokenRequest(name);
+  }
+
+  revokeApiToken(id: string): void {
+    this.sendRevokeApiTokenRequest(id);
   }
 
   override onVoiceRosterEvent(msg: VoiceRosterEvent): void {
@@ -666,7 +749,7 @@ export default class WsClient<T extends IPlayer = IPlayer> extends WsConnection<
       const desc = info && describeRoom(info);
       if (desc) list.push(desc);
     }
-    this.roomManager.syncRooms(list);
+    this.roomManager.syncRooms(list, roomId => this.gameByRoom(roomId) !== undefined);
     this.emitter.emit('roomList', this.roomManager.getAllRooms());
   }
 

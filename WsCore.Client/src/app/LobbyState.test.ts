@@ -21,6 +21,8 @@ import { ChatMessageDeletedEvent } from '../network/protocol/ChatMessageDeletedE
 import { VoiceRosterEvent } from '../network/protocol/VoiceRosterEvent';
 import { VoiceRoomInfo } from '../network/protocol/VoiceRoomInfo';
 import { VoiceParticipantInfo } from '../network/protocol/VoiceParticipantInfo';
+import { GameCatalogEvent } from '../network/protocol/GameCatalogEvent';
+import { GameInfo } from '../network/protocol/GameInfo';
 
 // LobbyState drives the (DOM-only) LobbyUI from client events. The UI is replaced by
 // a recorder so the lobby's room flow can be checked without a DOM.
@@ -48,6 +50,10 @@ const ui = {
   canManage: false,
   canCreate: false,
   blocked: null as string | null,
+  gamesNav: null as { visible: boolean; count: number; active: boolean } | null,
+  portal: null as unknown,
+  stage: null as unknown,
+  anonymous: false,
   hasMore: false,
   loading: false,
   members: [] as {
@@ -157,7 +163,72 @@ vi.mock('../lobby/LobbyUI', () => ({
     setMembers(members: typeof ui.members) {
       ui.members = members;
     }
+    setOnGamesCallback(cb: () => void) {
+      (ui as any).games = cb;
+    }
+    setGamesNav(visible: boolean, count: number, active: boolean) {
+      ui.gamesNav = { visible, count, active };
+    }
+    setPortal(page: unknown) {
+      ui.portal = page;
+    }
+    setGameStage(stage: unknown) {
+      ui.stage = stage;
+    }
+    togglePlayingChat() {}
+    setAnonymous(anonymous: boolean) {
+      ui.anonymous = anonymous;
+    }
     destroy() {}
+  },
+}));
+
+// The portal's DOM pieces are recorded too.
+const hosts: {
+  game: { id: string; playUrl: string };
+  options: {
+    onLeave(): void;
+    onRestart?(): void;
+    play?: { sendBeat(ms: number, ended: boolean): void };
+  };
+  destroyed: boolean;
+  updateAvailable: boolean;
+}[] = [];
+const pages: { shown: [string, unknown][] }[] = [];
+
+vi.mock('../portal/GameHost', () => ({
+  default: class {
+    element = { stage: true };
+    destroyed = false;
+    updateAvailable = false;
+    constructor(
+      public game: unknown,
+      public options: unknown
+    ) {
+      hosts.push(this as any);
+    }
+    setUpdateAvailable(available: boolean) {
+      this.updateAvailable = available;
+    }
+    destroy() {
+      this.destroyed = true;
+    }
+  },
+}));
+
+vi.mock('../portal/PortalUI', () => ({
+  default: class {
+    element = { portal: true };
+    shown: [string, unknown][] = [];
+    constructor(public callbacks: unknown) {
+      pages.push(this as any);
+    }
+    showCatalog(cards: unknown) {
+      this.shown.push(['catalog', cards]);
+    }
+    showGame(card: unknown) {
+      this.shown.push(['game', card]);
+    }
   },
 }));
 
@@ -654,5 +725,237 @@ describe('LobbyState chat history and members', () => {
 
     (ui as any).voiceJoin('voice');
     expect(joined).toEqual(['voice']);
+  });
+});
+
+function gameInfo(id: string, slug: string, release = 1, isPublic = true): GameInfo {
+  const g = new GameInfo();
+  g.id = id;
+  g.slug = slug;
+  g.title = slug;
+  g.tags = [];
+  g.isPublic = isPublic;
+  g.roomId = `g-${id}`;
+  g.releaseNo = release;
+  g.playUrl = release ? `https://play.test/g/${id}/r${release}/index.html` : '';
+  return g;
+}
+
+function catalog(client: WsClient<Player>, ...games: GameInfo[]): void {
+  const e = new GameCatalogEvent();
+  e.games = games;
+  client.onGameCatalogEvent(e);
+}
+
+function fakeNav(path = '/') {
+  const nav = {
+    current: path,
+    pushed: [] as string[],
+    pop: null as (() => void) | null,
+    path: () => nav.current,
+    push: (p: string) => {
+      nav.current = p;
+      nav.pushed.push(p);
+    },
+    replace: (p: string) => {
+      nav.current = p;
+    },
+    onPop: (l: () => void) => {
+      nav.pop = l;
+      return () => (nav.pop = null);
+    },
+  };
+  return nav;
+}
+
+describe('LobbyState games portal', () => {
+  beforeEach(() => {
+    ui.calls = [];
+    ui.rooms = [];
+    ui.current = null;
+    ui.blocked = null;
+    ui.gamesNav = null;
+    ui.portal = null;
+    ui.stage = null;
+    ui.anonymous = false;
+    hosts.length = 0;
+    pages.length = 0;
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  async function enterAt(path: string, userKey = 'key-0123456789abcdef') {
+    const s = await setup();
+    s.client.userKey = userKey;
+    const nav = fakeNav(path);
+    s.state.nav = nav;
+    s.state.enter();
+    s.client.on('sessionInit', () => s.state.onSessionInit());
+    init(s.client, 3);
+    s.client.onJoinRoomResultEvent(result(LOBBY()));
+    return { ...s, nav };
+  }
+
+  it('reads portal pages from the address', async () => {
+    const { routeFromPath, pathOf } = await import('./LobbyState');
+    expect(routeFromPath('/games')).toEqual({ kind: 'catalog' });
+    expect(routeFromPath('/games/')).toEqual({ kind: 'catalog' });
+    expect(routeFromPath('/games/Block-Chpok')).toEqual({ kind: 'game', slug: 'block-chpok' });
+    expect(routeFromPath('/')).toBeNull();
+    expect(routeFromPath('/games/a/b')).toBeNull();
+    expect(pathOf({ kind: 'game', slug: 'x' })).toBe('/games/x');
+  });
+
+  it('the Games entry appears with the catalog and opens it in place of the chat', async () => {
+    const { client, nav } = await enterAt('/');
+    expect(ui.gamesNav?.visible).toBe(false); // no catalog yet: the server may have no portal
+    catalog(client, gameInfo('aaaaaaaaaa', 'chpok'), gameInfo('bbbbbbbbbb', 'draft', 0, false));
+    expect(ui.gamesNav).toEqual({ visible: true, count: 1, active: false });
+    expect(ui.portal).toBeNull();
+
+    (ui as any).games();
+    expect(nav.current).toBe('/games');
+    expect(ui.portal).toEqual({ portal: true });
+    expect(ui.gamesNav?.active).toBe(true);
+    const [kind, cards] = pages[0].shown[pages[0].shown.length - 1];
+    expect(kind).toBe('catalog');
+    expect((cards as { game: { slug: string } }[]).map(c => c.game.slug)).toEqual([
+      'chpok',
+      'draft',
+    ]);
+
+    // A channel click closes the portal and leaves /games.
+    (ui as any).join('voice');
+    expect(ui.portal).toBeNull();
+    expect(nav.current).toBe('/');
+  });
+
+  it('a shared game link opens its page once the catalog arrives', async () => {
+    const { client } = await enterAt('/games/chpok');
+    expect(pages[0].shown).toEqual([]); // nothing known yet: no "not found" flash
+    catalog(client, gameInfo('aaaaaaaaaa', 'chpok'));
+    expect(pages[0].shown[pages[0].shown.length - 1][0]).toBe('game');
+    expect((pages[0].shown[pages[0].shown.length - 1][1] as { game: { id: string } }).game.id).toBe(
+      'aaaaaaaaaa'
+    );
+  });
+
+  it('playing = being in the game room: the game is on the stage until we leave the room', async () => {
+    const { client, joins, nav } = await enterAt('/games/chpok');
+    catalog(client, gameInfo('aaaaaaaaaa', 'chpok'));
+    const onPlay = (pages[0] as any).callbacks.onPlay as (g: unknown) => void;
+
+    onPlay(client.games[0]);
+    expect(joins).toHaveBeenLastCalledWith('g-aaaaaaaaaa');
+    expect(hosts).toHaveLength(0); // only once the server confirms
+
+    client.onJoinRoomResultEvent(result(room('g-aaaaaaaaaa', ['TextChat'])));
+    expect(hosts).toHaveLength(1);
+    expect(ui.stage).toEqual({ stage: true });
+    expect(ui.portal).toBeNull();
+    expect(ui.current).toBe('g-aaaaaaaaaa');
+    // The game's room is known for the header but is not a channel.
+    expect(ui.rooms.find(r => r.id === 'g-aaaaaaaaaa')).toMatchObject({ hidden: true });
+
+    // The room list (pushed on any membership change) does not lose the hidden room.
+    const list = new RoomListEvent();
+    list.rooms = [LOBBY(), VOICE()];
+    client.onRoomListEvent(list);
+    expect(client.getCurrentRoom()?.id).toBe('g-aaaaaaaaaa');
+
+    // A new build: offered, not forced.
+    catalog(client, gameInfo('aaaaaaaaaa', 'chpok', 2));
+    expect(hosts[0].updateAvailable).toBe(true);
+    hosts[0].options.onRestart!();
+    expect(hosts).toHaveLength(2);
+    expect(hosts[0].destroyed).toBe(true);
+    expect(hosts[1].game.playUrl).toContain('/r2/');
+
+    // Leave: back to the lobby room and the game's page.
+    hosts[1].options.onLeave();
+    expect(hosts[1].destroyed).toBe(true);
+    expect(ui.stage).toBeNull();
+    expect(joins).toHaveBeenLastCalledWith('lobby');
+    expect(nav.current).toBe('/games/chpok');
+    expect(ui.portal).toEqual({ portal: true });
+  });
+
+  it('a reconnect while playing gets back into the game room without restarting the game', async () => {
+    const { client, joins } = await enterAt('/');
+    catalog(client, gameInfo('aaaaaaaaaa', 'chpok'));
+    client.joinRoom('g-aaaaaaaaaa');
+    client.onJoinRoomResultEvent(result(room('g-aaaaaaaaaa', ['TextChat'])));
+    expect(hosts).toHaveLength(1);
+
+    init(client, 4); // new connection
+    expect(joins).toHaveBeenLastCalledWith('g-aaaaaaaaaa');
+    client.onJoinRoomResultEvent(result(LOBBY())); // the server's own lobby join comes first
+    expect(hosts[0].destroyed).toBe(false);
+    client.onJoinRoomResultEvent(result(room('g-aaaaaaaaaa', ['TextChat'])));
+    expect(hosts).toHaveLength(1);
+    expect(hosts[0].destroyed).toBe(false);
+  });
+
+  it('a game that became a draft meanwhile stops the game on reconnect', async () => {
+    const { client } = await enterAt('/');
+    catalog(client, gameInfo('aaaaaaaaaa', 'chpok'));
+    client.joinRoom('g-aaaaaaaaaa');
+    client.onJoinRoomResultEvent(result(room('g-aaaaaaaaaa', ['TextChat'])));
+    init(client, 4);
+    client.onJoinRoomResultEvent(result(LOBBY()));
+    client.onJoinRoomResultEvent(result('g-aaaaaaaaaa', false, 'no_access'));
+    expect(hosts[0].destroyed).toBe(true);
+    expect(ui.stage).toBeNull();
+  });
+
+  it('reports page views with how they were reached, and launches with the same source', async () => {
+    const { client } = await enterAt('/games/chpok', '');
+    const views = vi.spyOn(client, 'sendGameViewRequest');
+    const beats = vi.spyOn(client, 'sendGamePlayBeatRequest');
+
+    // The address was opened directly; the view goes once the catalog says which game it is.
+    catalog(client, gameInfo('aaaaaaaaaa', 'chpok'), gameInfo('bbbbbbbbbb', 'other'));
+    expect(views).toHaveBeenCalledTimes(1);
+    expect(views.mock.calls[0][0]).toBe('aaaaaaaaaa');
+    expect(views.mock.calls[0][1]).toBe('link');
+    expect(views.mock.calls[0][2]).toMatch(/^[0-9a-f]{48}$/); // an unnamed visitor's id
+    catalog(client, gameInfo('aaaaaaaaaa', 'chpok'), gameInfo('bbbbbbbbbb', 'other')); // no second view
+    expect(views).toHaveBeenCalledTimes(1);
+
+    // Play: the session reports with that source.
+    client.joinRoom('g-aaaaaaaaaa');
+    client.onJoinRoomResultEvent(result(room('g-aaaaaaaaaa', ['TextChat'])));
+    hosts[0].options.play!.sendBeat(0, false);
+    expect(beats.mock.calls[0][0]).toMatchObject({
+      gameId: 'aaaaaaaaaa',
+      releaseNo: 1,
+      activeMs: 0,
+      source: 'link',
+      ended: false,
+    });
+    expect(beats.mock.calls[0][0].sessionId).toMatch(/^[0-9a-f]{32}$/);
+
+    // Leaving shows the page without counting a view; a card click does count, as "catalog".
+    hosts[0].options.onLeave();
+    expect(views).toHaveBeenCalledTimes(1);
+    ((pages[0] as any).callbacks.onOpen as (slug: string) => void)('other');
+    expect(views.mock.calls[1].slice(0, 2)).toEqual(['bbbbbbbbbb', 'catalog']);
+  });
+
+  it('an unnamed visitor may browse and play but not write; "enter" asks for a name', async () => {
+    const s = await setup();
+    const signIn = vi.fn();
+    const { default: LobbyState } = await import('./LobbyState');
+    const state = new LobbyState(s.client, () => {}, null, null, null, signIn);
+    state.nav = fakeNav('/games');
+    state.enter();
+    init(s.client, 3);
+    s.client.onJoinRoomResultEvent(result(LOBBY()));
+
+    expect(ui.anonymous).toBe(true);
+    expect(ui.blocked).toBe('Войдите, чтобы писать в чат');
+    (ui as any).profile();
+    expect(signIn).toHaveBeenCalledOnce();
   });
 });

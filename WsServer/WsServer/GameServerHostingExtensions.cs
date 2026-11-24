@@ -3,6 +3,7 @@ using Game.ServerLogic.Chat.Events;
 using Microsoft.Extensions.Options;
 using WsServer.Abstract;
 using WsServer.Chat;
+using WsServer.Games;
 using WsServer.Moderation;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using WsServer.Persistence;
@@ -80,6 +81,9 @@ public static class GameServerHostingExtensions
         services.AddSingleton<GameModel>();
         services.AddSingleton<SessionManager>();
         services.AddSingleton<VoiceService>();
+        services.AddSingleton<ApiTokens>();
+        services.AddSingleton<GameCatalog>();
+        services.AddSingleton<GameAnalytics>();
         services.AddSingleton<GameServer>();
         services.AddSingleton<IGameServer>(sp => sp.GetRequiredService<GameServer>());
         services.AddHostedService(sp => sp.GetRequiredService<GameServer>());
@@ -101,6 +105,7 @@ public static class GameServerHostingExtensions
         // Dashboard JSON: connections, game-world players, room occupancy, process stats.
         app.MapGet("/info", (ServerInfoProvider provider) => provider.GetInfo());
         app.MapAvatars();
+        app.MapGamesApi(); // /api/games… (the games origin itself: UseGamesOrigin, first in the pipeline)
         return app;
     }
 

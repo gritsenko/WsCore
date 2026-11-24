@@ -92,6 +92,10 @@ public sealed class SessionManager(
 
     public ClientSession? Get(uint clientId) => _sessions.GetValueOrDefault(clientId);
 
+    /// <summary>The users with at least one identified connection.</summary>
+    public IEnumerable<UserAccount> Users()
+        => _sessions.Values.Select(s => s.User).OfType<UserAccount>().Distinct();
+
     // ---- connection lifecycle ---------------------------------------------------------
 
     public void Connect(uint clientId)

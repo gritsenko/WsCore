@@ -84,6 +84,10 @@ export type ClientEvents<T extends IPlayer = IPlayer> = {
   identified: () => void;
   /** Who is in which voice channel changed (WsClient.voiceRoster). */
   voiceRoster: () => void;
+  /** The games portal's catalog changed (WsClient.games). */
+  games: () => void;
+  /** The server answered an API-token request (our tokens, a new one once, or a refusal). */
+  apiTokens: (result: ApiTokensResult) => void;
   /** We are in voice in `roomId`: call `peers` (client ids already there) with these ICE servers. */
   voiceJoined: (roomId: string, peers: number[], iceServers: VoiceIceServerConfig[]) => void;
   /** The server refused our voice join (server `VoiceError` code). */
@@ -156,4 +160,47 @@ export interface PresenceUser {
   login: string | null;
   /** A server admin: every right in every channel. */
   isAdmin: boolean;
+}
+
+/** A game of the games portal (GameInfo on the wire). */
+export interface PortalGame {
+  id: string;
+  /** The page is /games/{slug}. */
+  slug: string;
+  title: string;
+  tagline: string;
+  /** Markdown. */
+  description: string;
+  tags: string[];
+  /** False = a draft: only its owner and server admins see it. */
+  isPublic: boolean;
+  /** The (hidden) text room the game is played in. */
+  roomId: string;
+  ownerUserId: number;
+  /** 0 = no build yet. */
+  releaseNo: number;
+  version: string;
+  /** The build's entry on the games origin; empty without a build. */
+  playUrl: string;
+  createdMs: number;
+  updatedMs: number;
+  /** Plays so far (sessions past the threshold; the game's own people excluded). */
+  plays: number;
+}
+
+/** One of our API tokens (the token itself is never shown again after creation). */
+export interface ApiToken {
+  id: string;
+  name: string;
+  createdMs: number;
+  /** 0 = never used. */
+  lastUsedMs: number;
+}
+
+export interface ApiTokensResult {
+  tokens: ApiToken[];
+  /** The token just created — shown once; empty otherwise. */
+  newToken: string;
+  /** "forbidden" / "limit" / "not_found"; empty on success. */
+  error: string;
 }

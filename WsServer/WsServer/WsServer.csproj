@@ -13,6 +13,15 @@
 		<PackageReference Include="Microsoft.Data.Sqlite" Version="11.0.0" />
 	</ItemGroup>
 
+	<!-- The jam portal's game bridge (window.Jam), vendored unchanged from
+	     jam.my.games api/app/static/jam-sdk.js (c561510, 2026-10-18); served by the games
+	     origin at /jam-sdk.js. Update by copying the file over. -->
+	<ItemGroup>
+		<EmbeddedResource Include="Games/jam-sdk.js" LogicalName="jam-sdk.js" />
+		<Content Remove="Games/jam-sdk.js" />
+		<None Remove="Games/jam-sdk.js" />
+	</ItemGroup>
+
 	<!-- output memorypack TypeScript code to directory -->
 	<!--<ItemGroup>
 		<CompilerVisibleProperty Include="MemoryPackGenerator_TypeScriptOutputDirectory" />

@@ -16,7 +16,8 @@ public static class ChatStorageFactory
         try
         {
             return new SqliteChatStorage(
-                options.ChatDatabasePath, options.ChatHistoryMaxMessagesPerRoom, options.UserRetentionDays, logger);
+                options.ChatDatabasePath, options.ChatHistoryMaxMessagesPerRoom, options.UserRetentionDays, logger,
+                options.GameAnalyticsRetentionDays);
         }
         catch (Exception e)
         {

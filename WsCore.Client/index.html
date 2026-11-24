@@ -170,7 +170,9 @@
          hide it before the module loads so it does not flash. -->
     <script>
         try {
-            if (/^[A-Za-z0-9_-]{16,64}$/.test(localStorage.getItem('wscore.userKey') || '') && location.hash !== '#login') {
+            // A remembered user enters straight away; so does anyone opening the games
+            // portal (/games…) — it can be browsed and played without entering a name.
+            if ((/^[A-Za-z0-9_-]{16,64}$/.test(localStorage.getItem('wscore.userKey') || '') || /^\/games(\/|$)/.test(location.pathname)) && location.hash !== '#login') {
                 document.getElementById('name-form').style.display = 'none';
             }
         } catch (e) { /* storage unavailable: the form stays */ }

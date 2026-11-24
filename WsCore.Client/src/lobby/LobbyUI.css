@@ -1123,6 +1123,28 @@
   font-weight: 600;
 }
 
+/* ==================== Profile: agent access ==================== */
+.lobby-dialog-token {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 13px;
+}
+
+.lobby-dialog-token-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.lobby-dialog-token-row .lobby-dialog-hint {
+  margin-top: 0;
+  flex: 1;
+}
+
+.lobby-dialog-token-name {
+  font-weight: 500;
+}
+
 .lobby-dialog-hint {
   margin-top: 8px;
   font-size: 13px;

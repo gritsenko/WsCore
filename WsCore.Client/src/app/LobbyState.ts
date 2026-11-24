@@ -27,6 +27,60 @@ import { Unsubscribe } from '../utils/Emitter';
 import { RoomUsersUpdateEvent } from '../network/protocol/RoomUsersUpdateEvent';
 import { CommunicationMode } from '../network/rooms/CommunicationMode';
 import UpdateChecker from '../utils/UpdateChecker';
+import PortalUI, { PortalCard } from '../portal/PortalUI';
+import GameHost from '../portal/GameHost';
+import { newSessionId } from '../portal/PlaySession';
+import { loadOrCreateVisitorId } from './IdentityStorage';
+import type { ApiToken, PortalGame } from '../network/ClientEvents';
+
+/** A page of the games portal: the catalog, or one game's page. */
+export type PortalRoute = { kind: 'catalog' } | { kind: 'game'; slug: string };
+
+/** The portal page a path names (/games, /games/{slug}), or null for anything else. */
+export function routeFromPath(path: string): PortalRoute | null {
+  const m = /^\/games(?:\/([^/]+))?\/?$/.exec(path);
+  if (!m) return null;
+  return m[1]
+    ? { kind: 'game', slug: decodeURIComponent(m[1]).toLowerCase() }
+    : { kind: 'catalog' };
+}
+
+export function pathOf(route: PortalRoute): string {
+  return route.kind === 'catalog' ? '/games' : `/games/${encodeURIComponent(route.slug)}`;
+}
+
+/** How a game's page was reached (analytics): a card, its address opened directly, back / forward. */
+export type ViewSource = 'catalog' | 'link' | 'nav';
+
+/** Phone or not, for the numbers (no user agent is ever sent). */
+function deviceClass(): 'mobile' | 'desktop' {
+  return typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
+    ? 'mobile'
+    : 'desktop';
+}
+
+/** The address bar, as the portal uses it (replaceable in tests). */
+export interface PortalNavigation {
+  path(): string;
+  push(path: string): void;
+  replace(path: string): void;
+  /** Back / forward; returns the unsubscribe. */
+  onPop(listener: () => void): () => void;
+}
+
+function browserNavigation(): PortalNavigation {
+  if (typeof window === 'undefined')
+    return { path: () => '/', push: () => {}, replace: () => {}, onPop: () => () => {} };
+  return {
+    path: () => location.pathname,
+    push: path => history.pushState(null, '', path),
+    replace: path => history.replaceState(null, '', path),
+    onPop: listener => {
+      window.addEventListener('popstate', listener);
+      return () => window.removeEventListener('popstate', listener);
+    },
+  };
+}
 
 /**
  * The lobby state: Discord-style text chat + room list. UI only — it drives
@@ -114,6 +168,28 @@ export default class LobbyState {
   private channelDialog: ChannelDialog | null = null;
   private createChannelDialog: CreateChannelDialog | null = null;
 
+  /** The games portal page shown in place of the chat (null = the chat). */
+  private portal: PortalUI | null = null;
+  private portalRoute: PortalRoute | null = null;
+  /** What the portal last drew (to redraw only when it changes — presence is chatty). */
+  private portalDrawn = '';
+  /** The game being played (we are in its room). */
+  private host: GameHost | null = null;
+  /** A game page opened before the catalog arrived: its view is reported once it does. */
+  private pendingView: { slug: string; source: ViewSource } | null = null;
+  /** How each game's page was last reached — the launch is attributed to it. */
+  private readonly viewSources = new Map<string, ViewSource>();
+  /** After a reconnect: the game room we are getting back into (the game keeps running). */
+  private rejoiningGame: string | null = null;
+  /** Called when an unnamed visitor asks to enter (the entry form). */
+  private readonly onSignIn: (() => void) | null;
+  /** Our API tokens while the profile is open (null = not loaded / not offered). */
+  private apiTokens: ApiToken[] | null = null;
+  private newApiToken = '';
+  private apiTokensRequested = false;
+  /** The address bar (tests replace it before `enter()`). */
+  nav: PortalNavigation = browserNavigation();
+
   /** Notifications on this device (the profile dialog's switch); absent in tests. */
   private readonly alerts: ChatAlerts | null;
   /** Voice chat (owned by App, outlives this state); absent in tests. */
@@ -125,8 +201,10 @@ export default class LobbyState {
     onEnterGame: (roomId: string) => void,
     alerts: ChatAlerts | null = null,
     voice: VoiceChat<Player> | null = null,
-    updates: UpdateChecker | null = null
+    updates: UpdateChecker | null = null,
+    onSignIn: (() => void) | null = null
   ) {
+    this.onSignIn = onSignIn;
     this.client = client;
     this.onEnterGame = onEnterGame;
     this.alerts = alerts;
@@ -146,7 +224,11 @@ export default class LobbyState {
     // torn down its own DOM by the time transitionTo() calls enter().
     this.ui = new LobbyUI();
     this.ui.setOnMessageCallback(message => this.client.sendChatMessageRequest(message));
-    this.ui.setOnRoomJoinCallback(roomId => this.requestJoin(roomId));
+    this.ui.setOnRoomJoinCallback(roomId => {
+      this.closePortal();
+      this.requestJoin(roomId);
+    });
+    this.ui.setOnGamesCallback(() => this.openPortal({ kind: 'catalog' }));
     this.ui.setOnPlayCallback(roomId => {
       // Banned there: the server would refuse the join; say so instead of loading the game.
       if (this.client.permissions.isBanned(this.client.subject, roomId))
@@ -154,7 +236,10 @@ export default class LobbyState {
       else this.onEnterGame(roomId);
     });
     this.ui.setOnLoadOlderCallback(() => this.loadOlder());
-    this.ui.setOnProfileCallback(() => this.openProfile());
+    this.ui.setOnProfileCallback(() => {
+      if (this.client.isAnonymous) this.onSignIn?.();
+      else this.openProfile();
+    });
     this.ui.setOnDeleteMessageCallback(id => this.deleteMessage(id));
     this.ui.setOnManageChannelCallback(() => this.openChannelDialog());
     this.ui.setOnManageMemberCallback(userId => this.openChannelDialog()?.openMember(userId));
@@ -173,8 +258,14 @@ export default class LobbyState {
       this.client.on('roomUsers', (msg: RoomUsersUpdateEvent) => this.handleRoomUsersUpdate(msg)),
       this.client.on('chat', (roomId, entry) => this.handleChat(roomId, entry)),
       this.client.on('chatHistory', (roomId, change) => this.handleChatHistory(roomId, change)),
+      this.client.on('games', () => this.handleGames()),
       this.client.on('presence', () => {
+        this.renderPortal(); // who is playing what
+        this.ui.setAnonymous(this.client.isAnonymous);
         this.refreshRoles();
+        // Became a server admin with the profile open (claimed an admin login): tokens too.
+        if (this.profile && this.apiTokens === null && this.client.subject?.isAdmin)
+          this.requestApiTokens();
         this.profile?.update(this.profileView());
         if (this.client.voiceRoster.size > 0) this.renderRooms(); // names / pictures in voice
       }),
@@ -184,7 +275,16 @@ export default class LobbyState {
         if (roomId === this.ui.getCurrentRoomId()) this.ui.removeMessage(messageId);
       }),
       this.client.on('moderation', result => this.handleModeration(result)),
-      this.client.on('account', result => this.handleAccount(result))
+      this.client.on('account', result => this.handleAccount(result)),
+      this.client.on('apiTokens', result => {
+        this.apiTokens = result.tokens;
+        if (result.newToken) this.newApiToken = result.newToken;
+        this.profile?.update(this.profileView());
+        if (result.error === 'limit')
+          this.profile?.showStatus('tokens', 'Слишком много токенов — отзовите ненужные', true);
+        else if (result.error === 'forbidden')
+          this.profile?.showStatus('tokens', 'Токены доступны только администраторам', true);
+      })
     );
     if (this.updates) {
       const updates = this.updates;
@@ -198,6 +298,14 @@ export default class LobbyState {
     // Rooms may already be known (coming back from the game).
     this.renderRooms();
     this.renderVoice();
+
+    // The games portal: the page the address names (a shared /games/{slug} link, a
+    // reload), and back / forward between its pages.
+    this.unsubs.push(this.nav.onPop(this.onPopState));
+    this.ui.setAnonymous(this.client.isAnonymous);
+    const route = routeFromPath(this.nav.path());
+    if (route) this.openPortal(route, false, 'link');
+    this.renderGamesNav();
   }
 
   /**
@@ -208,7 +316,15 @@ export default class LobbyState {
    */
   onSessionInit(): void {
     this.ui.setCurrentUserId(this.client.clientId, this.client.myPlayerName);
+    this.ui.setAnonymous(this.client.isAnonymous);
     this.renderMembers(); // the roster may already be known (coming back from the game)
+    if (this.host) {
+      // A reconnect while playing: back into the game's room; the game itself never
+      // stopped (the server's own lobby join, which comes first, must not stop it).
+      this.rejoiningGame = this.host.game.roomId;
+      this.requestJoin(this.host.game.roomId);
+      return;
+    }
     const current = this.client.getCurrentRoom();
     if (current && !current.supportsMode(CommunicationMode.Spatial)) {
       // Already in a lobby-type room (e.g. the home-room result arrived first).
@@ -221,6 +337,7 @@ export default class LobbyState {
   exit(): void {
     for (const off of this.unsubs) off();
     this.unsubs = [];
+    this.stopGame();
     this.closeProfile();
     this.closeChannelDialog();
     this.closeCreateChannel();
@@ -233,6 +350,16 @@ export default class LobbyState {
   }
 
   private handleRoomJoined(roomId: string): void {
+    const game = this.client.gameByRoom(roomId);
+    if (game?.playUrl) {
+      this.rejoiningGame = null;
+      this.startGame(game);
+    } else if (this.rejoiningGame && roomId === this.client.homeRoomId) {
+      // The server's automatic lobby join after a reconnect: the game room is next.
+    } else {
+      this.rejoiningGame = null;
+      this.stopGame();
+    }
     const room = this.client.roomManager.getRoom(roomId);
     if (room?.supportsMode(CommunicationMode.Spatial)) {
       // A game-room join that landed after we left the game (it was still in flight):
@@ -321,7 +448,9 @@ export default class LobbyState {
     this.ui.setCanCreateChannel(me?.isAdmin ?? false);
 
     let blocked: string | null = null;
-    if (!this.client.canSendIn(roomId)) {
+    if (this.client.isAnonymous) {
+      blocked = 'Войдите, чтобы писать в чат';
+    } else if (!this.client.canSendIn(roomId)) {
       const restriction = me && permissions.restriction(roomId, me.userId);
       blocked = restriction
         ? `Вам запрещено писать в этом канале ${formatUntil(restriction.untilMs)}`
@@ -372,6 +501,11 @@ export default class LobbyState {
   private handleJoinFailed(roomId: string, error: string): void {
     // Membership is unchanged: stay where we are and say why.
     this.ui.setPendingRoom(null);
+    if (roomId === this.rejoiningGame) {
+      // The game went back to a draft (or we were banned) while we were away.
+      this.rejoiningGame = null;
+      this.stopGame();
+    }
     const name = this.roomName(roomId);
     if (error === 'banned') this.ui.addSystemMessage(`Вы заблокированы в канале «${name}»`);
     else if (error === 'no_access')
@@ -389,6 +523,7 @@ export default class LobbyState {
       client.roomManager.getAllRooms().map(room => ({
         id: room.id,
         name: room.name,
+        hidden: client.gameByRoom(room.id) !== undefined,
         userCount: room.userCount,
         playable: room.supportsMode(CommunicationMode.Spatial),
         isPrivate: room.isPrivate,
@@ -550,6 +685,8 @@ export default class LobbyState {
       identified: me !== undefined,
       isAdmin: me?.isAdmin ?? false,
       notifications: this.alerts?.status ?? 'unsupported',
+      apiTokens: me?.isAdmin ? this.apiTokens : null,
+      newApiToken: this.newApiToken,
     };
   }
 
@@ -670,6 +807,10 @@ export default class LobbyState {
 
   private openProfile(): void {
     if (this.profile) return;
+    this.apiTokens = null;
+    this.apiTokensRequested = false;
+    this.newApiToken = '';
+    if (this.client.subject?.isAdmin) this.requestApiTokens();
     this.profile = new ProfileDialog(this.profileView(), {
       onSave: (name, about) => {
         // The name is renamed through the usual request (it is announced by presence);
@@ -701,13 +842,186 @@ export default class LobbyState {
         location.hash = '#login';
         location.reload();
       },
+      onCreateApiToken: name => this.client.createApiToken(name),
+      onRevokeApiToken: id => this.client.revokeApiToken(id),
       onClose: () => this.closeProfile(),
     });
+  }
+
+  // ==================== games portal ====================
+
+  private readonly onPopState = (): void => {
+    const route = routeFromPath(this.nav.path());
+    if (route) this.openPortal(route, false, 'nav');
+    else this.closePortal(false);
+  };
+
+  /**
+   * Show a portal page in place of the chat (`push`: as a new history entry). Opening
+   * the portal while playing leaves the game: one room at a time.
+   */
+  private openPortal(route: PortalRoute, push = true, source?: ViewSource): void {
+    if (this.host) this.leaveGame();
+    if (route.kind === 'game' && source) this.reportView(route.slug, source);
+    this.portalRoute = route;
+    if (push && this.nav.path() !== pathOf(route)) this.nav.push(pathOf(route));
+    this.portal ??= new PortalUI({
+      onOpen: slug => this.openPortal({ kind: 'game', slug }, true, 'catalog'),
+      onBack: () => this.openPortal({ kind: 'catalog' }),
+      onPlay: game => this.play(game),
+    });
+    this.portalDrawn = '';
+    this.renderPortal();
+    this.ui.setPortal(this.portal.element);
+    this.renderGamesNav();
+  }
+
+  /** Back to the chat; the address leaves /games (`push`: as a new history entry). */
+  private closePortal(push = true): void {
+    if (!this.portalRoute) return;
+    this.portalRoute = null;
+    this.ui.setPortal(null);
+    if (push && routeFromPath(this.nav.path())) this.nav.push('/');
+    this.renderGamesNav();
+  }
+
+  /** A game's page was opened: counted by the server (not for the game's own people). */
+  private reportView(slug: string, source: ViewSource): void {
+    const game = this.client.games.find(g => g.slug === slug);
+    if (!game) {
+      this.pendingView = this.client.gamesLoaded ? null : { slug, source };
+      return;
+    }
+    this.pendingView = null;
+    this.viewSources.set(game.id, source);
+    this.client.sendGameViewRequest(game.id, source, this.visitorId());
+  }
+
+  /** Our anonymous visitor id — only while we are nobody (an identified user is itself). */
+  private visitorId(): string {
+    return this.client.isAnonymous ? loadOrCreateVisitorId() : '';
+  }
+
+  private handleGames(): void {
+    if (this.pendingView) this.reportView(this.pendingView.slug, this.pendingView.source);
+    this.renderGamesNav();
+    this.renderPortal();
+    this.renderRooms(); // a game room is not a channel
+    const host = this.host;
+    if (!host) return;
+    const game = this.client.games.find(g => g.id === host.game.id);
+    // Gone from the catalog = no longer ours to see; the server moves us out of its room.
+    if (game) host.setUpdateAvailable(!!game.playUrl && game.playUrl !== host.game.playUrl);
+  }
+
+  private renderGamesNav(): void {
+    this.ui.setGamesNav(
+      this.client.gamesLoaded,
+      this.client.games.filter(g => g.isPublic).length,
+      this.portalRoute !== null
+    );
+  }
+
+  private cardOf(game: PortalGame): PortalCard {
+    const playing = [...this.client.presence.values()]
+      .filter(u => u.roomId === game.roomId && u.status !== PresenceStatus.Offline)
+      .map(u => ({ userId: u.userId, name: u.name, avatarUrl: this.client.avatarUrl(u) }));
+    return { game, playing };
+  }
+
+  private renderPortal(): void {
+    const portal = this.portal;
+    const route = this.portalRoute;
+    if (!portal || !route) return;
+    let cards: PortalCard[];
+    if (route.kind === 'catalog') cards = this.client.games.map(g => this.cardOf(g));
+    else {
+      const game = this.client.games.find(g => g.slug === route.slug);
+      cards = game ? [this.cardOf(game)] : [];
+    }
+    const drawn = JSON.stringify([route, this.client.gamesLoaded, cards]);
+    if (drawn === this.portalDrawn) return;
+    this.portalDrawn = drawn;
+    if (route.kind === 'catalog') portal.showCatalog(cards);
+    else if (cards.length || this.client.gamesLoaded) portal.showGame(cards[0] ?? null);
+  }
+
+  private play(game: PortalGame): void {
+    if (!game.playUrl) return;
+    if (this.client.permissions.isBanned(this.client.subject, game.roomId)) {
+      this.ui.addSystemMessage(`Вы заблокированы в комнате игры «${game.title}»`);
+      return;
+    }
+    this.requestJoin(game.roomId); // the game starts once the server confirms
+  }
+
+  /** In the game's room now: put the game on the stage (unless it already is, as it was). */
+  private startGame(game: PortalGame): void {
+    if (this.host?.game.id === game.id && this.host.game.playUrl === game.playUrl) return;
+    this.stopGame();
+    this.host = new GameHost(game, {
+      onLeave: () => this.leaveGame(true),
+      onRestart: () => {
+        const latest = this.client.games.find(g => g.id === game.id);
+        if (latest?.playUrl) this.startGame(latest);
+      },
+      onToggleChat: () => this.ui.togglePlayingChat(),
+      play: this.playReporter(game),
+    });
+    this.ui.setGameStage(this.host.element);
+    this.closePortal(false);
+    const path = pathOf({ kind: 'game', slug: game.slug });
+    if (this.nav.path() !== path) this.nav.replace(path);
+  }
+
+  /** One play session's reporting: its id, the game, the release, where the player came from. */
+  private playReporter(game: PortalGame) {
+    const sessionId = newSessionId();
+    const source = this.viewSources.get(game.id) ?? 'catalog';
+    const device = deviceClass();
+    return {
+      sendBeat: (activeMs: number, ended: boolean) =>
+        this.client.sendGamePlayBeatRequest({
+          gameId: game.id,
+          sessionId,
+          releaseNo: game.releaseNo,
+          activeMs,
+          device,
+          source,
+          visitorId: this.visitorId(),
+          ended,
+        }),
+      sendEvents: (events: { name: string; level: string; params: string }[]) =>
+        this.client.sendGamePlayEventsRequest(sessionId, events),
+    };
+  }
+
+  private stopGame(): void {
+    if (!this.host) return;
+    this.host.destroy();
+    this.host = null;
+    this.ui.setGameStage(null);
+  }
+
+  /** Leave the game (its room); `showPage`: then show the game's page. */
+  private leaveGame(showPage = false): void {
+    const game = this.host?.game;
+    this.stopGame();
+    this.rejoiningGame = null;
+    if (this.client.homeRoomId) this.requestJoin(this.client.homeRoomId);
+    if (showPage && game) this.openPortal({ kind: 'game', slug: game.slug }, false);
+  }
+
+  private requestApiTokens(): void {
+    if (this.apiTokensRequested) return;
+    this.apiTokensRequested = true;
+    this.client.listApiTokens();
   }
 
   private closeProfile(): void {
     this.profile?.destroy();
     this.profile = null;
+    this.newApiToken = ''; // shown once
   }
 
   private async uploadAvatar(file: File): Promise<void> {

@@ -52,9 +52,10 @@ COPY --from=server-builder /app/publish ./
 COPY --from=client-builder /app/client/dist ./wwwroot
 
 # The chat history / known-users database (GameServer:ChatDatabasePath = data/chat.db,
-# relative to /app) is the only thing the server writes. Give the non-root user that one
-# directory and make it a volume so the history survives container re-creation (mount a
-# named volume or a host directory there — see docker-compose.yml).
+# relative to /app) and the uploaded game builds (GameServer:GamesDataPath = data/games)
+# are the only things the server writes. Give the non-root user that one directory and
+# make it a volume so they survive container re-creation (mount a named volume or a host
+# directory there — see docker-compose.yml).
 RUN mkdir -p /app/data && chown $APP_UID /app/data
 VOLUME /app/data
 

@@ -192,4 +192,74 @@ public class GameServerOptions
 
     /// <summary>Per-connection rate limit of voice join / leave / mute requests.</summary>
     public double VoiceRequestCooldownSeconds { get; set; } = 0.2;
+
+    // ---- games portal -----------------------------------------------------------------
+
+    /// <summary>
+    /// The origin game builds are served from, e.g. <c>https://play.tox.gritsenko.biz</c>
+    /// (dev: <c>http://localhost:5002</c>). It must differ from the origin of the TOX client:
+    /// a build is somebody else's JavaScript, and on the client's origin it could read the
+    /// user key from localStorage. A request whose Host is this origin's host gets nothing
+    /// but builds and <c>/jam-sdk.js</c>. Empty = the games portal is off.
+    /// </summary>
+    public string GamesOrigin { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The origins of the TOX client, e.g. <c>https://tox.gritsenko.biz</c>: the only pages
+    /// allowed to embed a game (CSP frame-ancestors), and the ones the injected jam SDK
+    /// talks to over postMessage (<c>data-jam-portal-origins</c>).
+    /// </summary>
+    public string[] PortalOrigins { get; set; } = [];
+
+    /// <summary>Where unpacked builds live: <c>{path}/{gameId}/r{releaseNo}/…</c>.</summary>
+    public string GamesDataPath { get; set; } = "data/games";
+
+    /// <summary>Largest uploaded build (.zip or a single .html).</summary>
+    public int GameMaxBuildMb { get; set; } = 200;
+
+    /// <summary>Largest unpacked build, all files together.</summary>
+    public int GameMaxUnpackedMb { get; set; } = 500;
+
+    /// <summary>Most files in one unpacked build.</summary>
+    public int GameMaxFiles { get; set; } = 5000;
+
+    /// <summary>
+    /// Releases of a game kept unpacked on disk (the newest ones); older ones are deleted
+    /// from disk, their records (version, notes, date) stay.
+    /// </summary>
+    public int GameKeepReleases { get; set; } = 5;
+
+    public int MaxGameTitleLength { get; set; } = 64;
+    public int MaxGameTaglineLength { get; set; } = 140;
+    public int MaxGameDescriptionLength { get; set; } = 8000;
+    public int MaxGameTags { get; set; } = 10;
+    public int MaxReleaseNotesLength { get; set; } = 4000;
+
+    // ---- games analytics ----------------------------------------------------------------
+
+    /// <summary>A play session counts as a play (the number on the cards) after this much attention time.</summary>
+    public double GamePlayCountMinActiveSeconds { get; set; } = 15;
+
+    /// <summary>One session is never credited more than this (a tab left focused and idle).</summary>
+    public double GamePlayMaxSessionHours { get; set; } = 6;
+
+    /// <summary>A session without a heartbeat this long is closed (the client went quiet).</summary>
+    public double GamePlaySessionTimeoutSeconds { get; set; } = 90;
+
+    /// <summary>Raw sessions, events and hits are kept this long; daily counters forever.</summary>
+    public int GameAnalyticsRetentionDays { get; set; } = 180;
+
+    /// <summary>Game events per batch / per session / distinct names per game (the jam portal's caps).</summary>
+    public int GameEventsPerRequest { get; set; } = 50;
+    public int GameEventsPerSession { get; set; } = 300;
+    public int GameEventNamesPerGame { get; set; } = 50;
+
+    /// <summary>Play counts on the cards are re-sent to clients at most this often.</summary>
+    public double GameCatalogCountsFlushSeconds { get; set; } = 10;
+
+    /// <summary>API tokens one user may hold (the agent / scripts publishing games).</summary>
+    public int ApiTokensPerUser { get; set; } = 10;
+
+    /// <summary>An API token unused this long stops working.</summary>
+    public double ApiTokenIdleDays { get; set; } = 60;
 }

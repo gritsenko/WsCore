@@ -5,6 +5,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Console;
 using Microsoft.Extensions.Logging.Debug;
 using WsServer;
+using WsServer.Games;
 using WsServer.Prototype; // added for prototype
 
 var builder = WebApplication.CreateBuilder(args);
@@ -36,6 +37,10 @@ if (app.Environment.IsDevelopment())
     app.UseDeveloperExceptionPage();
 }
 
+// The games origin (GameServer:GamesOrigin — another host name pointing at this same
+// process) serves game builds and nothing else; it must answer before the client's files.
+app.UseGamesOrigin();
+
 app.UseDefaultFiles();
 // Hashed Vite chunks (/assets/name-HASH.js) are immutable; index.html is revalidated on
 // every load so a deploy is picked up immediately (see StaticFileCaching).
@@ -44,5 +49,9 @@ app.UseStaticFiles(new StaticFileOptions { OnPrepareResponse = StaticFileCaching
 // WebSockets (with keep-alive) at /ws, /health for Docker/orchestration probes (503 if
 // the tick loop stops ticking) and the /info dashboard JSON.
 app.UseGameServer();
+
+// Client-side routes of the games portal (/games, /games/{slug}) load the app shell.
+app.MapFallbackToFile("/games/{**path}", "index.html", new StaticFileOptions { OnPrepareResponse = StaticFileCaching.Apply });
+app.MapFallbackToFile("/games", "index.html", new StaticFileOptions { OnPrepareResponse = StaticFileCaching.Apply });
 
 app.Run();

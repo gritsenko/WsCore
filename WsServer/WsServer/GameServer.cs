@@ -4,6 +4,7 @@ using Game.ServerLogic.Connection.Events;
 using Game.ServerLogic.GameState.Events;
 using WsServer.Abstract;
 using WsServer.Chat;
+using WsServer.Games;
 using WsServer.Moderation;
 using WsServer.Rooms;
 using WsServer.Sessions;
@@ -18,6 +19,8 @@ public class GameServer : GameServerBase<GameModel>
     private readonly SessionManager _sessions;
     private readonly ChatHistoryService _chatHistory;
     private readonly ChannelPermissions _channels;
+    private readonly GameCatalog _games;
+    private readonly GameAnalytics _analytics;
 
     private readonly int _snapshotSendEveryTicks;
     private int _ticksSinceSnapshot;
@@ -36,6 +39,8 @@ public class GameServer : GameServerBase<GameModel>
         ChatHistoryService chatHistory,
         ChannelPermissions channels,
         VoiceService voice,
+        GameCatalog games,
+        GameAnalytics analytics,
         GameServerOptions options,
         ILogger<GameServer> logger) : base(gameModel, messenger, connectionManager, serverLogicProvider, options, logger)
     {
@@ -43,14 +48,19 @@ public class GameServer : GameServerBase<GameModel>
         _sessions = sessions;
         _chatHistory = chatHistory;
         _channels = channels;
+        _games = games;
+        _analytics = analytics;
         _heartbeatIntervalTicks = (long)(options.HeartbeatIntervalSeconds * Stopwatch.Frequency);
         _lastHeartbeat = Stopwatch.GetTimestamp();
 
         // A connection gets a session and is placed in the lobby; it gets a game avatar
         // only when it joins a spatial room (see SessionManager).
         OnClientAdded += _sessions.Connect;
+        OnClientAdded += _games.SendCatalog; // the public catalog; again once it identifies
+        _sessions.VisibilityChanged += session => _games.SendCatalog(session.Id);
         OnClientRemoved += _sessions.Disconnect;
         OnClientRemoved += voice.Disconnect; // after the session: the roster goes to who is left
+        OnClientRemoved += _analytics.Disconnect; // its play sessions end
         OnTick += GameServer_OnTick;
 
         _snapshotSendEveryTicks = Math.Max(1, options.SnapshotSendEveryTicks);
@@ -95,6 +105,9 @@ public class GameServer : GameServerBase<GameModel>
         // Channels created by admins: text-chat rooms, voice channels also with voice.
         foreach (var channel in _channels.CreatedChannels)
             CreateChannelRoom(_roomManager, channel.RoomId, channel.Name, channel.IsVoice);
+
+        // The rooms the games of the games portal are played in (hidden; see GameCatalog).
+        _games.CreateRooms();
     }
 
     public const string GameRoomId = "game";
@@ -115,6 +128,7 @@ public class GameServer : GameServerBase<GameModel>
         _chatHistory.DeliverCompleted();
         _sessions.DeliverCompleted(); // finished password hashing (claim / login)
         _sessions.FlushPresence();
+        _analytics.Tick(); // silent play sessions end; play counts reach the cards
 
         // Nobody in a spatial room (e.g. everyone is in the lobby): skip building and
         // serializing a snapshot no one would receive.

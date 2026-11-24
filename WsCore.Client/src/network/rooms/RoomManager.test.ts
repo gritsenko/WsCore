@@ -163,6 +163,26 @@ describe('RoomManager', () => {
     expect(manager.getClientRoom(2)).toBeUndefined(); // its room is gone
   });
 
+  it('syncRooms keeps a hidden room we are in when told to (a game room)', () => {
+    const desc = (id: string) => ({
+      id,
+      name: id,
+      supportedModes: [CommunicationMode.TextChat],
+      isPersistent: true,
+      userCount: 0,
+    });
+    manager.syncRooms([desc('lobby')]);
+    manager.upsertRoom(desc('g-abc'));
+    manager.upsertRoom(desc('g-other'));
+    manager.joinRoom(1, 'Alice', 'g-abc');
+
+    manager.syncRooms([desc('lobby')], id => id.startsWith('g-'));
+
+    expect(manager.getClientRoom(1)?.id).toBe('g-abc');
+    // Listed rooms first; an unlisted room nobody is in goes.
+    expect(manager.getAllRooms().map(r => r.id)).toEqual(['lobby', 'g-abc']);
+  });
+
   it('parseServerModes maps RoomCompatibility names and ignores unknown ones', () => {
     expect(parseServerModes(['TextChat', 'Spatial', 'Hologram', null, 'Spatial'])).toEqual([
       CommunicationMode.TextChat,

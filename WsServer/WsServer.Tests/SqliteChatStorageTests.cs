@@ -375,6 +375,109 @@ public class SqliteChatStorageTests
     }
 
     [Fact]
+    public void AVoiceChannelsDatabase_IsMigratedToTheGamesPortal()
+    {
+        using var db = new TempDatabase();
+        using (var storage = Open(db.Path))
+        {
+            storage.Load(10);
+            storage.SaveChannel(new StoredChannel("c1", 3) { Name = "Talk", CreatedMs = 5, IsVoice = true });
+            storage.FlushAsync().Wait();
+        }
+        // Back to schema v5 (no games, no API tokens).
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db.Path};Pooling=False"))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                DROP TABLE games;
+                DROP TABLE game_releases;
+                DROP TABLE api_tokens;
+                PRAGMA user_version = 5;
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        using (var migrated = Open(db.Path))
+        {
+            var snapshot = migrated.Load(10);
+            Assert.True(snapshot.Channels.Single().IsVoice);
+            Assert.Empty(snapshot.Games);
+            migrated.SaveGame(new StoredGame("abcdefghij", "chpok", 3, "Chpok")
+            {
+                Tags = ["puzzle"], IsPublic = true, CreatedMs = 1, UpdatedMs = 2, NextReleaseNo = 3,
+            });
+            migrated.SaveGameRelease(new StoredGameRelease("abcdefghij", 2, 3, 7)
+            {
+                Version = "0.2", Notes = "n", EntryPath = "a/index.html", Files = 4, Bytes = 99,
+            });
+            migrated.SaveApiToken(new StoredApiToken("hash", 3, "agent", 8, 9));
+            migrated.FlushAsync().Wait();
+        }
+        using var reopened = Open(db.Path);
+        var games = reopened.Load(10);
+        var game = Assert.Single(games.Games);
+        Assert.Equal(("chpok", 3u, "Chpok", true, 3u), (game.Slug, game.OwnerUserId, game.Title, game.IsPublic, game.NextReleaseNo));
+        Assert.Equal(["puzzle"], game.Tags);
+        Assert.Equal(new StoredGameRelease("abcdefghij", 2, 3, 7)
+        {
+            Version = "0.2", Notes = "n", EntryPath = "a/index.html", Files = 4, Bytes = 99,
+        }, Assert.Single(games.GameReleases));
+        Assert.Equal(new StoredApiToken("hash", 3, "agent", 8, 9), Assert.Single(games.ApiTokens));
+    }
+
+    [Fact]
+    public void AGamesPortalDatabase_IsMigratedToGamesAnalytics_KeepingItsGames()
+    {
+        using var db = new TempDatabase();
+        using (var storage = Open(db.Path))
+        {
+            storage.Load(10);
+            storage.SaveGame(new StoredGame("abcdefghij", "chpok", 3, "Chpok") { CreatedMs = 1, UpdatedMs = 2 });
+            storage.FlushAsync().Wait();
+        }
+        // Back to schema v6 (games, no analytics).
+        using (var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={db.Path};Pooling=False"))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = """
+                DROP TABLE game_hits;
+                DROP TABLE game_play_sessions;
+                DROP TABLE game_play_events;
+                DROP TABLE game_daily;
+                ALTER TABLE games DROP COLUMN views_total;
+                ALTER TABLE games DROP COLUMN launches_total;
+                ALTER TABLE games DROP COLUMN plays_total;
+                ALTER TABLE games DROP COLUMN active_ms_total;
+                PRAGMA user_version = 6;
+                """;
+            cmd.ExecuteNonQuery();
+        }
+
+        using (var migrated = Open(db.Path))
+        {
+            var snapshot = migrated.Load(10);
+            Assert.Equal("chpok", Assert.Single(snapshot.Games).Slug);
+            Assert.Equal(new StoredGameCounters("abcdefghij", 0, 0, 0, 0), Assert.Single(snapshot.GameCounters));
+            migrated.SaveGameCounters(new StoredGameCounters("abcdefghij", 5, 4, 3, 2000));
+            migrated.AddGameDaily(new GameDailyDelta("abcdefghij", "2026-11-24", 1, 1, 1, 1000));
+            migrated.AddGameDaily(new GameDailyDelta("abcdefghij", "2026-11-24", 1, 0, 0, 500));
+            // Saving the game again (an edit) leaves its counters alone.
+            migrated.SaveGame(new StoredGame("abcdefghij", "chpok", 3, "Chpok!") { CreatedMs = 1, UpdatedMs = 3 });
+            migrated.FlushAsync().Wait();
+        }
+        using var reopened = Open(db.Path);
+        var after = reopened.Load(10);
+        Assert.Equal("Chpok!", after.Games.Single().Title);
+        Assert.Equal(new StoredGameCounters("abcdefghij", 5, 4, 3, 2000), after.GameCounters.Single());
+        var done = new TaskCompletionSource<GameStatsData>();
+        reopened.QueryGameStats("abcdefghij", 0, d => done.TrySetResult(d));
+        var day = Assert.Single(done.Task.Result.Days);
+        Assert.Equal(("2026-11-24", 2L, 1L, 1L, 1500L), (day.Day, day.Views, day.Launches, day.Plays, day.ActiveMs));
+    }
+
+    [Fact]
     public void Factory_WithoutAPath_OrWithAnUnusablePath_RunsWithoutPersistence()
     {
         using var none = ChatStorageFactory.Create(new GameServerOptions(), NullLogger.Instance);

@@ -49,11 +49,27 @@ public sealed class SqliteChatStorage : IChatStorage
     private sealed record SaveMetaOp(string Key, string Value) : Op;
     private sealed record SavePushSubscriptionOp(StoredPushSubscription Subscription) : Op;
     private sealed record DeletePushSubscriptionOp(string Endpoint) : Op;
+    private sealed record SaveGameOp(StoredGame Game) : Op;
+    private sealed record SaveGameReleaseOp(StoredGameRelease Release) : Op;
+    private sealed record SaveApiTokenOp(StoredApiToken Token) : Op;
+    private sealed record DeleteApiTokenOp(string Hash) : Op;
+    private sealed record SaveGameCountersOp(StoredGameCounters Counters) : Op;
+    private sealed record SavePlaySessionOp(StoredPlaySession Session) : Op;
+    private sealed record AppendPlayEventsOp(IReadOnlyList<StoredPlayEvent> Events) : Op;
+    private sealed record AppendGameHitOp(StoredGameHit Hit) : Op;
+    private sealed record AddGameDailyOp(GameDailyDelta Delta) : Op;
+    private sealed record QueryGameStatsOp(string GameId, long SinceMs, Action<GameStatsData> OnResult) : Op
+    {
+        public GameStatsData Result = new([], [], 0, 0, [], [], []);
+    }
 
     private readonly SqliteConnection _db;
     private readonly ILogger _logger;
     private readonly int _maxMessagesPerRoom;
     private readonly int _userRetentionDays;
+    private readonly int _analyticsRetentionDays;
+    // The transaction of the batch being executed (ad-hoc commands of the analytics ops join it).
+    private SqliteTransaction? _tx;
     private readonly BlockingCollection<Op> _queue = new(new ConcurrentQueue<Op>(), QueueCapacity);
     private Thread? _worker;
     private long _lastPrune = Stopwatch.GetTimestamp();
@@ -79,12 +95,19 @@ public sealed class SqliteChatStorage : IChatStorage
     private SqliteCommand _upsertPushSubscription = null!;
     private SqliteCommand _deletePushSubscription = null!;
     private SqliteCommand _deletePushSubscriptionsOfUser = null!;
+    private SqliteCommand _upsertGame = null!;
+    private SqliteCommand _upsertGameRelease = null!;
+    private SqliteCommand _upsertApiToken = null!;
+    private SqliteCommand _deleteApiToken = null!;
+    private SqliteCommand _deleteApiTokensOfUser = null!;
     private SqliteCommand[] _commands = [];
 
     public bool IsPersistent => true;
 
-    public SqliteChatStorage(string path, int maxMessagesPerRoom, int userRetentionDays, ILogger logger)
+    public SqliteChatStorage(string path, int maxMessagesPerRoom, int userRetentionDays, ILogger logger,
+        int analyticsRetentionDays = 180)
     {
+        _analyticsRetentionDays = analyticsRetentionDays;
         _logger = logger;
         _maxMessagesPerRoom = maxMessagesPerRoom;
         _userRetentionDays = userRetentionDays;
@@ -133,7 +156,11 @@ public sealed class SqliteChatStorage : IChatStorage
     //   4 — created channels: channels.name / is_private / created_ms (a channel with a
     //       name was created by an admin) and channel_members.has_access (private channels).
     //   5 — voice channels: channels.is_voice (a created channel that is a voice channel).
-    private const int SchemaVersion = 5;
+    //   6 — games portal: games, game_releases (the builds are files on disk) and
+    //       api_tokens (publishing from an agent / script).
+    //   7 — games analytics: games.*_total counters, game_hits, game_play_sessions,
+    //       game_play_events, game_daily.
+    private const int SchemaVersion = 7;
 
     private void MigrateUsers()
     {
@@ -189,6 +216,104 @@ public sealed class SqliteChatStorage : IChatStorage
         }
         if (version < 5)
             Execute("ALTER TABLE channels ADD COLUMN is_voice INTEGER NOT NULL DEFAULT 0;");
+        if (version < 6)
+        {
+            Execute("""
+                CREATE TABLE IF NOT EXISTS games(
+                    id              TEXT    PRIMARY KEY,
+                    slug            TEXT    NOT NULL UNIQUE,
+                    owner_user_id   INTEGER NOT NULL,
+                    title           TEXT    NOT NULL,
+                    tagline         TEXT    NOT NULL DEFAULT '',
+                    description     TEXT    NOT NULL DEFAULT '',
+                    tags            TEXT    NOT NULL DEFAULT '[]',
+                    is_public       INTEGER NOT NULL DEFAULT 0,
+                    created_ms      INTEGER NOT NULL,
+                    updated_ms      INTEGER NOT NULL,
+                    next_release_no INTEGER NOT NULL DEFAULT 1
+                ) WITHOUT ROWID;
+                CREATE TABLE IF NOT EXISTS game_releases(
+                    game_id        TEXT    NOT NULL,
+                    no             INTEGER NOT NULL,
+                    version        TEXT    NOT NULL DEFAULT '',
+                    notes          TEXT    NOT NULL DEFAULT '',
+                    author_user_id INTEGER NOT NULL,
+                    created_ms     INTEGER NOT NULL,
+                    entry_path     TEXT    NOT NULL,
+                    files          INTEGER NOT NULL DEFAULT 0,
+                    bytes          INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY(game_id, no)
+                ) WITHOUT ROWID;
+                CREATE TABLE IF NOT EXISTS api_tokens(
+                    hash         TEXT    PRIMARY KEY,
+                    user_id      INTEGER NOT NULL,
+                    name         TEXT    NOT NULL DEFAULT '',
+                    created_ms   INTEGER NOT NULL,
+                    last_used_ms INTEGER NOT NULL DEFAULT 0
+                ) WITHOUT ROWID;
+                CREATE INDEX IF NOT EXISTS ix_api_tokens_user ON api_tokens(user_id);
+                """);
+        }
+        if (version < 7)
+        {
+            foreach (var column in new[] { "views_total", "launches_total", "plays_total", "active_ms_total" })
+            {
+                if (Scalar($"SELECT COUNT(*) FROM pragma_table_info('games') WHERE name = '{column}';") == 0)
+                    Execute($"ALTER TABLE games ADD COLUMN {column} INTEGER NOT NULL DEFAULT 0;");
+            }
+            Execute("""
+                CREATE TABLE IF NOT EXISTS game_hits(
+                    id         INTEGER PRIMARY KEY,
+                    game_id    TEXT    NOT NULL,
+                    kind       TEXT    NOT NULL,
+                    user_id    INTEGER NOT NULL DEFAULT 0,
+                    visitor_id TEXT    NOT NULL DEFAULT '',
+                    source     TEXT    NOT NULL DEFAULT '',
+                    ms         INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_game_hits_game ON game_hits(game_id, ms);
+                CREATE INDEX IF NOT EXISTS ix_game_hits_ms ON game_hits(ms);
+                CREATE TABLE IF NOT EXISTS game_play_sessions(
+                    id           TEXT    PRIMARY KEY,
+                    game_id      TEXT    NOT NULL,
+                    release_no   INTEGER NOT NULL DEFAULT 0,
+                    user_id      INTEGER NOT NULL DEFAULT 0,
+                    visitor_id   TEXT    NOT NULL DEFAULT '',
+                    own          INTEGER NOT NULL DEFAULT 0,
+                    device       TEXT    NOT NULL DEFAULT '',
+                    source       TEXT    NOT NULL DEFAULT '',
+                    started_ms   INTEGER NOT NULL,
+                    last_seen_ms INTEGER NOT NULL,
+                    active_ms    INTEGER NOT NULL DEFAULT 0,
+                    counted      INTEGER NOT NULL DEFAULT 0,
+                    ended        INTEGER NOT NULL DEFAULT 0
+                ) WITHOUT ROWID;
+                CREATE INDEX IF NOT EXISTS ix_game_sessions_game ON game_play_sessions(game_id, started_ms);
+                CREATE INDEX IF NOT EXISTS ix_game_sessions_started ON game_play_sessions(started_ms);
+                CREATE TABLE IF NOT EXISTS game_play_events(
+                    id         INTEGER PRIMARY KEY,
+                    session_id TEXT    NOT NULL,
+                    game_id    TEXT    NOT NULL,
+                    own        INTEGER NOT NULL DEFAULT 0,
+                    name       TEXT    NOT NULL,
+                    level      TEXT    NOT NULL DEFAULT '',
+                    params     TEXT    NOT NULL DEFAULT '',
+                    ms         INTEGER NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS ix_game_events_game ON game_play_events(game_id, own, name);
+                CREATE INDEX IF NOT EXISTS ix_game_events_ms ON game_play_events(ms);
+                CREATE TABLE IF NOT EXISTS game_daily(
+                    game_id     TEXT    NOT NULL,
+                    day         TEXT    NOT NULL,
+                    views       INTEGER NOT NULL DEFAULT 0,
+                    launches    INTEGER NOT NULL DEFAULT 0,
+                    plays       INTEGER NOT NULL DEFAULT 0,
+                    active_ms   INTEGER NOT NULL DEFAULT 0,
+                    new_players INTEGER NOT NULL DEFAULT 0,
+                    PRIMARY KEY(game_id, day)
+                ) WITHOUT ROWID;
+                """);
+        }
         Execute($"PRAGMA user_version = {SchemaVersion};");
         tx.Commit();
 
@@ -329,6 +454,75 @@ public sealed class SqliteChatStorage : IChatStorage
             }
         }
 
+        var games = new List<StoredGame>();
+        using (var cmd = _db.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT id, slug, owner_user_id, title, tagline, description, tags, is_public,
+                       created_ms, updated_ms, next_release_no FROM games;
+                """;
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                games.Add(new StoredGame(reader.GetString(0), reader.GetString(1), (uint)reader.GetInt64(2), reader.GetString(3))
+                {
+                    Tagline = reader.GetString(4),
+                    Description = reader.GetString(5),
+                    Tags = ReadTags(reader.GetString(6)),
+                    IsPublic = reader.GetInt64(7) != 0,
+                    CreatedMs = reader.GetInt64(8),
+                    UpdatedMs = reader.GetInt64(9),
+                    NextReleaseNo = (uint)reader.GetInt64(10),
+                });
+            }
+        }
+
+        var gameReleases = new List<StoredGameRelease>();
+        using (var cmd = _db.CreateCommand())
+        {
+            cmd.CommandText = """
+                SELECT game_id, no, version, notes, author_user_id, created_ms, entry_path, files, bytes
+                FROM game_releases ORDER BY game_id, no;
+                """;
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                gameReleases.Add(new StoredGameRelease(reader.GetString(0), (uint)reader.GetInt64(1),
+                    (uint)reader.GetInt64(4), reader.GetInt64(5))
+                {
+                    Version = reader.GetString(2),
+                    Notes = reader.GetString(3),
+                    EntryPath = reader.GetString(6),
+                    Files = (int)reader.GetInt64(7),
+                    Bytes = reader.GetInt64(8),
+                });
+            }
+        }
+
+        var gameCounters = new List<StoredGameCounters>();
+        using (var cmd = _db.CreateCommand())
+        {
+            cmd.CommandText = "SELECT id, views_total, launches_total, plays_total, active_ms_total FROM games;";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                gameCounters.Add(new StoredGameCounters(reader.GetString(0), reader.GetInt64(1), reader.GetInt64(2),
+                    reader.GetInt64(3), reader.GetInt64(4)));
+            }
+        }
+
+        var apiTokens = new List<StoredApiToken>();
+        using (var cmd = _db.CreateCommand())
+        {
+            cmd.CommandText = "SELECT hash, user_id, name, created_ms, last_used_ms FROM api_tokens;";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                apiTokens.Add(new StoredApiToken(reader.GetString(0), (uint)reader.GetInt64(1), reader.GetString(2),
+                    reader.GetInt64(3), reader.GetInt64(4)));
+            }
+        }
+
         PrepareCommands();
 
         var rooms = new List<StoredRoomHistory>();
@@ -353,6 +547,10 @@ public sealed class SqliteChatStorage : IChatStorage
             ChannelMembers = channelMembers,
             Meta = meta,
             PushSubscriptions = pushSubscriptions,
+            Games = games,
+            GameReleases = gameReleases,
+            ApiTokens = apiTokens,
+            GameCounters = gameCounters,
         };
     }
 
@@ -492,13 +690,47 @@ public sealed class SqliteChatStorage : IChatStorage
         _deletePushSubscriptionsOfUser.CommandText = "DELETE FROM push_subscriptions WHERE user_id = $id;";
         AddParameters(_deletePushSubscriptionsOfUser, "$id");
 
+        _upsertGame = _db.CreateCommand();
+        _upsertGame.CommandText = """
+            INSERT INTO games(id, slug, owner_user_id, title, tagline, description, tags, is_public,
+                created_ms, updated_ms, next_release_no)
+            VALUES($id, $slug, $owner, $title, $tagline, $description, $tags, $public, $created, $updated, $next)
+            ON CONFLICT(id) DO UPDATE SET
+                slug = excluded.slug, owner_user_id = excluded.owner_user_id, title = excluded.title,
+                tagline = excluded.tagline, description = excluded.description, tags = excluded.tags,
+                is_public = excluded.is_public, updated_ms = excluded.updated_ms,
+                next_release_no = excluded.next_release_no;
+            """;
+        AddParameters(_upsertGame, "$id", "$slug", "$owner", "$title", "$tagline", "$description", "$tags", "$public",
+            "$created", "$updated", "$next");
+        _upsertGameRelease = _db.CreateCommand();
+        _upsertGameRelease.CommandText = """
+            INSERT OR REPLACE INTO game_releases(game_id, no, version, notes, author_user_id, created_ms, entry_path, files, bytes)
+            VALUES($game, $no, $version, $notes, $author, $created, $entry, $files, $bytes);
+            """;
+        AddParameters(_upsertGameRelease, "$game", "$no", "$version", "$notes", "$author", "$created", "$entry",
+            "$files", "$bytes");
+        _upsertApiToken = _db.CreateCommand();
+        _upsertApiToken.CommandText = """
+            INSERT OR REPLACE INTO api_tokens(hash, user_id, name, created_ms, last_used_ms)
+            VALUES($hash, $user, $name, $created, $used);
+            """;
+        AddParameters(_upsertApiToken, "$hash", "$user", "$name", "$created", "$used");
+        _deleteApiToken = _db.CreateCommand();
+        _deleteApiToken.CommandText = "DELETE FROM api_tokens WHERE hash = $hash;";
+        AddParameters(_deleteApiToken, "$hash");
+        _deleteApiTokensOfUser = _db.CreateCommand();
+        _deleteApiTokensOfUser.CommandText = "DELETE FROM api_tokens WHERE user_id = $id;";
+        AddParameters(_deleteApiTokensOfUser, "$id");
+
         _commands =
         [
             _insertMessage, _upsertUser, _deleteUser, _selectBefore, _deleteKeysOfUser,
             _upsertUserKey, _deleteUserKey, _upsertAvatar, _deleteAvatar, _selectAvatar,
             _deleteMessage, _upsertChannel, _upsertChannelMember, _deleteChannelMember,
             _deleteChannelMembersOfUser, _deleteChannel, _upsertMeta, _upsertPushSubscription, _deletePushSubscription,
-            _deletePushSubscriptionsOfUser,
+            _deletePushSubscriptionsOfUser, _upsertGame, _upsertGameRelease, _upsertApiToken, _deleteApiToken,
+            _deleteApiTokensOfUser,
         ];
     }
 
@@ -524,6 +756,21 @@ public sealed class SqliteChatStorage : IChatStorage
     public void SaveMeta(string key, string value) => EnqueueWrite(new SaveMetaOp(key, value));
     public void SavePushSubscription(StoredPushSubscription subscription) => EnqueueWrite(new SavePushSubscriptionOp(subscription));
     public void DeletePushSubscription(string endpoint) => EnqueueWrite(new DeletePushSubscriptionOp(endpoint));
+    public void SaveGame(StoredGame game) => EnqueueWrite(new SaveGameOp(game));
+    public void SaveGameRelease(StoredGameRelease release) => EnqueueWrite(new SaveGameReleaseOp(release));
+    public void SaveApiToken(StoredApiToken token) => EnqueueWrite(new SaveApiTokenOp(token));
+    public void DeleteApiToken(string hash) => EnqueueWrite(new DeleteApiTokenOp(hash));
+    public void SaveGameCounters(StoredGameCounters counters) => EnqueueWrite(new SaveGameCountersOp(counters));
+    public void SavePlaySession(StoredPlaySession session) => EnqueueWrite(new SavePlaySessionOp(session));
+    public void AppendPlayEvents(IReadOnlyList<StoredPlayEvent> events) => EnqueueWrite(new AppendPlayEventsOp(events));
+    public void AppendGameHit(StoredGameHit hit) => EnqueueWrite(new AppendGameHitOp(hit));
+    public void AddGameDaily(GameDailyDelta delta) => EnqueueWrite(new AddGameDailyOp(delta));
+
+    public void QueryGameStats(string gameId, long sinceMs, Action<GameStatsData> onResult)
+    {
+        if (!TryEnqueue(new QueryGameStatsOp(gameId, sinceMs, onResult)))
+            ThreadPool.QueueUserWorkItem(_ => onResult(new GameStatsData([], [], 0, 0, [], [], [])));
+    }
 
     public void LoadAvatar(uint userId, Action<StoredAvatar?> onResult)
     {
@@ -597,6 +844,7 @@ public sealed class SqliteChatStorage : IChatStorage
         try
         {
             using var tx = _db.BeginTransaction();
+            _tx = tx;
             foreach (var command in _commands)
                 command.Transaction = tx;
 
@@ -668,6 +916,93 @@ public sealed class SqliteChatStorage : IChatStorage
                         _deleteChannelMembersOfUser.ExecuteNonQuery();
                         _deletePushSubscriptionsOfUser.Parameters[0].Value = (long)id;
                         _deletePushSubscriptionsOfUser.ExecuteNonQuery();
+                        _deleteApiTokensOfUser.Parameters[0].Value = (long)id;
+                        _deleteApiTokensOfUser.ExecuteNonQuery();
+                        break;
+                    case SaveGameOp(var g):
+                        _upsertGame.Parameters[0].Value = g.Id;
+                        _upsertGame.Parameters[1].Value = g.Slug;
+                        _upsertGame.Parameters[2].Value = (long)g.OwnerUserId;
+                        _upsertGame.Parameters[3].Value = g.Title;
+                        _upsertGame.Parameters[4].Value = g.Tagline;
+                        _upsertGame.Parameters[5].Value = g.Description;
+                        _upsertGame.Parameters[6].Value = System.Text.Json.JsonSerializer.Serialize(g.Tags);
+                        _upsertGame.Parameters[7].Value = g.IsPublic ? 1L : 0L;
+                        _upsertGame.Parameters[8].Value = g.CreatedMs;
+                        _upsertGame.Parameters[9].Value = g.UpdatedMs;
+                        _upsertGame.Parameters[10].Value = (long)g.NextReleaseNo;
+                        _upsertGame.ExecuteNonQuery();
+                        break;
+                    case SaveGameReleaseOp(var r):
+                        _upsertGameRelease.Parameters[0].Value = r.GameId;
+                        _upsertGameRelease.Parameters[1].Value = (long)r.No;
+                        _upsertGameRelease.Parameters[2].Value = r.Version;
+                        _upsertGameRelease.Parameters[3].Value = r.Notes;
+                        _upsertGameRelease.Parameters[4].Value = (long)r.AuthorUserId;
+                        _upsertGameRelease.Parameters[5].Value = r.CreatedMs;
+                        _upsertGameRelease.Parameters[6].Value = r.EntryPath;
+                        _upsertGameRelease.Parameters[7].Value = (long)r.Files;
+                        _upsertGameRelease.Parameters[8].Value = r.Bytes;
+                        _upsertGameRelease.ExecuteNonQuery();
+                        break;
+                    case SaveApiTokenOp(var t):
+                        _upsertApiToken.Parameters[0].Value = t.Hash;
+                        _upsertApiToken.Parameters[1].Value = (long)t.UserId;
+                        _upsertApiToken.Parameters[2].Value = t.Name;
+                        _upsertApiToken.Parameters[3].Value = t.CreatedMs;
+                        _upsertApiToken.Parameters[4].Value = t.LastUsedMs;
+                        _upsertApiToken.ExecuteNonQuery();
+                        break;
+                    case DeleteApiTokenOp(var hash):
+                        _deleteApiToken.Parameters[0].Value = hash;
+                        _deleteApiToken.ExecuteNonQuery();
+                        break;
+                    case SaveGameCountersOp(var c):
+                        Exec("""
+                            UPDATE games SET views_total = $v, launches_total = $l, plays_total = $p,
+                                active_ms_total = $a WHERE id = $id;
+                            """, ("$id", c.GameId), ("$v", c.Views), ("$l", c.Launches), ("$p", c.Plays), ("$a", c.ActiveMs));
+                        break;
+                    case SavePlaySessionOp(var ps):
+                        Exec("""
+                            INSERT OR REPLACE INTO game_play_sessions(id, game_id, release_no, user_id, visitor_id, own,
+                                device, source, started_ms, last_seen_ms, active_ms, counted, ended)
+                            VALUES($id, $g, $r, $u, $v, $own, $d, $s, $st, $ls, $a, $c, $e);
+                            """, ("$id", ps.Id), ("$g", ps.GameId), ("$r", (long)ps.ReleaseNo), ("$u", (long)ps.UserId),
+                            ("$v", ps.VisitorId), ("$own", ps.Own ? 1L : 0L), ("$d", ps.Device), ("$s", ps.Source),
+                            ("$st", ps.StartedMs), ("$ls", ps.LastSeenMs), ("$a", ps.ActiveMs),
+                            ("$c", ps.Counted ? 1L : 0L), ("$e", ps.Ended ? 1L : 0L));
+                        break;
+                    case AppendPlayEventsOp(var events):
+                        foreach (var ev in events)
+                        {
+                            Exec("""
+                                INSERT INTO game_play_events(session_id, game_id, own, name, level, params, ms)
+                                VALUES($s, $g, $own, $n, $l, $p, $ms);
+                                """, ("$s", ev.SessionId), ("$g", ev.GameId), ("$own", ev.Own ? 1L : 0L), ("$n", ev.Name),
+                                ("$l", ev.Level), ("$p", ev.Params), ("$ms", ev.Ms));
+                        }
+                        break;
+                    case AppendGameHitOp(var hit):
+                        Exec("""
+                            INSERT INTO game_hits(game_id, kind, user_id, visitor_id, source, ms)
+                            VALUES($g, $k, $u, $v, $s, $ms);
+                            """, ("$g", hit.GameId), ("$k", hit.Kind), ("$u", (long)hit.UserId), ("$v", hit.VisitorId),
+                            ("$s", hit.Source), ("$ms", hit.Ms));
+                        break;
+                    case AddGameDailyOp(var d):
+                        Exec("""
+                            INSERT INTO game_daily(game_id, day, views, launches, plays, active_ms, new_players)
+                            VALUES($g, $day, $v, $l, $p, $a, $n)
+                            ON CONFLICT(game_id, day) DO UPDATE SET
+                                views = views + excluded.views, launches = launches + excluded.launches,
+                                plays = plays + excluded.plays, active_ms = active_ms + excluded.active_ms,
+                                new_players = new_players + excluded.new_players;
+                            """, ("$g", d.GameId), ("$day", d.Day), ("$v", d.Views), ("$l", d.Launches), ("$p", d.Plays),
+                            ("$a", d.ActiveMs), ("$n", d.NewPlayers));
+                        break;
+                    case QueryGameStatsOp gs:
+                        gs.Result = SelectGameStats(gs.GameId, gs.SinceMs);
                         break;
                     case SaveMetaOp(var key, var value):
                         _upsertMeta.Parameters[0].Value = key;
@@ -725,6 +1060,10 @@ public sealed class SqliteChatStorage : IChatStorage
         {
             _logger.LogError(e, "Chat storage batch of {Count} operation(s) failed", batch.Count);
         }
+        finally
+        {
+            _tx = null;
+        }
 
         // Answer after the commit (or the failure: an empty page beats a client that waits
         // forever).
@@ -735,6 +1074,7 @@ public sealed class SqliteChatStorage : IChatStorage
                 switch (op)
                 {
                     case QueryOp q: q.OnResult(q.Result); break;
+                    case QueryGameStatsOp gs: gs.OnResult(gs.Result); break;
                     case LoadAvatarOp a: a.OnResult(a.Result); break;
                     case FlushOp f: f.Done.TrySetResult(); break;
                 }
@@ -791,6 +1131,20 @@ public sealed class SqliteChatStorage : IChatStorage
             }
         }
 
+        if (_analyticsRetentionDays > 0)
+        {
+            using var cmd = _db.CreateCommand();
+            // Raw analytics only: the daily counters and the totals on the games stay.
+            cmd.CommandText = """
+                DELETE FROM game_play_sessions WHERE started_ms < $cutoff;
+                DELETE FROM game_play_events WHERE ms < $cutoff;
+                DELETE FROM game_hits WHERE ms < $cutoff;
+                """;
+            cmd.Parameters.AddWithValue("$cutoff",
+                DateTimeOffset.UtcNow.AddDays(-_analyticsRetentionDays).ToUnixTimeMilliseconds());
+            cmd.ExecuteNonQuery();
+        }
+
         if (_userRetentionDays > 0)
         {
             using var cmd = _db.CreateCommand();
@@ -801,6 +1155,7 @@ public sealed class SqliteChatStorage : IChatStorage
                 DELETE FROM avatars WHERE user_id NOT IN (SELECT id FROM users);
                 DELETE FROM channel_members WHERE user_id NOT IN (SELECT id FROM users);
                 DELETE FROM push_subscriptions WHERE user_id NOT IN (SELECT id FROM users);
+                DELETE FROM api_tokens WHERE user_id NOT IN (SELECT id FROM users);
                 """;
             cmd.Parameters.AddWithValue("$cutoff",
                 DateTimeOffset.UtcNow.AddDays(-_userRetentionDays).ToUnixTimeMilliseconds());
@@ -808,7 +1163,94 @@ public sealed class SqliteChatStorage : IChatStorage
         }
     }
 
+    // ---- games analytics ----------------------------------------------------------------
+
+    private void Exec(string sql, params (string Name, object Value)[] args)
+    {
+        using var cmd = _db.CreateCommand();
+        cmd.Transaction = _tx;
+        cmd.CommandText = sql;
+        foreach (var (name, value) in args)
+            cmd.Parameters.AddWithValue(name, value);
+        cmd.ExecuteNonQuery();
+    }
+
+    private List<T> Select<T>(string sql, Func<SqliteDataReader, T> row, params (string Name, object Value)[] args)
+    {
+        using var cmd = _db.CreateCommand();
+        cmd.Transaction = _tx;
+        cmd.CommandText = sql;
+        foreach (var (name, value) in args)
+            cmd.Parameters.AddWithValue(name, value);
+        using var reader = cmd.ExecuteReader();
+        var rows = new List<T>();
+        while (reader.Read())
+            rows.Add(row(reader));
+        return rows;
+    }
+
+    // A player is a user, or an anonymous visitor's random id.
+    private const string PlayerKey = "CASE WHEN user_id > 0 THEN 'u' || user_id ELSE 'v' || visitor_id END";
+
+    private GameStatsData SelectGameStats(string gameId, long sinceMs)
+    {
+        var all = gameId.Length == 0;
+        var gameFilter = all ? "1 = 1" : "game_id = $g";
+        var args = new (string, object)[] { ("$g", gameId), ("$since", sinceMs),
+            ("$sinceDay", DateTimeOffset.FromUnixTimeMilliseconds(Math.Max(0, sinceMs)).UtcDateTime.ToString("yyyy-MM-dd")) };
+
+        var playersByDay = Select($"""
+            SELECT date(started_ms / 1000, 'unixepoch') AS d, COUNT(DISTINCT {PlayerKey})
+            FROM game_play_sessions WHERE {gameFilter} AND own = 0 AND started_ms >= $since GROUP BY d;
+            """, r => (r.GetString(0), r.GetInt64(1)), args).ToDictionary(x => x.Item1, x => x.Item2);
+        var days = Select("""
+            SELECT day, views, launches, plays, active_ms FROM game_daily
+            WHERE game_id = $g AND day >= $sinceDay ORDER BY day;
+            """, r => new GameDay(r.GetString(0), r.GetInt64(1), r.GetInt64(2), r.GetInt64(3), r.GetInt64(4),
+                playersByDay.GetValueOrDefault(r.GetString(0))), args);
+
+        var sessions = Select($"""
+            SELECT active_ms FROM game_play_sessions WHERE {gameFilter} AND own = 0 AND started_ms >= $since
+            ORDER BY started_ms DESC LIMIT 50000;
+            """, r => r.GetInt64(0), args);
+        var players = Select($"""
+            SELECT COUNT(DISTINCT {PlayerKey}) FROM game_play_sessions
+            WHERE {gameFilter} AND own = 0 AND started_ms >= $since;
+            """, r => r.GetInt64(0), args).Single();
+        var returning = Select($"""
+            SELECT COUNT(*) FROM (SELECT {PlayerKey} AS p FROM game_play_sessions
+                WHERE {gameFilter} AND own = 0 AND started_ms >= $since
+                GROUP BY p HAVING COUNT(DISTINCT date(started_ms / 1000, 'unixepoch')) >= 2);
+            """, r => r.GetInt64(0), args).Single();
+
+        IReadOnlyList<NamedCount> events = [], levels = [];
+        if (!all)
+        {
+            events = Select("""
+                SELECT name, COUNT(*) FROM game_play_events
+                WHERE game_id = $g AND own = 0 AND ms >= $since AND name <> 'level_complete'
+                GROUP BY name ORDER BY 2 DESC, name LIMIT 50;
+                """, r => new NamedCount(r.GetString(0), r.GetInt64(1)), args);
+            levels = Select("""
+                SELECT level, COUNT(DISTINCT session_id) FROM game_play_events
+                WHERE game_id = $g AND own = 0 AND ms >= $since AND name = 'level_complete'
+                GROUP BY level ORDER BY MIN(ms) LIMIT 100;
+                """, r => new NamedCount(r.GetString(0), r.GetInt64(1)), args);
+        }
+        var sources = Select($"""
+            SELECT source, COUNT(*) FROM game_hits WHERE {gameFilter} AND kind = 'view' AND ms >= $since
+            GROUP BY source ORDER BY 2 DESC;
+            """, r => new NamedCount(r.GetString(0), r.GetInt64(1)), args);
+        return new GameStatsData(days, sessions, players, returning, events, levels, sources);
+    }
+
     // ---- helpers ----------------------------------------------------------------------
+
+    private static IReadOnlyList<string> ReadTags(string json)
+    {
+        try { return System.Text.Json.JsonSerializer.Deserialize<List<string>>(json) ?? []; }
+        catch (System.Text.Json.JsonException) { return []; }
+    }
 
     private void Execute(string sql)
     {

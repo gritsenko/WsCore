@@ -29,6 +29,8 @@ export enum ServerEventType {
   VoiceLeftEvent = 141,
   VoiceSignalEvent = 142,
   VoiceRosterEvent = 143,
+  GameCatalogEvent = 150,
+  ApiTokensEvent = 151,
   RoomListEvent = 250,
   RoomUsersUpdateEvent = 251,
   JoinRoomResultEvent = 252,
@@ -68,6 +70,12 @@ export enum ClientMessageType {
   VoiceLeaveRequest = 141,
   VoiceSignalRequest = 142,
   VoiceStateRequest = 143,
+  CreateApiTokenRequest = 150,
+  RevokeApiTokenRequest = 151,
+  ListApiTokensRequest = 152,
+  GameViewRequest = 153,
+  GamePlayBeatRequest = 154,
+  GamePlayEventsRequest = 155,
   GetRoomListRequest = 250,
   JoinRoomRequest = 251,
 }
@@ -138,6 +146,15 @@ import { VoiceJoinRequest } from './protocol/VoiceJoinRequest';
 import { VoiceLeaveRequest } from './protocol/VoiceLeaveRequest';
 import { VoiceSignalRequest } from './protocol/VoiceSignalRequest';
 import { VoiceStateRequest } from './protocol/VoiceStateRequest';
+import { GameCatalogEvent } from './protocol/GameCatalogEvent';
+import { ApiTokensEvent } from './protocol/ApiTokensEvent';
+import { CreateApiTokenRequest } from './protocol/CreateApiTokenRequest';
+import { RevokeApiTokenRequest } from './protocol/RevokeApiTokenRequest';
+import { ListApiTokensRequest } from './protocol/ListApiTokensRequest';
+import { GameViewRequest } from './protocol/GameViewRequest';
+import { GamePlayBeatRequest } from './protocol/GamePlayBeatRequest';
+import { GamePlayEventsRequest } from './protocol/GamePlayEventsRequest';
+import { GamePlayEventData } from './protocol/GamePlayEventData';
 
 import { MemoryPackReader } from './protocol/MemoryPackReader';
 import Emitter, { Unsubscribe } from '../utils/Emitter';
@@ -176,6 +193,8 @@ export interface ServerEventHandlers {
   onVoiceLeftEvent(msg: VoiceLeftEvent): void;
   onVoiceSignalEvent(msg: VoiceSignalEvent): void;
   onVoiceRosterEvent(msg: VoiceRosterEvent): void;
+  onGameCatalogEvent(msg: GameCatalogEvent): void;
+  onApiTokensEvent(msg: ApiTokensEvent): void;
   onRoomListEvent(msg: RoomListEvent): void;
   onRoomUsersUpdateEvent(msg: RoomUsersUpdateEvent): void;
   onJoinRoomResultEvent(msg: JoinRoomResultEvent): void;
@@ -274,6 +293,8 @@ export const SERVER_EVENT_ROUTES: { readonly [K in ServerEventType]: ServerEvent
   [ServerEventType.VoiceLeftEvent]: route(VoiceLeftEvent, (h, m) => h.onVoiceLeftEvent(m)),
   [ServerEventType.VoiceSignalEvent]: route(VoiceSignalEvent, (h, m) => h.onVoiceSignalEvent(m)),
   [ServerEventType.VoiceRosterEvent]: route(VoiceRosterEvent, (h, m) => h.onVoiceRosterEvent(m)),
+  [ServerEventType.GameCatalogEvent]: route(GameCatalogEvent, (h, m) => h.onGameCatalogEvent(m)),
+  [ServerEventType.ApiTokensEvent]: route(ApiTokensEvent, (h, m) => h.onApiTokensEvent(m)),
   [ServerEventType.RoomListEvent]: route(RoomListEvent, (h, m) => h.onRoomListEvent(m)),
   [ServerEventType.RoomUsersUpdateEvent]: route(RoomUsersUpdateEvent, (h, m) =>
     h.onRoomUsersUpdateEvent(m)
@@ -368,6 +389,8 @@ export default class WsConnection<T extends IPlayer = IPlayer> implements Server
   onVoiceLeftEvent(_msg: VoiceLeftEvent): void {}
   onVoiceSignalEvent(_msg: VoiceSignalEvent): void {}
   onVoiceRosterEvent(_msg: VoiceRosterEvent): void {}
+  onGameCatalogEvent(_msg: GameCatalogEvent): void {}
+  onApiTokensEvent(_msg: ApiTokensEvent): void {}
   onRoomListEvent(_msg: RoomListEvent): void {}
   onRoomUsersUpdateEvent(_msg: RoomUsersUpdateEvent): void {}
   onJoinRoomResultEvent(_msg: JoinRoomResultEvent): void {}
@@ -788,6 +811,73 @@ export default class WsConnection<T extends IPlayer = IPlayer> implements Server
     this.sendMessage(
       ClientMessageType.SetServerAdminRequest,
       SetServerAdminRequest.serialize(request)
+    );
+  }
+
+  sendGameViewRequest(gameId: string, source: string, visitorId: string): void {
+    const request = new GameViewRequest();
+    request.gameId = gameId;
+    request.source = source;
+    request.visitorId = visitorId;
+    this.sendMessage(ClientMessageType.GameViewRequest, GameViewRequest.serialize(request));
+  }
+
+  sendGamePlayBeatRequest(beat: {
+    gameId: string;
+    sessionId: string;
+    releaseNo: number;
+    activeMs: number;
+    device: string;
+    source: string;
+    visitorId: string;
+    ended: boolean;
+  }): void {
+    const request = new GamePlayBeatRequest();
+    Object.assign(request, beat);
+    this.sendMessage(ClientMessageType.GamePlayBeatRequest, GamePlayBeatRequest.serialize(request));
+  }
+
+  sendGamePlayEventsRequest(
+    sessionId: string,
+    events: { name: string; level: string; params: string }[]
+  ): void {
+    const request = new GamePlayEventsRequest();
+    request.sessionId = sessionId;
+    request.events = events.map(e => {
+      const data = new GamePlayEventData();
+      data.name = e.name;
+      data.level = e.level;
+      data.params = e.params;
+      return data;
+    });
+    this.sendMessage(
+      ClientMessageType.GamePlayEventsRequest,
+      GamePlayEventsRequest.serialize(request)
+    );
+  }
+
+  sendCreateApiTokenRequest(name: string): void {
+    const request = new CreateApiTokenRequest();
+    request.name = name;
+    this.sendMessage(
+      ClientMessageType.CreateApiTokenRequest,
+      CreateApiTokenRequest.serialize(request)
+    );
+  }
+
+  sendRevokeApiTokenRequest(id: string): void {
+    const request = new RevokeApiTokenRequest();
+    request.id = id;
+    this.sendMessage(
+      ClientMessageType.RevokeApiTokenRequest,
+      RevokeApiTokenRequest.serialize(request)
+    );
+  }
+
+  sendListApiTokensRequest(): void {
+    this.sendMessage(
+      ClientMessageType.ListApiTokensRequest,
+      ListApiTokensRequest.serialize(new ListApiTokensRequest())
     );
   }
 

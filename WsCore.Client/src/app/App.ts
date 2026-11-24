@@ -47,6 +47,8 @@ export default class App {
   private readonly voice: VoiceChat<Player>;
   /** Notices a newer deployed build; the lobby then offers a reload. */
   private readonly updates = new UpdateChecker(__APP_BUILD__, browserUpdateDeps());
+  /** An unnamed visitor (the games portal) asked to enter: show the entry form. */
+  private onSignIn: (() => void) | null = null;
   /** Called (once) if the login this app was started with is refused. */
   private onLoginFailed: ((error: string) => void) | null = null;
 
@@ -73,6 +75,11 @@ export default class App {
     this.client.on('playerName', (id, name) => {
       if (id === this.client.clientId && name) saveName(name);
     });
+  }
+
+  /** What to do when an unnamed visitor asks to enter (main.ts shows the entry form). */
+  setOnSignIn(onSignIn: () => void): void {
+    this.onSignIn = onSignIn;
   }
 
   setPlayerName(name: string): void {
@@ -160,7 +167,8 @@ export default class App {
         roomId => this.enterGame(roomId),
         this.alerts,
         this.voice,
-        this.updates
+        this.updates,
+        () => this.onSignIn?.()
       )
     );
   }

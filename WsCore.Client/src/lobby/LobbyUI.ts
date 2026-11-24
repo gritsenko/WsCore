@@ -1,4 +1,5 @@
 import styles from './LobbyUI.css?inline';
+import portalStyles from '../portal/Portal.css?inline';
 import { linkify } from '../utils/Linkify';
 
 const svg = (body: string, size = 20): string =>
@@ -194,6 +195,8 @@ export interface LobbyRoom {
   isVoice?: boolean;
   /** Who is in its voice right now. */
   voice?: LobbyVoiceParticipant[];
+  /** Not listed among the channels (a game's room): known for the header only. */
+  hidden?: boolean;
 }
 
 /** Someone in a voice channel, as listed under it. */
@@ -255,6 +258,13 @@ export default class LobbyUI {
   private createChannelButton: HTMLButtonElement | null = null;
   private createChannelCallback: (() => void) | null = null;
   private updateButton: HTMLButtonElement | null = null;
+  private gamesNav: HTMLButtonElement | null = null;
+  private gamesNavCount: HTMLSpanElement | null = null;
+  private gamesCallback: (() => void) | null = null;
+  private portalPane: HTMLDivElement | null = null;
+  /** Not identified (browsing the games portal without a name): the footer offers to enter. */
+  private anonymous = false;
+  private stageSlot: HTMLDivElement | null = null;
   private voiceJoinCallback: ((roomId: string) => void) | null = null;
   private voiceControlCallback: ((control: VoiceControl) => void) | null = null;
   /** Our voice: the panel above the profile (+ compact header controls on phones). */
@@ -342,7 +352,8 @@ export default class LobbyUI {
    */
   private static loadCSS(): void {
     const styleElement = document.createElement('style');
-    styleElement.textContent = styles;
+    // The games portal is part of the lobby (its entry, its pages, a game being played).
+    styleElement.textContent = styles + '\n' + portalStyles;
     document.head.appendChild(styleElement);
   }
 
@@ -356,7 +367,14 @@ export default class LobbyUI {
     const backdrop = el('div', 'lobby-nav-backdrop');
     backdrop.onclick = () => this.closeNav();
     this.container.appendChild(backdrop);
+    // The games portal: a game being played sits before the chat (which becomes a
+    // column beside it); the portal's pages replace the chat while open.
+    this.stageSlot = el('div', 'lobby-game-stage');
+    this.stageSlot.hidden = true;
+    this.container.appendChild(this.stageSlot);
     this.container.appendChild(this.buildChatArea());
+    this.portalPane = el('div', 'lobby-portal-pane');
+    this.container.appendChild(this.portalPane);
 
     document.body.appendChild(this.container);
 
@@ -402,6 +420,20 @@ export default class LobbyUI {
     const isMac = /Mac|iPhone|iPad/.test(navigator.platform);
     search.appendChild(el('kbd', undefined, isMac ? '⌘K' : 'Ctrl K'));
     sidebar.appendChild(search);
+
+    // The games portal: its own section, not a channel.
+    this.gamesNav = el('button', 'lobby-games-nav');
+    this.gamesNav.type = 'button';
+    this.gamesNav.innerHTML = ICONS.game;
+    this.gamesNav.appendChild(el('span', undefined, 'Игры'));
+    this.gamesNavCount = el('span', 'lobby-games-nav-count');
+    this.gamesNav.appendChild(this.gamesNavCount);
+    this.gamesNav.hidden = true;
+    this.gamesNav.onclick = () => {
+      this.closeNav();
+      this.gamesCallback?.();
+    };
+    sidebar.appendChild(this.gamesNav);
 
     const roomsSection = el('div', 'lobby-rooms-section');
     const roomsTitle = el('div', 'lobby-rooms-title');
@@ -616,6 +648,54 @@ export default class LobbyUI {
   /**
    * Set callback for when the Play button is clicked (enter the 3D game).
    */
+  /** Not identified: the profile footer becomes "enter" (see `setOnProfileCallback`). */
+  setAnonymous(anonymous: boolean): void {
+    if (this.anonymous === anonymous) return;
+    this.anonymous = anonymous;
+    this.updateMeSection();
+  }
+
+  setOnGamesCallback(callback: () => void): void {
+    this.gamesCallback = callback;
+  }
+
+  /** The "Games" entry: shown once the server has a games portal; `active` while it is open. */
+  setGamesNav(visible: boolean, count: number, active: boolean): void {
+    if (!this.gamesNav || !this.gamesNavCount) return;
+    this.gamesNav.hidden = !visible;
+    this.gamesNavCount.textContent = count > 0 ? String(count) : '';
+    this.gamesNav.classList.toggle('lobby-games-nav-active', active);
+  }
+
+  /** Show a portal page in place of the chat, or (null) the chat again. */
+  setPortal(page: HTMLElement | null): void {
+    if (!this.container || !this.portalPane) return;
+    if (page) {
+      if (page.parentElement !== this.portalPane) this.portalPane.replaceChildren(page);
+    } else {
+      this.portalPane.replaceChildren();
+    }
+    this.container.classList.toggle('lobby-portal-open', !!page);
+  }
+
+  /** Show a game being played before the chat, or (null) no game. */
+  setGameStage(stage: HTMLElement | null): void {
+    if (!this.container || !this.stageSlot) return;
+    if (stage) {
+      if (stage.parentElement !== this.stageSlot) this.stageSlot.replaceChildren(stage);
+    } else {
+      this.stageSlot.replaceChildren();
+      this.container.classList.remove('lobby-playing-chat');
+    }
+    this.stageSlot.hidden = !stage;
+    this.container.classList.toggle('lobby-playing', !!stage);
+  }
+
+  /** Phone layout while playing: the room's chat over the game, or not. */
+  togglePlayingChat(): void {
+    this.container?.classList.toggle('lobby-playing-chat');
+  }
+
   setOnPlayCallback(callback: (roomId: string) => void): void {
     this.playCallback = callback;
   }
@@ -825,6 +905,7 @@ export default class LobbyUI {
     this.roomsList.innerHTML = '';
 
     for (const [roomId, room] of this.rooms) {
+      if (room.hidden) continue;
       const roomElement = el('div', 'lobby-room-item');
       roomElement.tabIndex = 0;
       if (roomId === this.currentRoomId) {
@@ -1067,6 +1148,17 @@ export default class LobbyUI {
     if (!this.meSection) return;
     this.meSection.innerHTML = '';
 
+    if (this.anonymous) {
+      this.meSection.hidden = false;
+      this.meSection.title = 'Войти';
+      this.meSection.appendChild(createAvatar('?', 'sm', 'online'));
+      const text = el('div', 'lobby-me-text');
+      text.appendChild(el('div', 'lobby-me-name', 'Гость'));
+      text.appendChild(el('div', 'lobby-me-status', 'Войти, чтобы писать в чат'));
+      this.meSection.appendChild(text);
+      return;
+    }
+    this.meSection.title = 'Профиль';
     const self = this.members.find(m => m.isSelf);
     const name = this.currentUserName ?? self?.name;
     this.meSection.hidden = !name;

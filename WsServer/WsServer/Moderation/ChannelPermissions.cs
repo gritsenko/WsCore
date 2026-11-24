@@ -99,7 +99,25 @@ public sealed class ChannelPermissions
 
     public bool IsCreated(string roomId) => _channels.TryGetValue(roomId, out var c) && c.Name != null;
 
-    public bool IsPrivate(string roomId) => _channels.TryGetValue(roomId, out var c) && c.IsPrivate;
+    public bool IsPrivate(string roomId)
+        => (_channels.TryGetValue(roomId, out var c) && c.IsPrivate) || _ownerOnly.ContainsKey(roomId);
+
+    // Rooms seen only by one user (and server admins), set by their owner service rather
+    // than stored here: the room of a game that is still a draft (see GameCatalog).
+    private readonly Dictionary<string, uint> _ownerOnly = new();
+
+    /// <summary>
+    /// Makes the room private to <paramref name="ownerUserId"/> and server admins (or, with
+    /// null, lifts that). Not stored: the owner service sets it again at startup. The caller
+    /// evicts whoever may no longer see it.
+    /// </summary>
+    public void SetOwnerOnly(string roomId, uint? ownerUserId)
+    {
+        if (ownerUserId is { } owner)
+            _ownerOnly[roomId] = owner;
+        else
+            _ownerOnly.Remove(roomId);
+    }
 
     /// <summary>
     /// Whether the user may see (and enter) the channel: anyone for a public one; for a
@@ -114,6 +132,8 @@ public sealed class ChannelPermissions
             return false;
         if (user.IsAdmin)
             return true;
+        if (_ownerOnly.TryGetValue(roomId, out var owner))
+            return user.Id == owner;
         return Member(roomId, user.Id) is { } m && (m.IsAdmin || m.HasAccess);
     }
 

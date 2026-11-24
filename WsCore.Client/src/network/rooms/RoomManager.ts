@@ -176,10 +176,15 @@ export class RoomManager {
    * rooms): rooms missing from it are dropped (with any membership in them), existing
    * ones are updated in place, and iteration order follows the server's list.
    */
-  public syncRooms(list: RoomDescription[]): void {
-    const keep = new Set(list.map(d => d.id));
+  public syncRooms(list: RoomDescription[], keepUnlisted?: (roomId: string) => boolean): void {
+    const listed = new Set(list.map(d => d.id));
+    // A hidden room we are in (a game of the games portal) is never in the list, yet
+    // still exists: `keepUnlisted` names those, and they stay — with their membership.
+    const kept = new Set(
+      [...this.clientRoomMap.values()].filter(id => !listed.has(id) && keepUnlisted?.(id))
+    );
     for (const [clientId, roomId] of this.clientRoomMap) {
-      if (!keep.has(roomId)) this.clientRoomMap.delete(clientId);
+      if (!listed.has(roomId) && !kept.has(roomId)) this.clientRoomMap.delete(clientId);
     }
     const previous = this.rooms;
     this.rooms = new Map();
@@ -187,6 +192,10 @@ export class RoomManager {
       const room = previous.get(desc.id);
       if (room) this.rooms.set(desc.id, room);
       this.upsertRoom(desc);
+    }
+    for (const roomId of kept) {
+      const room = previous.get(roomId);
+      if (room) this.rooms.set(roomId, room);
     }
   }
 

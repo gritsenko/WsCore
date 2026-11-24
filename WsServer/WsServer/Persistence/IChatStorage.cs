@@ -62,6 +62,87 @@ public sealed record StoredAvatar(string ContentType, byte[] Data);
 /// </summary>
 public sealed record StoredPushSubscription(string Endpoint, uint UserId, string? KeyHash, string P256dh, string Auth);
 
+/// <summary>
+/// A game of the games portal (its metadata; the builds are files on disk). A draft
+/// (<see cref="IsPublic"/> false) is seen only by its owner and server admins.
+/// <see cref="NextReleaseNo"/> is never handed out twice, so a release's URL never changes
+/// content.
+/// </summary>
+public sealed record StoredGame(string Id, string Slug, uint OwnerUserId, string Title)
+{
+    public string Tagline { get; init; } = string.Empty;
+    public string Description { get; init; } = string.Empty;
+    public IReadOnlyList<string> Tags { get; init; } = [];
+    public bool IsPublic { get; init; }
+    public long CreatedMs { get; init; }
+    public long UpdatedMs { get; init; }
+    public uint NextReleaseNo { get; init; } = 1;
+}
+
+/// <summary>One uploaded build of a game. Never deleted (its files may be, see GameKeepReleases).</summary>
+public sealed record StoredGameRelease(string GameId, uint No, uint AuthorUserId, long CreatedMs)
+{
+    public string Version { get; init; } = string.Empty;
+    public string Notes { get; init; } = string.Empty;
+    /// <summary>The HTML entry point, relative to the release directory ('/'-separated).</summary>
+    public string EntryPath { get; init; } = "index.html";
+    public int Files { get; init; }
+    public long Bytes { get; init; }
+}
+
+/// <summary>
+/// An API token (the agent / scripts publishing games). Only its SHA-256 is stored; the
+/// token itself is shown once, when it is created.
+/// </summary>
+public sealed record StoredApiToken(string Hash, uint UserId, string Name, long CreatedMs, long LastUsedMs);
+
+/// <summary>A game's all-time audience counters (authors excluded), kept on its row.</summary>
+public sealed record StoredGameCounters(string GameId, long Views, long Launches, long Plays, long ActiveMs);
+
+/// <summary>
+/// One play session of a game (from "Play" to leaving): who (a user, or an anonymous
+/// visitor's random id), how long they actually played (attention time, clamped by the
+/// server) and whether it counted as a play. Upserted as it goes.
+/// </summary>
+public sealed record StoredPlaySession(string Id, string GameId, uint ReleaseNo, long StartedMs)
+{
+    public uint UserId { get; init; }
+    public string VisitorId { get; init; } = string.Empty;
+    /// <summary>The game's own people (its owner, server admins): kept, but never counted.</summary>
+    public bool Own { get; init; }
+    public string Device { get; init; } = string.Empty;
+    public string Source { get; init; } = string.Empty;
+    public long LastSeenMs { get; init; }
+    public long ActiveMs { get; init; }
+    public bool Counted { get; init; }
+    public bool Ended { get; init; }
+}
+
+/// <summary>An event a game reported through the jam bridge (levelComplete / logEvent), or a mock-ad event.</summary>
+public sealed record StoredPlayEvent(string SessionId, string GameId, bool Own, string Name, string Level, string Params, long Ms);
+
+/// <summary>A page view or a launch of a game (authors' own are not recorded).</summary>
+public sealed record StoredGameHit(string GameId, string Kind, uint UserId, string VisitorId, string Source, long Ms);
+
+/// <summary>Additions to one game's (or, with an empty id, the whole portal's) counters of one UTC day.</summary>
+public sealed record GameDailyDelta(string GameId, string Day, long Views, long Launches, long Plays, long ActiveMs, long NewPlayers = 0);
+
+/// <summary>One day of a game's counters.</summary>
+public sealed record GameDay(string Day, long Views, long Launches, long Plays, long ActiveMs, long Players);
+
+/// <summary>A count by name (an event, a level, a traffic source).</summary>
+public sealed record NamedCount(string Name, long Count);
+
+/// <summary>What the storage knows about a game's audience since a moment (authors excluded).</summary>
+public sealed record GameStatsData(
+    IReadOnlyList<GameDay> Days,
+    IReadOnlyList<long> SessionActiveMs,
+    long Players,
+    long ReturningPlayers,
+    IReadOnlyList<NamedCount> Events,
+    IReadOnlyList<NamedCount> Levels,
+    IReadOnlyList<NamedCount> Sources);
+
 /// <summary>The most recent messages of one room, oldest first.</summary>
 public sealed record StoredRoomHistory(string RoomId, IReadOnlyList<ChatMessage> Recent, bool HasOlder);
 
@@ -79,6 +160,10 @@ public sealed record StorageSnapshot(
     /// <summary>Server-wide settings (key → value), e.g. the generated VAPID keys.</summary>
     public IReadOnlyDictionary<string, string> Meta { get; init; } = new Dictionary<string, string>();
     public IReadOnlyList<StoredPushSubscription> PushSubscriptions { get; init; } = [];
+    public IReadOnlyList<StoredGame> Games { get; init; } = [];
+    public IReadOnlyList<StoredGameRelease> GameReleases { get; init; } = [];
+    public IReadOnlyList<StoredApiToken> ApiTokens { get; init; } = [];
+    public IReadOnlyList<StoredGameCounters> GameCounters { get; init; } = [];
 }
 
 /// <summary>
@@ -122,7 +207,31 @@ public interface IChatStorage : IDisposable
 
     void DeletePushSubscription(string endpoint);
 
-    /// <summary>Removes the user with its keys, avatar, channel standings and push subscriptions.</summary>
+    /// <summary>Stores a game (replacing the previous version of it).</summary>
+    void SaveGame(StoredGame game);
+
+    /// <summary>Stores a release (replacing one with the same game and number).</summary>
+    void SaveGameRelease(StoredGameRelease release);
+
+    void SaveApiToken(StoredApiToken token);
+
+    // ---- games analytics (write-behind like everything else) ----
+
+    void SaveGameCounters(StoredGameCounters counters);
+    void SavePlaySession(StoredPlaySession session);
+    void AppendPlayEvents(IReadOnlyList<StoredPlayEvent> events);
+    void AppendGameHit(StoredGameHit hit);
+    void AddGameDaily(GameDailyDelta delta);
+
+    /// <summary>
+    /// A game's audience since <paramref name="sinceMs"/> (an empty id = the whole portal).
+    /// The callback runs on the storage thread (never inline).
+    /// </summary>
+    void QueryGameStats(string gameId, long sinceMs, Action<GameStatsData> onResult);
+
+    void DeleteApiToken(string hash);
+
+    /// <summary>Removes the user with its keys, avatar, channel standings, push subscriptions and API tokens.</summary>
     void DeleteUser(uint userId);
 
     /// <summary>Makes <paramref name="keyHash"/> a key of the user (moving it from another user).</summary>
@@ -177,6 +286,18 @@ public sealed class NullChatStorage : IChatStorage
     public void SaveMeta(string key, string value) { }
     public void SavePushSubscription(StoredPushSubscription subscription) { }
     public void DeletePushSubscription(string endpoint) { }
+    public void SaveGame(StoredGame game) { }
+    public void SaveGameRelease(StoredGameRelease release) { }
+    public void SaveApiToken(StoredApiToken token) { }
+    public void DeleteApiToken(string hash) { }
+    public void SaveGameCounters(StoredGameCounters counters) { }
+    public void SavePlaySession(StoredPlaySession session) { }
+    public void AppendPlayEvents(IReadOnlyList<StoredPlayEvent> events) { }
+    public void AppendGameHit(StoredGameHit hit) { }
+    public void AddGameDaily(GameDailyDelta delta) { }
+
+    public void QueryGameStats(string gameId, long sinceMs, Action<GameStatsData> onResult)
+        => ThreadPool.QueueUserWorkItem(_ => onResult(new GameStatsData([], [], 0, 0, [], [], [])));
 
     public void SaveAvatar(uint userId, StoredAvatar? avatar)
     {

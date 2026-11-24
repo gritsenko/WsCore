@@ -9,6 +9,8 @@ import {
 } from './app/IdentityStorage';
 
 let app: App | null = null;
+/** `app` is an unnamed visitor of the games portal (no key, nothing identified). */
+let anonymous = false;
 
 /**
  * WebSocket server URL. Dev hard-codes port 5000; production uses current origin.
@@ -60,6 +62,13 @@ function showError(text: string): void {
 
 /** Entry point wired to the #name-form submit button. */
 function onStartGameClicked(): void {
+  if (app && anonymous) {
+    // An unnamed visitor of the games portal entering: start over as a user (the
+    // portal page in the address is shown again).
+    app.stop();
+    app = null;
+    anonymous = false;
+  }
   if (app) return;
 
   if (loginMode) {
@@ -114,10 +123,35 @@ function enterRemembered(): boolean {
   return true;
 }
 
+/**
+ * The games portal (/games…) is open to anyone: without a remembered user it is shown
+ * without entering a name; the form comes up when the visitor asks to enter (to chat,
+ * to get on a leaderboard).
+ */
+function enterAnonymously(): boolean {
+  if (!/^\/games(\/|$)/.test(location.pathname) || location.hash === '#login') return false;
+  app = new App(getWebSocketUrl());
+  anonymous = true;
+  app.setPlayerName('');
+  app.setOnSignIn(() => {
+    if (form) form.style.display = '';
+    setMode(false);
+  });
+  if (form) form.style.display = 'none';
+  app.start();
+  return true;
+}
+
+// The form over the portal can be dismissed (it was only an offer to enter).
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && anonymous && form && form.style.display !== 'none')
+    form.style.display = 'none';
+});
+
 // Prefill the name form with the last login.
 if (nameInput && !nameInput.value) nameInput.value = loadSavedName();
 
-if (!enterRemembered()) {
+if (!enterRemembered() && !enterAnonymously()) {
   if (form) form.style.display = '';
   if (location.hash === '#login') {
     // One-shot: a later reload goes back to entering as the remembered user.
