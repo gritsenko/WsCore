@@ -269,6 +269,10 @@ export default class LobbyUI {
   private gamesNavCount: HTMLSpanElement | null = null;
   private gamesCallback: (() => void) | null = null;
   private portalPane: HTMLDivElement | null = null;
+  /** Phone layout only (CSS): the portal's top bar with ☰ — the chat header (and its ☰) is hidden there. */
+  private portalBar: HTMLDivElement | null = null;
+  /** A portal page is shown instead of the chat: no room is "current" on screen then. */
+  private portalOpen = false;
   /** Not identified (browsing the games portal without a name): the footer offers to enter. */
   private anonymous = false;
   private stageSlot: HTMLDivElement | null = null;
@@ -386,6 +390,11 @@ export default class LobbyUI {
     this.container.appendChild(this.stageSlot);
     this.container.appendChild(this.buildChatArea());
     this.portalPane = el('div', 'lobby-portal-pane');
+    this.portalBar = el('div', 'lobby-portal-bar');
+    const portalNav = this.buildIconButton('lobby-nav-toggle', 'Комнаты и участники', ICONS.menu);
+    portalNav.setAttribute('aria-expanded', 'false');
+    portalNav.onclick = () => this.openNav();
+    this.portalBar.append(portalNav, el('span', 'lobby-portal-bar-title', 'Игры'));
     this.container.appendChild(this.portalPane);
 
     document.body.appendChild(this.container);
@@ -629,7 +638,7 @@ export default class LobbyUI {
   private openNav(): void {
     if (!this.container) return;
     this.container.classList.add('lobby-nav-open');
-    this.header?.querySelector('.lobby-nav-toggle')?.setAttribute('aria-expanded', 'true');
+    this.setNavExpanded(true);
     this.updateSidebarInert();
     this.roomsList?.querySelector<HTMLElement>('.lobby-room-item')?.focus({ preventScroll: true });
   }
@@ -637,8 +646,14 @@ export default class LobbyUI {
   private closeNav(): void {
     if (!this.container?.classList.contains('lobby-nav-open')) return;
     this.container.classList.remove('lobby-nav-open');
-    this.header?.querySelector('.lobby-nav-toggle')?.setAttribute('aria-expanded', 'false');
+    this.setNavExpanded(false);
     this.updateSidebarInert();
+  }
+
+  private setNavExpanded(open: boolean): void {
+    this.container
+      ?.querySelectorAll('.lobby-nav-toggle')
+      .forEach(t => t.setAttribute('aria-expanded', String(open)));
   }
 
   // A closed drawer is off-screen: keep it out of the tab order and screen readers.
@@ -696,11 +711,16 @@ export default class LobbyUI {
   setPortal(page: HTMLElement | null): void {
     if (!this.container || !this.portalPane) return;
     if (page) {
-      if (page.parentElement !== this.portalPane) this.portalPane.replaceChildren(page);
+      if (page.parentElement !== this.portalPane)
+        this.portalPane.replaceChildren(...(this.portalBar ? [this.portalBar] : []), page);
     } else {
       this.portalPane.replaceChildren();
     }
     this.container.classList.toggle('lobby-portal-open', !!page);
+    if (this.portalOpen !== !!page) {
+      this.portalOpen = !!page;
+      this.updateRoomsList(); // the current room is (not) highlighted
+    }
   }
 
   /** Show a game being played before the chat, or (null) no game. */
@@ -939,7 +959,7 @@ export default class LobbyUI {
       if (room.hidden) continue;
       const roomElement = el('div', 'lobby-room-item');
       roomElement.tabIndex = 0;
-      if (roomId === this.currentRoomId) {
+      if (roomId === this.currentRoomId && !this.portalOpen) {
         roomElement.classList.add('lobby-room-current');
       }
       if (roomId === this.pendingRoomId) {
@@ -987,7 +1007,9 @@ export default class LobbyUI {
           this.playCallback?.(roomId);
           return;
         }
-        if (this.roomJoinCallback && roomId !== this.currentRoomId) this.roomJoinCallback(roomId);
+        // From a portal page even the current room is a way back to its chat.
+        if (this.roomJoinCallback && (roomId !== this.currentRoomId || this.portalOpen))
+          this.roomJoinCallback(roomId);
         if (room.isVoice && roomId !== this.voiceRoomId) this.voiceJoinCallback?.(roomId);
       };
       roomElement.onkeydown = e => {

@@ -17,6 +17,34 @@
   display: none;
 }
 
+/* Phone layout only: the chat header (with its ☰) is hidden behind a portal page. */
+.lobby-portal-bar {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  .lobby-portal-bar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 10px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+  }
+
+  .lobby-portal-bar .lobby-nav-toggle {
+    margin-left: -6px;
+  }
+
+  .lobby-portal-bar-title {
+    font-weight: 600;
+    font-size: 16px;
+  }
+}
+
 /* Playing: the stage takes the room; the chat becomes a column beside it. */
 #lobby-container.lobby-playing .lobby-chat-area {
   flex: 0 0 360px;

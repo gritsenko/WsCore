@@ -283,7 +283,8 @@ export default class LobbyState {
     this.ui.setOnArtCallback(artId => this.client.sendChatArtRequest(artId));
     this.ui.setOnRoomJoinCallback(roomId => {
       this.closePortal();
-      this.requestJoin(roomId);
+      // From the portal the room we are in is just its chat shown again.
+      if (roomId !== this.ui.getCurrentRoomId()) this.requestJoin(roomId);
     });
     this.ui.setOnGamesCallback(() => this.openPortal({ kind: 'catalog' }));
     this.ui.setOnPlayCallback(roomId => {
